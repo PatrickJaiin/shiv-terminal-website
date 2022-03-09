@@ -70,24 +70,19 @@ const COMMANDS = [
     `,
     education:
       () => `
-      
+    Undergrad: Bennett University (Computer Science Engineering with Specialization in Cyber Security)<br>
+    Middle and High School: Modern School Barakhamba Road (PCMCS)<br>
+    Junior School: The Indian School
       `,
     skills: () => `
-
+    Robotics<br>
+    Python<br>
+    C++<br>
+    HTML, CSS, PHP<br>
+    React, NextJs, Tailwind CSS<br>
     `,
     projects: getProjects,
     contact: getContacts,
     error: (input) =>
       `<div class="help-command">sh: Unknown command: ${input}</div><div class="help-command">See \`help\` for info`,
   };
-  
-  function getAge(dateString) {
-    const today = new Date();
-    const birthDate = new Date(dateString);
-  
-    let age = today.getFullYear() - birthDate.getFullYear();
-    const m = today.getMonth() - birthDate.getMonth();
-    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
-  
-    return age;
-  }
