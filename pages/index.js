@@ -1,5 +1,6 @@
 import React from "react";
 import Terminal from "../components/Terminal";
+
 export default function Home() {
   return (
     <div className=" bg-bck bg-cover h-screen w-full flex justify-center items-center">
