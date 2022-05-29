@@ -12,7 +12,8 @@
     "next": "12.1.0",
     "react": "17.0.2",
     "react-dom": "17.0.2",
-    "xterm": "^4.18.0"
+    "xterm": "^4.18.0",
+    "yarn": "^1.22.18"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.2",

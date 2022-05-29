@@ -81,7 +81,7 @@ const COMMANDS = [
     HTML, CSS, PHP<br>
     React, NextJs, Tailwind CSS<br>
     `,
-    projects: getProjects,
+    projects: null,
     contact: getContacts,
     error: (input) =>
       `<div class="help-command">sh: Unknown command: ${input}</div><div class="help-command">See \`help\` for info`,
