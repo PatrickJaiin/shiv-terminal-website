@@ -14,8 +14,10 @@ export default function Home() {
         </div>
         </Draggable>
       </div>
-      <div className="flex absolute bottom-0 bg-slate-400 rounded-t-3xl opacity-70 w-[70%] h-[9%]"></div>
-      <div className=" flex justify-between w-1/12 absolute right-0 top-0 mt-3 mr-6"><a href="/project"><img src="https://cdn.discordapp.com/attachments/941126999278231672/978239991849304134/unknown.png" width="42" height="42"></img></a><button><img src="/images/logo.png" width="42" height="42"/></button></div>
+      <div className="flex absolute bottom-0 bg-slate-400 rounded-t-3xl opacity-70 w-[70%] h-[9%]">
+      <a href="/project"><img src="https://cdn.discordapp.com/attachments/941126999278231672/978239991849304134/unknown.png" width="42" height="42"></img></a><button><img src="/images/logo.png" width="42" height="42"/></button>
+      </div>
+      <div className=" flex justify-between w-1/12 absolute right-0 top-0 mt-3 mr-6"></div>
     </div>
   )
 }
