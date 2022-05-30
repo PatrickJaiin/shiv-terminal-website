@@ -12,7 +12,9 @@ export default function Home() {
             </div>
             <div className="flex justify-center bg-orange-700 ">
                 <div className="flex-col bg-red-500 ">
-                    <img src="https://cdn.discordapp.com/attachments/941126999278231672/980193741769953290/unknown.png" width="auto" height="auto" className=""/>
+                    <div>
+                    <img src="https://cdn.discordapp.com/attachments/941126999278231672/980193741769953290/unknown.png" width="80%" height="auto" className=""/>
+                    </div>
                     <div className=" inline bg-slate-500 text-black">
                       Hi, I'm Shiv Gupta. I'm a student and this is my personal blog have fun reading :)
                     </div>
