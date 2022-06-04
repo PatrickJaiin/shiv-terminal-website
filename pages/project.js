@@ -10,10 +10,10 @@ export default function Home() {
                  <div className="text-black">Blog</div>
                 </div>
             </div>
-            <div className="flex justify-center bg-orange-700 ">
-                <div className="flex-col bg-red-500 ">
-                    <div>
-                    <img src="https://cdn.discordapp.com/attachments/941126999278231672/980193741769953290/unknown.png" width="80%" height="auto" className=""/>
+
+                <div className=" justify-center w-[50%] bg-red-700">
+                    <div className=" ">
+                        <img src="https://cdn.discordapp.com/attachments/941126999278231672/980193741769953290/unknown.png" width="100%" height="auto" className=""/>
                     </div>
                     <div className=" inline bg-slate-500 text-black">
                       Hi, I'm Shiv Gupta. I'm a student and this is my personal blog have fun reading :)
@@ -23,7 +23,6 @@ export default function Home() {
                     </div>
                 </div>
             </div>
-        </div>
     )
 }
 
