@@ -23,9 +23,9 @@ export default function Home() {
         <Draggable>
         <div className=" bg-terminal h-[100%] bg-cover x opacity-80">
           <div className="top-0 w-auto h-10 flex">
-            <div className=" bg-red-800 h-[50%] w-[2%] rounded-full"></div>
-            <div></div>
-            <div></div>
+            <div className=" bg-red-800 ml-2.5 mt-2.5 h-[50%] w-[2%] rounded-full"></div>
+            <div className=" bg-orange-700 ml-2 mt-2.5 h-[50%] w-[2%] rounded-full"></div>
+            <div className=" bg-green-700 ml-2 mt-2.5 h-[50%] w-[2%] rounded-full"></div>
           </div>
           <div className=" py-12 px-5 text-white font-heading text-6xl">shiv: $ type help to start</div>
           <div className=" px-9"><Terminal /></div>
