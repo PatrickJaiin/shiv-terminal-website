@@ -1,6 +1,9 @@
 import React,{useState} from "react";
 import {useRef} from "react";
+import {useEffect} from "react";
 import ReactDOM from 'react-dom';
+import { render } from "react-dom";
+import { useSpring, animated } from 'react-spring'
 import Draggable from 'react-draggable'; //used to make the terminal window draggable
 import Terminal from "../components/Terminal";
 
@@ -24,15 +27,25 @@ export default function Home() {
   function show(){
     setShowMe(true);
   }
+  const [type, setType] = useState('cover');
+  let BackgroundImage;
+    switch (image) {
+      case 'https://github.com/PatrickJaiin/PatrickJaiin/blob/main/images/dark.jpg?raw=true':
+        BackgroundImage = <div style={{ background: `url(${image})`, backgroundSize: `cover`}} className=" h-screen w-full flex justify-center" ></div>;
+        break;
+      case 'https://cdn.discordapp.com/attachments/941091409509896283/951093872702939196/catalina.jpg':
+        BackgroundImage = <div style={{ background: `url(${image})`, backgroundSize: 'cover'}} className=" h-screen w-full flex justify-center" ></div>;
+        break;
+   }
   return (
-    <div style={{background: `url(${image})`, backgroundSize: 'cover'}} className=" bg-cover h-screen w-full flex justify-center">
+    <div style={{ background: `url(${image})`, backgroundSize: `${type}`}} className=" h-screen w-full flex justify-center">
       <div className=" pt-24 flex-col h-[78%] w-[54%]">
         <Draggable>
         <div style={{display: showMe?"block":"none"}} className=" bg-terminal h-[100%] bg-cover x opacity-80 visible">
           <div className="top-0 w-auto h-10 flex">
-            <button className="bg-red-800 ml-2.5 mt-2.5 h-[50%] w-[2%] rounded-full" onClick={hide}/>
-            <div className=" bg-orange-700 ml-2 mt-2.5 h-[50%] w-[2%] rounded-full"></div>
-            <div className=" bg-green-700 ml-2 mt-2.5 h-[50%] w-[2%] rounded-full"></div>
+            <button className="bg-red-800 ml-[0.71%] mt-2.5 w-[2%] h-[51%] rounded-full" onClick={hide}/>
+            <button className=" bg-orange-700 ml-[0.71%] mt-2.5 w-[2%] h-[51%] rounded-full"/>
+            <button className=" bg-green-700 ml-[0.71%] mt-2.5 w-[2%] h-[51%] rounded-full"/>
           </div>
           <div className=" py-12 px-5 text-white font-heading text-6xl">shiv: $ type help to start</div>
           <div className=" px-9"><Terminal /></div>
@@ -49,6 +62,6 @@ export default function Home() {
         </div>
       </div>
       <div className=" flex justify-between w-1/12 absolute right-0 top-0 mt-3 mr-6"></div>
-    </div>
+      </div>
   )
 }
