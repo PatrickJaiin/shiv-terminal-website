@@ -1,5 +1,6 @@
 import React from "react";
 import Terminal from "../components/Terminal";
+import Taskbar from "../components/Taskbar";
 
 export default function Home() {
   return (
@@ -9,6 +10,7 @@ export default function Home() {
         <div className=" py-12 px-5 text-white font-heading text-6xl">shiv: $ type help to start</div>
         <div className=" px-9"><Terminal /></div>
       </div>
+      <Taskbar/>
       <div className=" absolute right-0 top-0 mt-3 mr-6"><img src="/images/logo.png" width="42" height="42"/></div>
     </div>
   )
