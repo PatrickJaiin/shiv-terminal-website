@@ -6,6 +6,7 @@ import { render } from "react-dom";
 import { useSpring, animated } from 'react-spring'
 import Draggable from 'react-draggable'; //used to make the terminal window draggable
 import Terminal from "../components/Terminal";
+import row from "./row.js";
 
 export default function Home() {
   const change="https://github.com/PatrickJaiin/PatrickJaiin/blob/main/images/dark.jpg?raw=true";
