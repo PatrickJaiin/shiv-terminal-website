@@ -50,9 +50,9 @@ export default function Home() {
       </div>
       <div className="flex justify-around absolute bottom-0 bg-slate-400 rounded-t-3xl opacity-70 w-[70%] h-[9%]">
         <div className=" pt-2"><button onClick={show}><img src="https://cdn.discordapp.com/attachments/941126999278231672/981940200123039815/unknown.png" width="81" height="81"></img></button></div>
-        <a href="/project" className=" pt-3 opacity-100">
-          <img src="https://cdn.discordapp.com/attachments/941126999278231672/980853683833176154/unknown.png" width="69" height="69"/>
-        </a>
+        <div href="/project" className=" pt-3 opacity-100">
+          <link src="https://cdn.discordapp.com/attachments/941126999278231672/980853683833176154/unknown.png" width="69" height="69"/>
+        </div>
         <div className="pt-3">
           <button onClick={()=> changeImage()}><img src="/images/logo.png" width="69" height="69"/></button>
         </div>
