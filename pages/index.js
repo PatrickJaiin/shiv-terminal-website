@@ -24,8 +24,19 @@ export default function Home() {
     setShowMe(true);
   }
   const [type, setType] = useState('cover');
+<<<<<<< HEAD
+=======
+  let BackgroundImage;
+    switch (image) {
+      case 'https://github.com/PatrickJaiin/PatrickJaiin/blob/main/images/dark.jpg?raw=true':
+        BackgroundImage = <div style={{ background: `url(${image})`, backgroundSize: `cover`}} className=" h-screen w-full flex justify-center" ></div>;
+        break;
+      case 'https://cdn.discordapp.com/attachments/941091409509896283/951093872702939196/catalina.jpg':
+        BackgroundImage = <div style={{ background: `url(${image})`, backgroundSize: 'cover'}} className=" h-screen w-full flex justify-center" ></div>;
+        break;}
+>>>>>>> 1ff557302b96aa13a444066c9e9913eab2a806b9
   return (
-    <div style={{ background: `url(${image})`, backgroundSize: `${type}`}} className=" h-screen w-full flex justify-center">
+    <div style={{ backgroundImage: `url(${image})`, backgroundSize: `${type}`}} className=" h-screen w-full flex justify-center">
       <div className=" pt-24 flex-col h-[78%] w-[54%]">
         <Draggable>
         <div style={{display: showMe?"block":"none"}} className=" bg-terminal h-[100%] bg-cover x opacity-80 visible">
