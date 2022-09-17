@@ -74,7 +74,7 @@ export default function Home() {
             <button className=" ml-[2%] mt-[1.5%] w-5 h-5 bg-orange-600 rounded-full"/>
             <button className=" ml-[2%] mt-[1.5%] w-5 h-5 bg-green-700 rounded-full"/>
           </div>
-          <iframe className="" src="https://open.spotify.com/embed/playlist/2cjWtrYMSLligtdAJDx6IP?utm_source=generator&theme=0" width="99.9%" height="90%" frameBorder="0" allowfullscreen="" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
+          <iframe className="" src="https://open.spotify.com/embed/playlist/2cjWtrYMSLligtdAJDx6IP?utm_source=generator&theme=0" width="99.9%" height="90%" allowfullscreen="" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
         </div>
         </Draggable>
         <Draggable>
@@ -84,7 +84,7 @@ export default function Home() {
             <button className=" ml-[2%] mt-[1.5%] w-5 h-5 bg-orange-600 rounded-full"/>
             <button className=" ml-[2%] mt-[1.5%] w-5 h-5 bg-green-700 rounded-full"/>
           </div>
-          <iframe width="99.9%" height='90%' src="https://www.youtube.com/embed/dQw4w9WgXcQ" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen/>
+          <iframe width="99.9%" height='90%' src="https://www.youtube.com/embed/dQw4w9WgXcQ" title="YouTube video player" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen/>
         </div>
         </Draggable>
       </div>
