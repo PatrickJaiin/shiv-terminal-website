@@ -17,11 +17,20 @@ export default function Home() {
     setImage(imgs[num]);
   };
   const [showMe, setShowMe] = useState(true);
+  const [showResume, setShowRes] = useState(false);
   function hide(){
     setShowMe(false);
   }
+  function hideRes(){
+    setShowRes(false);
+  }
   function show(){
     setShowMe(true);
+    setShowRes(false);
+  }
+  function showRes(){
+    setShowMe(false);
+    setShowRes(true);
   }
   const [type, setType] = useState('cover');
   let BackgroundImage;
@@ -37,21 +46,30 @@ export default function Home() {
     <div style={{ background: `url(${image})`, backgroundSize: `${type}`}} className=" h-screen w-full flex justify-center">
       <div className=" pt-24 flex-col h-[78%] w-[54%]">
         <Draggable>
-        <div style={{display: showMe?"block":"none"}} className=" bg-terminal h-[100%] bg-cover x opacity-80 visible">
-          <div className="top-0 w-auto h-10 flex">
-            <button className="bg-red-800 ml-[0.71%] mt-2.5 w-[2%] h-[51%] rounded-full" onClick={hide}/>
-            <button className=" bg-orange-700 ml-[0.71%] mt-2.5 w-[2%] h-[51%] rounded-full"/>
-            <button className=" bg-green-700 ml-[0.71%] mt-2.5 w-[2%] h-[51%] rounded-full"/>
+        <div style={{display: showMe?"block":'none'}} className="h-[100%] bg-gray-800 opacity-70 rounded-3xl">
+          <div className=" h-[6%] bg-gray-700 rounded-t-3xl flex">
+            <button className=" ml-[5%] mt-[1.5%] w-5 h-5 bg-red-800 rounded-full" onClick={hide}/>
+            <button className=" ml-[2%] mt-[1.5%] w-5 h-5 bg-orange-600 rounded-full"/>
+            <button className=" ml-[2%] mt-[1.5%] w-5 h-5 bg-green-700 rounded-full"/>
           </div>
           <div className=" py-12 px-5 text-white font-heading text-6xl">shiv: $ type help to start</div>
           <div className=" px-9"><Terminal /></div>
         </div>
         </Draggable>
+        <Draggable>
+        <div style={{display: showResume?"block":'none'}} className="h-[100%] bg-gray-800 opacity-70 rounded-3xl">
+          <div className=" h-[6%] bg-gray-700 rounded-t-3xl flex">
+            <button className=" ml-[5%] mt-[1.5%] w-5 h-5 bg-red-800 rounded-full" onClick={hideRes}/>
+            <button className=" ml-[2%] mt-[1.5%] w-5 h-5 bg-orange-600 rounded-full"/>
+            <button className=" ml-[2%] mt-[1.5%] w-5 h-5 bg-green-700 rounded-full"/>
+          </div>
+        </div>
+        </Draggable>
       </div>
       <div className="flex justify-around absolute bottom-0 bg-slate-400 rounded-t-3xl opacity-70 w-[70%] h-[9%]">
         <div className=" pt-2"><button onClick={show}><img src="https://cdn.discordapp.com/attachments/941126999278231672/981940200123039815/unknown.png" width="81" height="81"></img></button></div>
-        <div href="/project" className=" pt-3 opacity-100">
-          <link src="https://cdn.discordapp.com/attachments/941126999278231672/980853683833176154/unknown.png" width="69" height="69"/>
+        <div className=" pt-3 opacity-100">
+          <button onClick={()=> showRes()}><img src="https://cdn.discordapp.com/attachments/941126999278231672/980853683833176154/unknown.png" width="69" height="69"/></button> 
         </div>
         <div className="pt-3">
           <button onClick={()=> changeImage()}><img src="/images/logo.png" width="69" height="69"/></button>
