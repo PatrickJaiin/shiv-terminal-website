@@ -2,7 +2,7 @@ import React,{useState} from "react";
 import Draggable from 'react-draggable'; //used to make the terminal window draggable
 import Terminal from "../components/Terminal";
 import row from "./row.js";
-
+//deployed on vercel
 export default function Home() {
   const change="https://github.com/PatrickJaiin/PatrickJaiin/blob/main/images/dark.jpg?raw=true";
   const change2="https://cdn.discordapp.com/attachments/941091409509896283/951093872702939196/catalina.jpg";
