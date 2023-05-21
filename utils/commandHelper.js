@@ -14,6 +14,11 @@ const COMMANDS = [
     {
       command: "projects",
       description: "My Tech Projects",
+    
+    },
+    {
+      command: "hobbies",
+      description: "My Hobbies",
     },
     {
       command: "contact",
@@ -26,34 +31,6 @@ const COMMANDS = [
     },
   ];
   
-  const getProjects = async () => {
-    const projects = await (await fetch("/api/projects")).json();
-    const projectHTML =
-      `<h3>My Projects (You can scroll)</h3>` +
-      projects
-        .map(
-          (project) => `<div class="command">
-          <a href="${project.link}" target="_blank"><b class="command">${
-            project.name
-          }</b></a> - <b>${project.stack.join(", ")}</b>
-          <p class="meaning">${project.description}</p>
-        </div>`
-        )
-        .join("");
-    return projectHTML;
-  };
-  
-  const getContacts = async () => {
-    const contactMediums = await (await fetch("/api/contacts")).json();
-    return contactMediums
-      .map(
-        (contact) => `<div style="display: flex; justify-content: space-between;">
-        <p style="font-size: 15px">${contact.medium}</p>
-        <a class="meaning" href="${contact.link}" target="_blank">${contact.username}</a>
-      </div>`
-      )
-      .join("");
-  };
   
   export const CONTENTS = {
     help: () =>
@@ -75,14 +52,25 @@ const COMMANDS = [
     Junior School: The Indian School
       `,
     skills: () => `
+    AI/ML, Deep Learning<br>
     Robotics<br>
-    Python<br>
-    C++<br>
-    HTML, CSS, PHP<br>
-    React, NextJs, Tailwind CSS<br>
+    Python, C++<br>
+    HTML, CSS, PHP, SEO<br>
+    React, NextJs, Tailwind CSS, Flask<br>
     `,
-    projects: null,
-    contact: getContacts,
+    projects: ()=>`
+    see list in resume or blogs about some of them in the blogs section.
+    `,
+    contact: () => `
+    Shiv Gupta<br>
+    +91 9810081820<br>
+    shivg03@gmail.com<br>`,
+    hobbies: () => `
+    Playing Lawn Tennis, Table Tennis, Chess & Football<br>
+    Watching TV shows and playing Video Games<br>
+    3D printing cool stuff<br>
+    Making interesting projects<br>
+    `,
     error: (input) =>
       `<div class="help-command">sh: Unknown command: ${input}</div><div class="help-command">See \`help\` for info`,
   };
