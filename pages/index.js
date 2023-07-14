@@ -70,7 +70,7 @@ export default function Home() {
         <Draggable>
         <div style={{display: showYouTube?"block":'none'}} className="h-[100%] bg-gray-800 opacity-70 rounded-3xl">
           <div className=" h-[6%] bg-gray-700 rounded-t-3xl flex">
-            <button className=" ml-[5%] mt-[1.5%] w-5 h-5 bg-red-800 rounded-full" onClick={hideYT}/>
+            <button className=" ml-[3%] mt-[1.5%] w-5 h-5 bg-red-800 rounded-full" onClick={hideYT}/>
             <button className=" ml-[2%] mt-[1.5%] w-5 h-5 bg-orange-600 rounded-full"/>
             <button className=" ml-[2%] mt-[1.5%] w-5 h-5 bg-green-700 rounded-full"/>
           </div>
@@ -89,17 +89,17 @@ export default function Home() {
         </Draggable>
       </div>
       <div style={{ overflow: 'hidden'}}className="flex justify-around absolute bottom-0 bg-slate-400 rounded-t-3xl opacity-70 w-[70%] h-[9%]">
-        <button onClick={() => show()} className="flex items-center justify-center w-16 h-16">
-          <img src="https://cdn.discordapp.com/attachments/941126999278231672/981940200123039815/unknown.png" className="w-12 h-12"/>
+        <button onClick={() => show()} className="flex items-center justify-center w-18 h-18">
+          <img src="https://cdn.discordapp.com/attachments/941126999278231672/981940200123039815/unknown.png" className="w-16 h-16"/>
         </button>
-        <button onClick={() => showYT()} className="flex items-center justify-center w-16 h-16">
-          <img src="https://cdn.discordapp.com/attachments/941091409509896283/1020747948507799643/Spotify_icon.svg.png" className="w-12 h-12"/>
+        <button onClick={() => showYT()} className="flex items-center justify-center w-18 h-18">
+          <img src="https://cdn.discordapp.com/attachments/941091409509896283/1020747948507799643/Spotify_icon.svg.png" className="w-16 h-16"/>
         </button>
-        <button onClick={() => showRes()} className="flex items-center justify-center w-16 h-16">
-          <img src="https://cdn.discordapp.com/attachments/941091409509896283/1020737312080007188/png-clipart-youtube-play-button-computer-icons-youtube-youtube-logo-angle-rectangle-thumbnail-removebg-preview.png" className="w-12 h-12"/>
+        <button onClick={() => showRes()} className="flex items-center justify-center w-18 h-18">
+          <img src="https://cdn.discordapp.com/attachments/941091409509896283/1020737312080007188/png-clipart-youtube-play-button-computer-icons-youtube-youtube-logo-angle-rectangle-thumbnail-removebg-preview.png" className="w-16 h-16"/>
         </button>
-        <button onClick={() => changeImage()} className="flex items-center justify-center w-16 h-16">
-          <img src="/images/logo.png" className="w-12 h-12"/>
+        <button onClick={() => changeImage()} className="flex items-center justify-center w-18 h-18">
+          <img src="/images/logo.png" className="w-16 h-16"/>
         </button>
       </div>
       <div className=" flex justify-between w-1/12 absolute right-0 top-0 mt-3 mr-6"></div>
