@@ -54,7 +54,7 @@ export default function Home() {
         break;
    }
   return (
-    <div style={{ backgroundImage: `url(${image})`, backgroundSize: `${type}`}} className=" h-screen w-full flex justify-center">
+    <div style={{ backgroundImage: `url(${image})`, backgroundSize: `100% 100%`, backgroundRepeat: 'no-repeat', backgroundPosition: 'center',height: '100vh'}} className="w-full flex justify-center">
       <div className=" pt-24 flex-col h-[78%] w-[54%]">
         <Draggable>
         <div style={{display: showMe?"block":'none'}} className="h-[100%] bg-gray-800 opacity-70 rounded-3xl">
@@ -88,17 +88,19 @@ export default function Home() {
         </div>
         </Draggable>
       </div>
-      <div className="flex justify-around absolute bottom-0 bg-slate-400 rounded-t-3xl opacity-70 w-[70%] h-[9%]">
-        <div className=" pt-2"><button onClick={()=>show()}><img src="https://cdn.discordapp.com/attachments/941126999278231672/981940200123039815/unknown.png" width="69" height="69"></img></button></div>
-        <div className=" pt-3 opacity-100">
-          <button onClick={()=> showYT()}><img src="https://cdn.discordapp.com/attachments/941091409509896283/1020747948507799643/Spotify_icon.svg.png" width="57" height="57"/></button> 
-        </div>
-        <div className=" pt-3 opacity-100">
-          <button onClick={()=> showRes()}><img src="https://cdn.discordapp.com/attachments/941091409509896283/1020737312080007188/png-clipart-youtube-play-button-computer-icons-youtube-youtube-logo-angle-rectangle-thumbnail-removebg-preview.png" width="69" height="69"/></button> 
-        </div>
-        <div className="pt-3 opacity-100">
-          <button onClick={()=> changeImage()}><img src="/images/logo.png" width="69" height="69"/></button>
-        </div>
+      <div style={{ overflow: 'hidden'}}className="flex justify-around absolute bottom-0 bg-slate-400 rounded-t-3xl opacity-70 w-[70%] h-[9%]">
+        <button onClick={() => show()} className="flex items-center justify-center w-16 h-16">
+          <img src="https://cdn.discordapp.com/attachments/941126999278231672/981940200123039815/unknown.png" className="w-12 h-12"/>
+        </button>
+        <button onClick={() => showYT()} className="flex items-center justify-center w-16 h-16">
+          <img src="https://cdn.discordapp.com/attachments/941091409509896283/1020747948507799643/Spotify_icon.svg.png" className="w-12 h-12"/>
+        </button>
+        <button onClick={() => showRes()} className="flex items-center justify-center w-16 h-16">
+          <img src="https://cdn.discordapp.com/attachments/941091409509896283/1020737312080007188/png-clipart-youtube-play-button-computer-icons-youtube-youtube-logo-angle-rectangle-thumbnail-removebg-preview.png" className="w-12 h-12"/>
+        </button>
+        <button onClick={() => changeImage()} className="flex items-center justify-center w-16 h-16">
+          <img src="/images/logo.png" className="w-12 h-12"/>
+        </button>
       </div>
       <div className=" flex justify-between w-1/12 absolute right-0 top-0 mt-3 mr-6"></div>
       </div>
