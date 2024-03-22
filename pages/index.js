@@ -5,7 +5,7 @@ import row from "./row.js";
 //deployed on vercel
 export default function Home() {
   const change="https://github.com/PatrickJaiin/PatrickJaiin/blob/main/images/dark.jpg?raw=true";
-  const change2="https://cdn.discordapp.com/attachments/941091409509896283/951093872702939196/catalina.jpg";
+  const change2="https://imgur.com/9lJ8cTJ";
   const [image, setImage] = useState(change2);
   let imgs = ["https://github.com/PatrickJaiin/PatrickJaiin/blob/main/images/dark.jpg?raw=true","https://cdn.discordapp.com/attachments/941091409509896283/951093872702939196/catalina.jpg"];
   let num=0;
