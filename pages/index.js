@@ -3,11 +3,12 @@ import Draggable from 'react-draggable'; //used to make the terminal window drag
 import Terminal from "../components/Terminal";
 import row from "./row.js";
 import dark from '../public/images/dark.jpg'
+import light from '../public/images/catalina.png'
 //deployed on vercel
 export default function Home() {
   const change2="https://imgur.com/9lJ8cTJ";
   const [image, setImage] = useState(change2);
-  let imgs = [dark,"https://cdn.discordapp.com/attachments/941091409509896283/951093872702939196/catalina.jpg"];
+  let imgs = [dark,light];
   let num=0;
   const changeImage = () => {
     num++;
@@ -46,10 +47,10 @@ export default function Home() {
   const [type, setType] = useState('cover');
   let BackgroundImage;
     switch (image) {
-      case 'https://github.com/PatrickJaiin/PatrickJaiin/blob/main/images/dark.jpg?raw=true':
+      case dark:
         BackgroundImage = <div style={{ background: `url(${image})`, backgroundSize: `cover`}} className=" h-screen w-full flex justify-center" ></div>;
         break;
-      case 'https://cdn.discordapp.com/attachments/941091409509896283/951093872702939196/catalina.jpg':
+      case light:
         BackgroundImage = <div style={{ background: `url(${image})`, backgroundSize: 'cover'}} className=" h-screen w-full flex justify-center" ></div>;
         break;
    }
