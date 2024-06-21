@@ -2,7 +2,7 @@ import React,{useState} from "react";
 import Draggable from 'react-draggable'; //used to make the terminal window draggable
 import Terminal from "../components/Terminal";
 import row from "./row.js";
-import dark from './public/images/dark.jpg'
+import dark from '../public/images/dark.jpg'
 //deployed on vercel
 export default function Home() {
   const change2="https://imgur.com/9lJ8cTJ";
