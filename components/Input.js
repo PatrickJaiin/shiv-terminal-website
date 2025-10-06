@@ -1,13 +1,23 @@
 import { useEffect, useState, useRef } from "react";
 import styles from "./Input.module.css";
 
-export default function Input({ command, onSubmit }) {
+export default function Input({ command, onSubmit, onHistory }) {
   const [_command, setCommand] = useState(command ? command : "");
 
   const handleSubmit = (e) => {
     e.preventDefault();
     setCommand("");
     return onSubmit(_command);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+      e.preventDefault();
+      if (onHistory) {
+        const historyCommand = onHistory(e.key === "ArrowUp" ? "up" : "down");
+        setCommand(historyCommand);
+      }
+    }
   };
 
   return (
@@ -23,6 +33,7 @@ export default function Input({ command, onSubmit }) {
         className={styles.input}
         value={_command}
         onChange={(e) => setCommand(e.target.value)}
+        onKeyDown={handleKeyDown}
         disabled={command ? true : false}
         ref={(input) => input && !command && input.focus()}
         autoFocus={command === ""}

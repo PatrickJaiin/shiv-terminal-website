@@ -11,6 +11,22 @@
   --background-color: #1a1b26;
 }
 
+/* Light theme */
+[data-theme="light"] {
+  --text-color: #2d3748;
+  --primary: #667eea;
+  --secondary: #4299e1;
+  --background-color: #f7fafc;
+}
+
+/* Dark theme */
+[data-theme="dark"] {
+  --text-color: #a9b1d6;
+  --primary: #bb9af7;
+  --secondary: #2ac3de;
+  --background-color: #1a1b26;
+}
+
 html,
 body {
   overflow: hidden;

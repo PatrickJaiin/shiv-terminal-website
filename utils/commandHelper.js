@@ -63,8 +63,7 @@ const COMMANDS = [
     `,
     contact: () => `
     Shiv Gupta<br>
-    +91 9810081820<br>
-    shivg03@gmail.com<br>`,
+    shivg@andrew.cmu.edu<br>`,
     hobbies: () => `
     Playing Lawn Tennis, Table Tennis, Chess & Football<br>
     Watching TV shows and playing Video Games<br>
