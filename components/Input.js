@@ -37,6 +37,7 @@ export default function Input({ command, onSubmit, onHistory }) {
         disabled={command ? true : false}
         ref={(input) => input && !command && input.focus()}
         autoFocus={command === ""}
+        placeholder={command ? "" : "type help to get started"}
       />
     </form>
   );
