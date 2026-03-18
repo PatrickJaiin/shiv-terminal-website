@@ -67,6 +67,12 @@ export default function Home() {
                         {edu.coursework}
                       </p>
                     )}
+                    {edu.activities && (
+                      <p className="text-xs text-gray-400 mt-2">
+                        <span className="font-medium text-gray-500">Activities:</span>{" "}
+                        {edu.activities}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>

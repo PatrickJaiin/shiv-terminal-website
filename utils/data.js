@@ -20,10 +20,11 @@ export const siteData = {
     },
     {
       institution: "Modern School, Barakhamba Road",
-      degree: "Senior Secondary (PCMCS)",
+      degree: "School",
       gpa: null,
       date: null,
       coursework: null,
+      activities: "President, Science Club | Vice President, Bits N Bytes (Computer Club)",
     },
   ],
   skills: {
