@@ -110,6 +110,11 @@ export default function Desktop() {
 
     useEffect(() => {
         document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
+        if (isDarkMode) {
+            document.documentElement.classList.add('dark');
+        } else {
+            document.documentElement.classList.remove('dark');
+        }
     }, [isDarkMode]);
 
     const handleAppClick = (id) => {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 
 const CalendarPopup = () => {
     const today = new Date();
@@ -132,6 +133,9 @@ export default function MenuBar() {
             </div>
 
             <div className="flex items-center space-x-4">
+                <Link href="/" className="back-to-home px-2 py-1 rounded hover:bg-gray-300 dark:hover:bg-gray-700 cursor-pointer transition-colors no-underline" style={{ color: 'inherit' }}>
+                    &larr; Main Site
+                </Link>
                 <div className="hidden md:flex items-center space-x-2 px-2 py-1 rounded hover:bg-gray-300 dark:hover:bg-gray-700 cursor-pointer transition-colors">
                     {/* Wifi Icon */}
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">

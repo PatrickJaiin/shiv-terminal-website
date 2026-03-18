@@ -3,11 +3,13 @@ module.exports = {
     "./pages/**/*.{js,ts,jsx,tsx}",
     "./components/**/*.{js,ts,jsx,tsx}",
   ],
+  darkMode: 'class',
   theme: {
     extend: {
-      fontFamily:{
-        'heading': ['Secular One', 'sans-serif'],
-        'name': ['Comfortaa', 'cursive'],
+      fontFamily: {
+        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        heading: ['Secular One', 'sans-serif'],
+        name: ['Comfortaa', 'cursive'],
       },
       backgroundImage: {
         'bck': "url('/images/catalina.png')",
