@@ -1,8 +1,8 @@
 export const siteData = {
   name: "Shiv Gupta",
-  tagline: "MS AI Student @ CMU — Building LLM agents, latent reasoning systems & scalable backends",
+  tagline: "MS AI Student @ CMU - Building LLM agents, latent reasoning systems & scalable backends",
   about:
-    "Hi, I'm Shiv — a Master's student in Artificial Intelligence and Innovation at Carnegie Mellon University. I build LLM agents, latent reasoning systems, token-efficient reasoning techniques, and scalable backends. Previously I've worked on diffusion-based generative models at NUS and RAG-powered enterprise tools at Evalueserve.",
+    "Hi, I'm Shiv - a Master's student in Artificial Intelligence and Innovation at Carnegie Mellon University. I build LLM agents, latent reasoning systems, token-efficient reasoning techniques, and scalable backends. Previously I've worked on diffusion-based generative models at NUS and RAG-powered enterprise tools at Evalueserve.",
   education: [
     {
       institution: "Carnegie Mellon University",
@@ -41,11 +41,28 @@ export const siteData = {
       year: "2026",
     },
     {
+      name: "Who is Harry Potter",
+      description:
+        "Replication and extension of the 'Who is Harry Potter?' unlearning experiment - selectively erasing specific knowledge from LLMs while preserving general capabilities.",
+      stack: ["Python", "PyTorch", "LLMs"],
+      link: "https://github.com/PatrickJaiin/who-is-harry-potter",
+      year: "2026",
+    },
+    {
+      name: "Diffusion Based Generative Modelling for Architectural Visualization",
+      description:
+        "Developed Diffusion and ControlNet based Interior & Exterior design generation models at the National University of Singapore. Research on applying generative AI techniques for architectural visualization and design under the guidance of Dr Tan Wee Kek.",
+      stack: ["Python", "Diffusion Models", "ControlNet", "Computer Vision"],
+      link: "/projects/architectural-diffusion",
+      paper: "https://drive.google.com/file/d/1gkgJtMgf-TnsmlfBQtnrR7EouxR8SxQM/view?usp=sharing",
+      year: "2024",
+    },
+    {
       name: "Local Note Taker",
       description:
-        "Privacy-first desktop app with an LLM orchestration layer using Ollama, engineering structured prompt chains and output parsing to generate meeting notes from Whisper-transcribed audio — zero external API dependencies.",
+        "Privacy-first desktop app with an LLM orchestration layer using Ollama, engineering structured prompt chains and output parsing to generate meeting notes from Whisper-transcribed audio - zero external API dependencies.",
       stack: ["Python", "Ollama", "Whisper"],
-      link: null,
+      link: "https://github.com/PatrickJaiin/local-notes-taker",
       year: "2026",
     },
     {
@@ -68,9 +85,11 @@ export const siteData = {
     {
       name: "Reverse Engineering the YouTube Algorithm",
       description:
-        "Graph crawler mapping YouTube's recommendation algorithm to configurable depth across 10K+ videos, applying ForceAtlas2 for community detection with custom weighted scoring and modularity-based classification.",
-      stack: ["Python", "Graph Analysis", "Data Viz"],
-      link: "https://github.com/PatrickJaiin",
+        "Built a graph crawler mapping YouTube's recommendation algorithm across 10K+ videos with ForceAtlas2 community detection. Published as 'Parametric Algorithmic Transformer Based Weighted YouTube Video Analysis' - a custom weighted scoring framework with modularity-based classification.",
+      stack: ["Python", "Graph Analysis", "Transformers", "Research"],
+      link: "/projects/youtube-algorithm",
+      paper: "https://drive.google.com/file/d/1SeZ7qM6QHVxB5Ont9-CsWYe0b_WXiWwh/view?usp=sharing",
+      researchgate: "https://www.researchgate.net/publication/385962242_Parametric_algorithmic_transformer_based_weighted_YouTube_video_analysis",
       year: "2023",
     },
     {
@@ -78,7 +97,8 @@ export const siteData = {
       description:
         "End-to-end autonomous navigation system using ROS with PID controllers, computer vision pipelines, and path planning for real-time beacon identification and obstacle avoidance.",
       stack: ["ROS", "C++", "Computer Vision"],
-      link: "https://github.com/PatrickJaiin",
+      link: "/projects/autonomous-drone",
+      video: "https://drive.google.com/file/d/1q6t1lj6cP6v9freTHnrVP7j_K1OAIBSC/preview",
       year: "2024",
     },
   ],

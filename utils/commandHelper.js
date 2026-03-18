@@ -47,9 +47,9 @@ const COMMANDS = [
     `,
     education:
       () => `
-    <b>Carnegie Mellon University</b> — MS in AI and Innovation (GPA 3.33/4), May 2027<br>
+    <b>Carnegie Mellon University</b> - MS in AI and Innovation (GPA 3.33/4), May 2027<br>
     Coursework: Computer Systems, AI & Future Markets, LLM Applications, Deep Learning, Computer Vision<br><br>
-    <b>Bennett University</b> — B.Tech CSE (CGPA 8.75/10), May 2024<br>
+    <b>Bennett University</b> - B.Tech CSE (CGPA 8.75/10), May 2024<br>
     Coursework: Algorithms, AI/ML, Deep Learning, NLP, HPC, OS, Prob & Statistics, Data Structures
       `,
     skills: () => `

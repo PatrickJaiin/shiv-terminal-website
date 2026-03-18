@@ -8,7 +8,7 @@ export default function Blog() {
   return (
     <>
       <Head>
-        <title>Blog &mdash; Shiv Gupta</title>
+        <title>Blog - Shiv Gupta</title>
       </Head>
 
       <Navbar />

@@ -3,10 +3,10 @@ export const thoughts = [
     domain: "AI / LLMs",
     color: "blue",
     items: [
-      "What if LLMs could reason in latent space between user turns — like a background thread that never stops thinking?",
+      "What if LLMs could reason in latent space between user turns - like a background thread that never stops thinking?",
       "Token efficiency will matter more than model size. The best reasoning won't be the longest chain of thought.",
       "Multi-agent systems feel like the right abstraction, but orchestration is the unsolved problem.",
-      "RAG is underrated as an architecture pattern beyond just search — it's a memory system.",
+      "RAG is underrated as an architecture pattern beyond just search - it's a memory system.",
     ],
   },
   {
@@ -23,7 +23,7 @@ export const thoughts = [
     color: "red",
     items: [
       "LLM agents with tool access are the biggest attack surface nobody is talking about.",
-      "Prompt injection is just SQL injection for the next generation. We'll figure it out the same way — slowly and painfully.",
+      "Prompt injection is just SQL injection for the next generation. We'll figure it out the same way - slowly and painfully.",
     ],
   },
   {

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import Head from "next/head";
 import Link from "next/link";
 import Navbar from "../components/Navbar";
@@ -8,6 +9,7 @@ import { blogPosts } from "../utils/blog";
 import { thoughts } from "../utils/thoughts";
 
 export default function Home() {
+  const [sortOrder, setSortOrder] = useState("newest");
   return (
     <>
       <Head>
@@ -99,20 +101,35 @@ export default function Home() {
         {/* Projects */}
         <section id="projects" className="bg-gray-50 py-24">
           <div className="max-w-5xl mx-auto px-6">
-            <h2 className="text-3xl font-bold text-gray-900 mb-10">
-              Projects
-            </h2>
+            <div className="flex items-center justify-between mb-10">
+              <h2 className="text-3xl font-bold text-gray-900">Projects</h2>
+              <button
+                onClick={() => setSortOrder(sortOrder === "newest" ? "oldest" : "newest")}
+                className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 border border-gray-300 rounded-lg px-3 py-1.5 hover:border-gray-400 transition-colors bg-white"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                </svg>
+                {sortOrder === "newest" ? "Newest first" : "Oldest first"}
+              </button>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {siteData.projects.map((project) => (
-                <ProjectCard
-                  key={project.name}
-                  title={project.name}
-                  description={project.description}
-                  stack={project.stack}
-                  link={project.link}
-                  year={project.year}
-                />
-              ))}
+              {[...siteData.projects]
+                .sort((a, b) =>
+                  sortOrder === "newest"
+                    ? Number(b.year) - Number(a.year)
+                    : Number(a.year) - Number(b.year)
+                )
+                .map((project) => (
+                  <ProjectCard
+                    key={project.name}
+                    title={project.name}
+                    description={project.description}
+                    stack={project.stack}
+                    link={project.link}
+                    year={project.year}
+                  />
+                ))}
             </div>
           </div>
         </section>

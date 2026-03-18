@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 export default function ProjectCard({ title, description, stack, link, year }) {
   const content = (
     <>
@@ -19,15 +21,23 @@ export default function ProjectCard({ title, description, stack, link, year }) {
     </>
   );
 
-  const className = "block no-underline border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow bg-white";
+  const className = "block no-underline border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow bg-white cursor-pointer";
 
-  if (link) {
+  if (!link) {
+    return <div className={className}>{content}</div>;
+  }
+
+  if (link.startsWith("/")) {
     return (
-      <a href={link} target={link.startsWith("/") ? "_self" : "_blank"} rel="noopener noreferrer" className={className}>
+      <Link href={link} className={className}>
         {content}
-      </a>
+      </Link>
     );
   }
 
-  return <div className={className}>{content}</div>;
+  return (
+    <a href={link} target="_blank" rel="noopener noreferrer" className={className}>
+      {content}
+    </a>
+  );
 }
