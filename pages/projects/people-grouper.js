@@ -131,8 +131,8 @@ export default function PeopleGrouper() {
   };
 
   const pickRandomNumber = () => {
-    const lo = Math.min(numMin, numMax);
-    const hi = Math.max(numMin, numMax);
+    const lo = Math.min(numMin || 0, numMax || 0);
+    const hi = Math.max(numMin || 0, numMax || 0);
     const winner = lo + Math.floor(Math.random() * (hi - lo + 1));
     setDisplayNumber(winner);
     setPickedNumber(winner);
@@ -570,7 +570,7 @@ export default function PeopleGrouper() {
                     <input
                       type="number"
                       value={numMin}
-                      onChange={e => setNumMin(parseInt(e.target.value) || 0)}
+                      onChange={e => setNumMin(e.target.value === "" ? "" : parseInt(e.target.value))}
                       className="w-28 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -579,7 +579,7 @@ export default function PeopleGrouper() {
                     <input
                       type="number"
                       value={numMax}
-                      onChange={e => setNumMax(parseInt(e.target.value) || 0)}
+                      onChange={e => setNumMax(e.target.value === "" ? "" : parseInt(e.target.value))}
                       className="w-28 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
