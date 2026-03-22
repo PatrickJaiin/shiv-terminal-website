@@ -34,6 +34,14 @@ export const siteData = {
   },
   projects: [
     {
+      name: "People Grouper",
+      description:
+        "Interactive tool for random person picking, team generation, and one-to-many people organization with smart diversity-maximizing shuffles, lock-in preferences, and password-protected saveable boards.",
+      stack: ["Next.js", "React", "Tailwind CSS"],
+      link: "/projects/people-grouper",
+      year: "2026",
+    },
+    {
       name: "Latent Reasoning Architecture for LLMs",
       description:
         "Multi-agent cognitive architecture enabling latent-space idle reasoning via hidden-state recurrence, leveraging ReAct and Chain-of-Thought with a gated memory system. Benchmarked against COCONUT and Sleep-Time Compute on GSM-Symbolic and AIME datasets.",
