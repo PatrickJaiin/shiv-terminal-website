@@ -41,8 +41,10 @@ export default function PeopleGrouper() {
   const [stripOffset, setStripOffset] = useState(0);
   const [spinTransition, setSpinTransition] = useState(false);
   const containerRef = useRef(null);
-  const CARD_W = 132; // card width + gap in px
-  const SPIN_CYCLES = 8;
+  const CARD_PX = 120; // card width in px
+  const GAP_PX = 12;   // gap between cards
+  const SLOT_W = CARD_PX + GAP_PX; // total slot width
+  const SPIN_CYCLES = 10;
 
   // ── Random Number Picker ──
   const [numMin, setNumMin] = useState(1);
@@ -106,11 +108,11 @@ export default function PeopleGrouper() {
 
     const winnerIdx = Math.floor(Math.random() * pickerNames.length);
     const cw = containerRef.current?.offsetWidth || 600;
+    // Target: scroll SPIN_CYCLES full sets, then land on winnerIdx, centered
     const targetCard = pickerNames.length * SPIN_CYCLES + winnerIdx;
-    const offset = targetCard * CARD_W - cw / 2 + CARD_W / 2;
-    const jitter = (Math.random() - 0.5) * 20;
+    const offset = targetCard * SLOT_W - cw / 2 + CARD_PX / 2;
 
-    // Reset instantly
+    // Reset instantly (no transition)
     setSpinTransition(false);
     setStripOffset(0);
 
@@ -118,14 +120,14 @@ export default function PeopleGrouper() {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         setSpinTransition(true);
-        setStripOffset(-(offset + jitter));
+        setStripOffset(-offset);
       });
     });
 
     setTimeout(() => {
       setSelectedPerson(pickerNames[winnerIdx]);
       setIsSpinning(false);
-    }, 5500);
+    }, 7200);
   };
 
   const pickRandomNumber = () => {
@@ -487,12 +489,13 @@ export default function PeopleGrouper() {
                     <div className="absolute top-0 bottom-0 right-0 w-24 bg-gradient-to-l from-gray-900 to-transparent z-10 pointer-events-none" />
 
                     {/* Scrolling strip */}
-                    <div className="overflow-hidden py-6 px-2">
+                    <div className="overflow-hidden py-6">
                       <div
-                        className="flex gap-3"
+                        className="flex"
                         style={{
+                          gap: `${GAP_PX}px`,
                           transform: `translateX(${stripOffset}px)`,
-                          transition: spinTransition ? "transform 5s cubic-bezier(0.05, 0.7, 0.1, 1)" : "none",
+                          transition: spinTransition ? "transform 7s cubic-bezier(0.05, 0.58, 0.12, 1)" : "none",
                         }}
                       >
                         {(() => {
@@ -504,8 +507,8 @@ export default function PeopleGrouper() {
                               items.push(
                                 <div
                                   key={`${c}-${i}`}
-                                  className={`flex-shrink-0 w-28 h-24 flex items-center justify-center rounded-lg border-2 text-sm font-semibold text-center px-2 ${color.border} ${color.bg} ${color.text}`}
-                                  style={{ minWidth: "7rem" }}
+                                  className={`flex-shrink-0 h-24 flex items-center justify-center rounded-lg border-2 text-sm font-semibold text-center px-2 ${color.border} ${color.bg} ${color.text}`}
+                                  style={{ width: `${CARD_PX}px` }}
                                 >
                                   {name}
                                 </div>
