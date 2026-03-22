@@ -49,7 +49,6 @@ export default function PeopleGrouper() {
   const [numMax, setNumMax] = useState(100);
   const [pickedNumber, setPickedNumber] = useState(null);
   const [displayNumber, setDisplayNumber] = useState(null);
-  const [isPickingNumber, setIsPickingNumber] = useState(false);
 
   // ── Team Generator ──
   const [teamInput, setTeamInput] = useState("");
@@ -130,29 +129,11 @@ export default function PeopleGrouper() {
   };
 
   const pickRandomNumber = () => {
-    if (isPickingNumber) return;
     const lo = Math.min(numMin, numMax);
     const hi = Math.max(numMin, numMax);
-    if (lo === hi) { setPickedNumber(lo); setDisplayNumber(lo); return; }
-    setIsPickingNumber(true);
-    setPickedNumber(null);
-
     const winner = lo + Math.floor(Math.random() * (hi - lo + 1));
-    const totalTicks = 30 + Math.floor(Math.random() * 10);
-    let count = 0;
-
-    const tick = () => {
-      setDisplayNumber(lo + Math.floor(Math.random() * (hi - lo + 1)));
-      count++;
-      if (count >= totalTicks) {
-        setDisplayNumber(winner);
-        setPickedNumber(winner);
-        setIsPickingNumber(false);
-        return;
-      }
-      setTimeout(tick, 40 + Math.pow(count, 1.9) * 1.2);
-    };
-    tick();
+    setDisplayNumber(winner);
+    setPickedNumber(winner);
   };
 
   // ══════════════════════════════════════
@@ -548,7 +529,7 @@ export default function PeopleGrouper() {
                           : "bg-gradient-to-r from-yellow-400 to-yellow-500 text-gray-900 hover:from-yellow-300 hover:to-yellow-400 hover:scale-105 shadow-lg hover:shadow-xl shadow-yellow-500/30"
                       }`}
                     >
-                      {isSpinning ? "Opening..." : "OPEN"}
+                      {isSpinning ? "Picking..." : "PICK"}
                     </button>
                   </div>
 
@@ -605,18 +586,11 @@ export default function PeopleGrouper() {
               <div className="flex flex-col items-center gap-8">
                 {/* Number display */}
                 <div className="relative w-64 h-40 flex items-center justify-center rounded-2xl bg-gray-900 border border-gray-700 shadow-2xl overflow-hidden">
-                  {/* Scanline effect */}
-                  <div className="absolute inset-0 opacity-5 pointer-events-none" style={{ backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.1) 2px, rgba(255,255,255,0.1) 4px)" }} />
-                  {/* Glow */}
-                  {pickedNumber !== null && !isPickingNumber && (
-                    <div className="absolute inset-0 bg-yellow-400 opacity-10 animate-pulse" />
+                  {pickedNumber !== null && (
+                    <div className="absolute inset-0 bg-yellow-400 opacity-10" />
                   )}
-                  <span className={`text-6xl font-bold tabular-nums transition-colors duration-100 ${
-                    isPickingNumber
-                      ? "text-blue-400"
-                      : pickedNumber !== null
-                      ? "text-yellow-400"
-                      : "text-gray-600"
+                  <span className={`text-6xl font-bold tabular-nums ${
+                    pickedNumber !== null ? "text-yellow-400" : "text-gray-600"
                   }`}>
                     {displayNumber !== null ? displayNumber : "?"}
                   </span>
@@ -625,14 +599,9 @@ export default function PeopleGrouper() {
                 {/* Pick button */}
                 <button
                   onClick={pickRandomNumber}
-                  disabled={isPickingNumber}
-                  className={`px-10 py-4 rounded-xl text-lg font-bold transition-all ${
-                    isPickingNumber
-                      ? "bg-blue-400 text-white animate-pulse cursor-not-allowed"
-                      : "bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-400 hover:to-blue-500 hover:scale-105 shadow-lg hover:shadow-xl shadow-blue-500/30"
-                  }`}
+                  className="px-10 py-4 rounded-xl text-lg font-bold transition-all bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-400 hover:to-blue-500 hover:scale-105 shadow-lg hover:shadow-xl shadow-blue-500/30"
                 >
-                  {isPickingNumber ? "Picking..." : "PICK"}
+                  PICK
                 </button>
               </div>
             </div>
