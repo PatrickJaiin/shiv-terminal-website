@@ -33,12 +33,23 @@ export default function PeopleGrouper() {
   const [activeTab, setActiveTab] = useState("organizer");
   const nextIdRef = useRef(1);
 
-  // ── Random Picker ──
+  // ── Random Picker (CSGO-style) ──
   const [pickerNames, setPickerNames] = useState([]);
   const [pickerInput, setPickerInput] = useState("");
   const [selectedPerson, setSelectedPerson] = useState(null);
   const [isSpinning, setIsSpinning] = useState(false);
-  const [highlightIndex, setHighlightIndex] = useState(-1);
+  const [stripOffset, setStripOffset] = useState(0);
+  const [spinTransition, setSpinTransition] = useState(false);
+  const containerRef = useRef(null);
+  const CARD_W = 132; // card width + gap in px
+  const SPIN_CYCLES = 8;
+
+  // ── Random Number Picker ──
+  const [numMin, setNumMin] = useState(1);
+  const [numMax, setNumMax] = useState(100);
+  const [pickedNumber, setPickedNumber] = useState(null);
+  const [displayNumber, setDisplayNumber] = useState(null);
+  const [isPickingNumber, setIsPickingNumber] = useState(false);
 
   // ── Team Generator ──
   const [teamInput, setTeamInput] = useState("");
@@ -93,21 +104,55 @@ export default function PeopleGrouper() {
     if (pickerNames.length === 0 || isSpinning) return;
     setIsSpinning(true);
     setSelectedPerson(null);
-    const names = [...pickerNames];
-    const totalSpins = 25 + Math.floor(Math.random() * 15);
+
+    const winnerIdx = Math.floor(Math.random() * pickerNames.length);
+    const cw = containerRef.current?.offsetWidth || 600;
+    const targetCard = pickerNames.length * SPIN_CYCLES + winnerIdx;
+    const offset = targetCard * CARD_W - cw / 2 + CARD_W / 2;
+    const jitter = (Math.random() - 0.5) * 20;
+
+    // Reset instantly
+    setSpinTransition(false);
+    setStripOffset(0);
+
+    // Start animation next frame
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setSpinTransition(true);
+        setStripOffset(-(offset + jitter));
+      });
+    });
+
+    setTimeout(() => {
+      setSelectedPerson(pickerNames[winnerIdx]);
+      setIsSpinning(false);
+    }, 5500);
+  };
+
+  const pickRandomNumber = () => {
+    if (isPickingNumber) return;
+    const lo = Math.min(numMin, numMax);
+    const hi = Math.max(numMin, numMax);
+    if (lo === hi) { setPickedNumber(lo); setDisplayNumber(lo); return; }
+    setIsPickingNumber(true);
+    setPickedNumber(null);
+
+    const winner = lo + Math.floor(Math.random() * (hi - lo + 1));
+    const totalTicks = 30 + Math.floor(Math.random() * 10);
     let count = 0;
-    const spin = () => {
-      const idx = count % names.length;
-      setHighlightIndex(idx);
+
+    const tick = () => {
+      setDisplayNumber(lo + Math.floor(Math.random() * (hi - lo + 1)));
       count++;
-      if (count >= totalSpins) {
-        setSelectedPerson(names[idx]);
-        setIsSpinning(false);
+      if (count >= totalTicks) {
+        setDisplayNumber(winner);
+        setPickedNumber(winner);
+        setIsPickingNumber(false);
         return;
       }
-      setTimeout(spin, Math.min(60 + Math.pow(count, 1.6) * 1.5, 400));
+      setTimeout(tick, 40 + Math.pow(count, 1.9) * 1.2);
     };
-    spin();
+    tick();
   };
 
   // ══════════════════════════════════════
@@ -367,6 +412,7 @@ export default function PeopleGrouper() {
   // ══════════════════════════════════════
   const tabs = [
     { id: "picker", label: "Random Picker" },
+    { id: "number", label: "Number Picker" },
     { id: "teams", label: "Team Generator" },
     { id: "organizer", label: "Organizer" },
   ];
@@ -408,9 +454,10 @@ export default function PeopleGrouper() {
             ))}
           </div>
 
-          {/* ═══ RANDOM PICKER ═══ */}
+          {/* ═══ RANDOM PICKER (CSGO-style) ═══ */}
           {activeTab === "picker" && (
             <div className="space-y-6">
+              {/* Add names */}
               <div className="bg-white rounded-xl border border-gray-200 p-6">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Add People</h2>
                 <div className="flex gap-2">
@@ -429,40 +476,164 @@ export default function PeopleGrouper() {
                 {pickerNames.length > 0 && (
                   <div className="flex flex-wrap gap-2 mt-4">
                     {pickerNames.map((name, i) => (
-                      <span key={i} className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm ${
-                        highlightIndex === i && isSpinning ? "bg-blue-500 text-white scale-110" : selectedPerson === name && !isSpinning && highlightIndex === i ? "bg-green-500 text-white scale-110 ring-4 ring-green-200" : "bg-gray-100 text-gray-700"
-                      } transition-all duration-100`}>
+                      <span key={i} className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm bg-gray-100 text-gray-700">
                         {name}
-                        <button onClick={() => setPickerNames(prev => prev.filter((_, j) => j !== i))} className="ml-1 text-current opacity-50 hover:opacity-100">&times;</button>
+                        <button onClick={() => setPickerNames(prev => prev.filter((_, j) => j !== i))} className="ml-1 opacity-50 hover:opacity-100">&times;</button>
                       </span>
                     ))}
                   </div>
                 )}
               </div>
 
-              <div className="flex flex-col items-center gap-6">
-                <button
-                  onClick={spinRoulette}
-                  disabled={pickerNames.length === 0 || isSpinning}
-                  className={`px-8 py-4 rounded-xl text-lg font-bold transition-all ${
-                    isSpinning
-                      ? "bg-blue-400 text-white animate-pulse cursor-not-allowed"
-                      : pickerNames.length === 0
-                      ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                      : "bg-blue-600 text-white hover:bg-blue-700 hover:scale-105 shadow-lg hover:shadow-xl"
-                  }`}
-                >
-                  {isSpinning ? "Spinning..." : "SPIN"}
-                </button>
+              {/* CSGO-style case opener */}
+              {pickerNames.length > 0 && (
+                <div className="space-y-6">
+                  <div className="relative rounded-xl overflow-hidden bg-gray-900 border border-gray-700 shadow-2xl" ref={containerRef}>
+                    {/* Top gold gradient edge */}
+                    <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-yellow-400 to-transparent z-20" />
+                    {/* Bottom gold gradient edge */}
+                    <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-yellow-400 to-transparent z-20" />
 
-                {selectedPerson && !isSpinning && (
-                  <div className="text-center animate-bounce">
-                    <p className="text-sm text-gray-500 mb-2">Selected</p>
-                    <div className="text-3xl font-bold text-green-600 bg-green-50 border-2 border-green-200 rounded-xl px-8 py-4">
-                      {selectedPerson}
+                    {/* Center marker */}
+                    <div className="absolute top-0 bottom-0 left-1/2 z-20 -translate-x-1/2 flex flex-col items-center pointer-events-none">
+                      <div style={{ width: 0, height: 0, borderLeft: "10px solid transparent", borderRight: "10px solid transparent", borderTop: "14px solid #facc15" }} />
+                      <div className="flex-1 w-0.5 bg-yellow-400 opacity-80" />
+                      <div style={{ width: 0, height: 0, borderLeft: "10px solid transparent", borderRight: "10px solid transparent", borderBottom: "14px solid #facc15" }} />
+                    </div>
+
+                    {/* Left/right fade overlays */}
+                    <div className="absolute top-0 bottom-0 left-0 w-24 bg-gradient-to-r from-gray-900 to-transparent z-10 pointer-events-none" />
+                    <div className="absolute top-0 bottom-0 right-0 w-24 bg-gradient-to-l from-gray-900 to-transparent z-10 pointer-events-none" />
+
+                    {/* Scrolling strip */}
+                    <div className="overflow-hidden py-6 px-2">
+                      <div
+                        className="flex gap-3"
+                        style={{
+                          transform: `translateX(${stripOffset}px)`,
+                          transition: spinTransition ? "transform 5s cubic-bezier(0.05, 0.7, 0.1, 1)" : "none",
+                        }}
+                      >
+                        {(() => {
+                          const items = [];
+                          for (let c = 0; c < SPIN_CYCLES + 3; c++) {
+                            pickerNames.forEach((name, i) => {
+                              const ci = (c * pickerNames.length + i) % GROUP_COLORS.length;
+                              const color = GROUP_COLORS[ci];
+                              items.push(
+                                <div
+                                  key={`${c}-${i}`}
+                                  className={`flex-shrink-0 w-28 h-24 flex items-center justify-center rounded-lg border-2 text-sm font-semibold text-center px-2 ${color.border} ${color.bg} ${color.text}`}
+                                  style={{ minWidth: "7rem" }}
+                                >
+                                  {name}
+                                </div>
+                              );
+                            });
+                          }
+                          return items;
+                        })()}
+                      </div>
                     </div>
                   </div>
-                )}
+
+                  {/* Spin button */}
+                  <div className="flex justify-center">
+                    <button
+                      onClick={spinRoulette}
+                      disabled={isSpinning}
+                      className={`px-10 py-4 rounded-xl text-lg font-bold transition-all ${
+                        isSpinning
+                          ? "bg-yellow-500 text-gray-900 animate-pulse cursor-not-allowed"
+                          : "bg-gradient-to-r from-yellow-400 to-yellow-500 text-gray-900 hover:from-yellow-300 hover:to-yellow-400 hover:scale-105 shadow-lg hover:shadow-xl shadow-yellow-500/30"
+                      }`}
+                    >
+                      {isSpinning ? "Opening..." : "OPEN"}
+                    </button>
+                  </div>
+
+                  {/* Winner reveal */}
+                  {selectedPerson && !isSpinning && (
+                    <div className="flex justify-center">
+                      <div className="text-center px-10 py-6 rounded-xl bg-gradient-to-b from-yellow-50 to-white border-2 border-yellow-300 shadow-lg shadow-yellow-200/50">
+                        <p className="text-xs uppercase tracking-widest text-yellow-600 mb-2 font-semibold">Selected</p>
+                        <div className="text-4xl font-bold text-gray-900">
+                          {selectedPerson}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {pickerNames.length === 0 && (
+                <div className="text-center py-12 text-gray-400">
+                  <p className="text-lg mb-2">Add some names to get started</p>
+                  <p className="text-sm">Names will appear in a case-opening style spinner</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ═══ RANDOM NUMBER PICKER ═══ */}
+          {activeTab === "number" && (
+            <div className="space-y-6">
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Range</h2>
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-gray-600">Min:</label>
+                    <input
+                      type="number"
+                      value={numMin}
+                      onChange={e => setNumMin(parseInt(e.target.value) || 0)}
+                      className="w-28 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-gray-600">Max:</label>
+                    <input
+                      type="number"
+                      value={numMax}
+                      onChange={e => setNumMax(parseInt(e.target.value) || 0)}
+                      className="w-28 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col items-center gap-8">
+                {/* Number display */}
+                <div className="relative w-64 h-40 flex items-center justify-center rounded-2xl bg-gray-900 border border-gray-700 shadow-2xl overflow-hidden">
+                  {/* Scanline effect */}
+                  <div className="absolute inset-0 opacity-5 pointer-events-none" style={{ backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.1) 2px, rgba(255,255,255,0.1) 4px)" }} />
+                  {/* Glow */}
+                  {pickedNumber !== null && !isPickingNumber && (
+                    <div className="absolute inset-0 bg-yellow-400 opacity-10 animate-pulse" />
+                  )}
+                  <span className={`text-6xl font-bold tabular-nums transition-colors duration-100 ${
+                    isPickingNumber
+                      ? "text-blue-400"
+                      : pickedNumber !== null
+                      ? "text-yellow-400"
+                      : "text-gray-600"
+                  }`}>
+                    {displayNumber !== null ? displayNumber : "?"}
+                  </span>
+                </div>
+
+                {/* Pick button */}
+                <button
+                  onClick={pickRandomNumber}
+                  disabled={isPickingNumber}
+                  className={`px-10 py-4 rounded-xl text-lg font-bold transition-all ${
+                    isPickingNumber
+                      ? "bg-blue-400 text-white animate-pulse cursor-not-allowed"
+                      : "bg-gradient-to-r from-blue-500 to-blue-600 text-white hover:from-blue-400 hover:to-blue-500 hover:scale-105 shadow-lg hover:shadow-xl shadow-blue-500/30"
+                  }`}
+                >
+                  {isPickingNumber ? "Picking..." : "PICK"}
+                </button>
               </div>
             </div>
           )}
