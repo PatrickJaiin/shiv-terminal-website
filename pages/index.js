@@ -193,11 +193,18 @@ export default function Home() {
                         {group.domain}
                       </h3>
                     </div>
-                    <div className="space-y-3 pl-4 border-l-2 border-gray-200">
+                    <div className="space-y-4 pl-4 border-l-2 border-gray-200">
                       {group.items.map((thought, i) => (
-                        <p key={i} className="text-sm text-gray-600 leading-relaxed">
-                          {thought}
-                        </p>
+                        <div key={i}>
+                          <p className="text-sm text-gray-600 leading-relaxed italic">
+                            &ldquo;{thought.text}&rdquo;
+                          </p>
+                          {thought.source && (
+                            <p className="text-xs text-gray-400 mt-1">
+                              &mdash; {thought.source}
+                            </p>
+                          )}
+                        </div>
                       ))}
                     </div>
                   </div>

@@ -1,47 +1,64 @@
 export const thoughts = [
   {
-    domain: "AI / LLMs",
-    color: "blue",
-    items: [
-      "What if LLMs could reason in latent space between user turns - like a background thread that never stops thinking?",
-      "Token efficiency will matter more than model size. The best reasoning won't be the longest chain of thought.",
-      "Multi-agent systems feel like the right abstraction, but orchestration is the unsolved problem.",
-      "RAG is underrated as an architecture pattern beyond just search - it's a memory system.",
-    ],
-  },
-  {
-    domain: "Systems & Engineering",
-    color: "green",
-    items: [
-      "Most software is I/O bound but engineered as if it were compute bound.",
-      "The best abstractions are the ones you forget exist until they break.",
-      "Microservices solved org problems, not engineering problems. Monoliths deserve a comeback.",
-    ],
-  },
-  {
-    domain: "Security",
-    color: "red",
-    items: [
-      "LLM agents with tool access are the biggest attack surface nobody is talking about.",
-      "Prompt injection is just SQL injection for the next generation. We'll figure it out the same way - slowly and painfully.",
-    ],
-  },
-  {
-    domain: "Building & Creating",
-    color: "amber",
-    items: [
-      "The best projects start as something you needed yesterday.",
-      "Ship fast, but never ship something you wouldn't want to debug at 2am.",
-      "3D printing taught me more about iteration than any software sprint ever did.",
-    ],
-  },
-  {
-    domain: "Random",
+    domain: "Philosophy & Existence",
     color: "purple",
     items: [
-      "Competitive robotics is just speedrunning the engineering process.",
-      "The best way to understand an algorithm is to reverse-engineer a system that uses it.",
-      "Every good personal website is really just a mirror of how you think.",
+      {
+        text: "Cold feet on the warm deck. It's a wonderful morning to be preoccupied by the meaninglessness of existence.",
+      },
+      {
+        text: "Life is nothing but a summation of all your choices.",
+      },
+      {
+        text: "Since our brain uses each previous thought to build the next, and every thought is shaped by the one before it - the future is predetermined. We are just watching it unfold.",
+      },
+    ],
+  },
+  {
+    domain: "Human Nature",
+    color: "blue",
+    items: [
+      {
+        text: "The children who need love the most will always ask for it in the most unloving ways.",
+        source: "Russell A. Barkley",
+      },
+      {
+        text: "Good, honest people are always bad liars.",
+      },
+      {
+        text: "Curiosity killed the cat, but satisfaction brought it back.",
+        source: "Eugene O'Neill",
+      },
+    ],
+  },
+  {
+    domain: "Strength & Virtue",
+    color: "green",
+    items: [
+      {
+        text: "Calm is a virtue of the strong.",
+      },
+      {
+        text: "No man is formed by nature for what he wasn't meant to bear.",
+        source: "Marcus Aurelius",
+      },
+      {
+        text: "Ad victorem spolias.",
+        source: "Latin proverb — \"To the victor go the spoils\"",
+      },
+    ],
+  },
+  {
+    domain: "Power & Wisdom",
+    color: "amber",
+    items: [
+      {
+        text: "Never be so polite you forget to wield power. Never wield such power that you forget to be polite.",
+      },
+      {
+        text: "Life is infinitely stranger than anything which the mind of man could invent.",
+        source: "Arthur Conan Doyle, A Case of Identity",
+      },
     ],
   },
 ];
