@@ -5,12 +5,15 @@ export const thoughts = [
     items: [
       {
         text: "Cold feet on the warm deck. It's a wonderful morning to be preoccupied by the meaninglessness of existence.",
+        source: "Sherlock Holmes, Elementary",
       },
       {
         text: "Life is nothing but a summation of all your choices.",
+        source: "Personal thought",
       },
       {
-        text: "Since our brain uses each previous thought to build the next, and every thought is shaped by the one before it - the future is predetermined. We are just watching it unfold.",
+        text: "Every thought is built on the one before it. If each thought shapes the next, then the future was always going to happen this way. We're just watching it unfold.",
+        source: "Personal thought",
       },
     ],
   },
@@ -24,10 +27,11 @@ export const thoughts = [
       },
       {
         text: "Good, honest people are always bad liars.",
+        source: "The Mentalist",
       },
       {
         text: "Curiosity killed the cat, but satisfaction brought it back.",
-        source: "Eugene O'Neill",
+        source: "Folk proverb",
       },
     ],
   },
@@ -37,6 +41,7 @@ export const thoughts = [
     items: [
       {
         text: "Calm is a virtue of the strong.",
+        source: "Personal thought",
       },
       {
         text: "No man is formed by nature for what he wasn't meant to bear.",
@@ -44,7 +49,7 @@ export const thoughts = [
       },
       {
         text: "Ad victorem spolias.",
-        source: "Latin proverb — \"To the victor go the spoils\"",
+        source: "Senator William L. Marcy, 1832 — \"To the victor go the spoils\"",
       },
     ],
   },
@@ -54,6 +59,7 @@ export const thoughts = [
     items: [
       {
         text: "Never be so polite you forget to wield power. Never wield such power that you forget to be polite.",
+        source: "Personal thought",
       },
       {
         text: "Life is infinitely stranger than anything which the mind of man could invent.",
