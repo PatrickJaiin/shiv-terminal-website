@@ -4,7 +4,7 @@ const navLinks = [
   { label: "About", href: "#about" },
   { label: "Projects", href: "#projects" },
   { label: "Blog", href: "#blog" },
-  { label: "Thoughts", href: "#thoughts" },
+  { label: "BrainAttic", href: "#brainattic" },
   { label: "Contact", href: "#contact" },
 ];
 

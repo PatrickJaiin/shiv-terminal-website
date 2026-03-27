@@ -169,12 +169,12 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Thoughts */}
-        <section id="thoughts" className="bg-gray-50 py-24">
+        {/* BrainAttic */}
+        <section id="brainattic" className="bg-gray-50 py-24">
           <div className="max-w-3xl mx-auto px-6">
-            <h2 className="text-3xl font-bold text-gray-900 mb-2">Thoughts</h2>
+            <h2 className="text-3xl font-bold text-gray-900 mb-2">BrainAttic</h2>
             <p className="text-gray-500 mb-10">
-              A scratchpad of things I think about across different domains.
+              Yes, it's a Sherlock Holmes reference. A mind attic where only the useful things get shelf space.
             </p>
             <div className="space-y-8">
               {thoughts.map((group) => {
