@@ -24,9 +24,9 @@ export default function Blog() {
             {blogPosts.map((post) => (
               <article key={post.slug}>
                 <p className="text-sm text-gray-400 mb-1">{post.date}</p>
-                <h2 className="text-xl font-semibold text-gray-900 mb-1">
-                  {post.title}
-                </h2>
+                <a href={post.source || `/blog/${post.slug}`} target={post.source ? "_blank" : undefined} rel={post.source ? "noopener noreferrer" : undefined} className="text-xl font-semibold text-gray-900 mb-1 hover:text-blue-600 transition-colors no-underline block">
+                  {post.title}{post.source ? " ↗" : ""}
+                </a>
                 <p className="text-gray-500">{post.excerpt}</p>
               </article>
             ))}

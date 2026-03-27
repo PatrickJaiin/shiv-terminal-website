@@ -154,7 +154,9 @@ export default function Home() {
                   className="border border-gray-200 rounded-lg p-5 hover:shadow-md transition-shadow bg-gray-50"
                 >
                   <div className="flex items-center justify-between mb-1">
-                    <h3 className="font-semibold text-gray-900">{post.title}</h3>
+                    <a href={post.source || `/blog/${post.slug}`} target={post.source ? "_blank" : undefined} rel={post.source ? "noopener noreferrer" : undefined} className="font-semibold text-gray-900 no-underline hover:text-blue-600 transition-colors">
+                      {post.title}{post.source ? " ↗" : ""}
+                    </a>
                     <span className="text-xs text-gray-400 shrink-0 ml-4">{post.date}</span>
                   </div>
                   <p className="text-sm text-gray-500">{post.excerpt}</p>
