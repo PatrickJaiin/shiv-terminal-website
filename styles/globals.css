@@ -1,54 +1,106 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Secular+One&display=swap');
 @import url("https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&display=swap");
 @import url('https://fonts.googleapis.com/css2?family=Comfortaa:wght@700&display=swap');
+
 @tailwind base;
 @tailwind components;
 
-:root {
-  --text-color: #a9b1d6;
-  --primary: #bb9af7;
-  --secondary: #2ac3de;
-  --background-color: #1a1b26;
+html {
+  scroll-behavior: smooth;
 }
 
 html,
 body {
   padding: 0;
   margin: 0;
-  color: var(--text-color);
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.6;
-  font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen,
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen,
     Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif;
+  background-color: #fff;
+  color: #111827;
 }
 
 * {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-family: "Fira Code", sans-serif;
 }
-h1 {
-  color: var(--primary);
+
+a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+/* ===== Terminal page — override everything ===== */
+.terminal-page {
+  --text-color: #a9b1d6;
+  --primary: #bb9af7;
+  --secondary: #2ac3de;
+  --background-color: #1a1b26;
+  color: var(--text-color) !important;
+  font-size: 15px;
+  overflow: hidden;
+}
+
+/* Light theme */
+[data-theme="light"] .terminal-page {
+  --text-color: #2d3748;
+  --primary: #667eea;
+  --secondary: #4299e1;
+  --background-color: #f7fafc;
+}
+
+/* Dark theme */
+[data-theme="dark"] .terminal-page {
+  --text-color: #a9b1d6;
+  --primary: #bb9af7;
+  --secondary: #2ac3de;
+  --background-color: #1a1b26;
+}
+
+.terminal-page *,
+.terminal-page *::before,
+.terminal-page *::after {
+  font-family: "Fira Code", monospace !important;
+  color: inherit;
+}
+
+.terminal-page h1 {
+  color: var(--primary) !important;
   font-size: 32px;
 }
 
 @media only screen and (min-width: 600px) {
-  h1 {
+  .terminal-page h1 {
     font-size: 50px;
   }
 }
 
-h2 {
-  color: var(--primary);
+.terminal-page h2 {
+  color: var(--primary) !important;
 }
 
-h3 {
+.terminal-page h3 {
   margin-bottom: 10px;
 }
 
-a {
-  color: var(--secondary);
+.terminal-page a {
+  color: var(--secondary) !important;
+}
+
+.terminal-page p {
+  color: var(--text-color);
+}
+
+.terminal-page input {
+  color: var(--text-color) !important;
+}
+
+.terminal-page label,
+.terminal-page span {
+  color: inherit;
 }
 
 .terminal::-webkit-scrollbar {
@@ -57,10 +109,12 @@ a {
 
 .terminal {
   overflow: -moz-scrollbars-none;
+  -ms-overflow-style: none;
 }
 
-.terminal {
-  -ms-overflow-style: none;
+/* Back-to-home link in menubar */
+.terminal-page .back-to-home {
+  color: inherit !important;
 }
 
 @tailwind utilities;
