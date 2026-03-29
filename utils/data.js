@@ -102,6 +102,22 @@ export const siteData = {
       year: "2023",
     },
     {
+      name: "EV Swapping Solution",
+      description:
+        "Developed the Frontend and Backend for an app where users can find the nearest EV swap/charging station and book a swap while on route. Developed AI analysis for optimal map positions of EV Swap Stations and a mathematical algorithm for pricing to solve battery swap mismatch through an AI model trained for battery degradation prediction.",
+      stack: ["AI/ML", "Full Stack", "Maps API"],
+      link: "https://docs.google.com/presentation/d/1csFBi9NKNH_Dcqv7blx_Cv5EriCX948fu5dgH2iBWWs/edit?usp=sharing",
+      year: "2022",
+    },
+    {
+      name: "Fire and Smoke Detection",
+      description:
+        "Architectured and designed code for models like CNNs, and developed models using skeleton codes of ResNet152 and VGG19 for detecting fire and smoke in visual input. Collected data, preprocessed it, augmented it to prevent skewness and used this custom dataset for training. Hyperparameter tuned the model based on results and deployed it using Streamlit.",
+      stack: ["Python", "CNNs", "ResNet152", "VGG19", "Streamlit"],
+      link: "https://docs.google.com/presentation/d/1S0-LzMXlxHPZLGEfMLYnLyMC7e6Jzkn0_DqLKtq-x3g/edit?usp=sharing",
+      year: "2023",
+    },
+    {
       name: "Autonomous FPV Drone",
       description:
         "End-to-end autonomous navigation system using ROS with PID controllers, computer vision pipelines, and path planning for real-time beacon identification and obstacle avoidance.",
