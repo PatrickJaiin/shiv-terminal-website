@@ -86,13 +86,16 @@ export default function LatentReasoning() {
           <p className="text-sm text-gray-500 italic mb-4">
             Training-Free Latent Reasoning for Frozen Language Models via Split-Layer Generation
           </p>
-          <div className="flex flex-wrap gap-2 mb-8">
+          <div className="flex flex-wrap gap-2 mb-3">
             <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600">Python</span>
             <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600">PyTorch</span>
             <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600">LLMs</span>
             <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600">CUDA</span>
             <span className="text-xs text-gray-400 ml-2">2026</span>
           </div>
+          <p className="text-sm text-gray-500 mb-8">
+            Built by <strong className="text-gray-700">Shiv</strong> and <strong className="text-gray-700">Claude Opus 4.6</strong>
+          </p>
 
           {/* Hero Callout */}
           <div className="relative bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl p-8 mb-12 text-white overflow-hidden">
@@ -100,7 +103,7 @@ export default function LatentReasoning() {
             <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/4" />
             <div className="relative">
               <p className="text-blue-100 text-lg mb-3">
-                Can a frozen LLM &ldquo;think&rdquo; in latent space by looping its own hidden states &mdash; without any training?
+                Can a frozen LLM &quot;think&quot; in latent space by looping its own hidden states - without any training?
               </p>
               <p className="text-2xl font-bold mb-4">
                 Yes. +13pp on GSM8K with zero training.
@@ -149,7 +152,7 @@ export default function LatentReasoning() {
                 <div className="flex items-center justify-center text-gray-400 text-lg">&rarr;</div>
                 <div className="flex-1 border-2 border-dashed border-purple-300 rounded-lg p-4 bg-purple-50 relative">
                   <div className="text-sm font-semibold text-purple-800 mb-1">Layers 12-35</div>
-                  <div className="text-xs text-purple-600">Loop N times. Each step writes a &ldquo;thought token&rdquo; to KV cache.</div>
+                  <div className="text-xs text-purple-600">Loop N times. Each step writes a &quot;thought token&quot; to KV cache.</div>
                   <div className="absolute -top-2.5 right-3 bg-purple-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">&times; N</div>
                 </div>
               </div>
@@ -216,7 +219,7 @@ export default function LatentReasoning() {
             <div className="bg-white border border-gray-200 rounded-xl p-5">
               <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg mb-3">1</div>
               <h3 className="font-semibold text-gray-800 mb-2">KV-Cache Recurrence</h3>
-              <p className="text-sm text-gray-600">Feed hidden states back through layers 12-35. Each step adds a &ldquo;thought token&rdquo; to the KV cache. Layers 0-11 are skipped &mdash; they expect embeddings and cause degeneration.</p>
+              <p className="text-sm text-gray-600">Feed hidden states back through layers 12-35. Each step adds a &quot;thought token&quot; to the KV cache. Layers 0-11 are skipped - they expect embeddings and cause degeneration.</p>
             </div>
             <div className="bg-white border border-gray-200 rounded-xl p-5">
               <div className="w-10 h-10 rounded-lg bg-purple-100 flex items-center justify-center text-purple-600 font-bold text-lg mb-3">2</div>
@@ -267,7 +270,7 @@ export default function LatentReasoning() {
           </PhaseCard>
 
           <PhaseCard number="3" title="Learned Gates (HaltGate)" status="partial">
-            <p className="text-sm text-gray-600">~1.05M params trained with REINFORCE to decide when to stop thinking. Works on eval prompts but doesn&rsquo;t generalize to GSM8K &mdash; trained on only 20 prompts.</p>
+            <p className="text-sm text-gray-600">~1.05M params trained with REINFORCE to decide when to stop thinking. Works on eval prompts but doesn{"'"}t generalize to GSM8K - trained on only 20 prompts.</p>
           </PhaseCard>
 
           <PhaseCard number="4" title="Memory System" status="partial">
@@ -316,7 +319,7 @@ export default function LatentReasoning() {
           </PhaseCard>
 
           <PhaseCard number="7A" title="KV-Cache Recurrence" status="insight">
-            <p className="text-sm text-gray-600 mb-4">4 steps optimal. More steps degrade &mdash; the model &ldquo;overthinks.&rdquo;</p>
+            <p className="text-sm text-gray-600 mb-4">4 steps optimal. More steps degrade - the model &quot;overthinks.&quot;</p>
             <div className="bg-gray-50 rounded-lg p-4">
               <Bar value={46} label="4 steps" color="bg-green-500" sublabel="46% GSM8K (best)" />
               <Bar value={44} label="0 steps" color="bg-gray-400" sublabel="44% (baseline)" />
@@ -363,7 +366,7 @@ export default function LatentReasoning() {
               ))}
             </div>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-              <strong>Why confidence gating fails:</strong> GSM8K first tokens (&ldquo;Let&rdquo;, &ldquo;The&rdquo;) have high confidence (0.5-0.98) even on wrong answers. Answer-mass gating measures whether the model expects an answer-format token vs. a continuation token &mdash; a fundamentally different signal.
+              <strong>Why confidence gating fails:</strong> GSM8K first tokens (&quot;Let&quot;, &quot;The&quot;) have high confidence (0.5-0.98) even on wrong answers. Answer-mass gating measures whether the model expects an answer-format token vs. a continuation token - a fundamentally different signal.
             </div>
           </PhaseCard>
 
@@ -438,7 +441,7 @@ export default function LatentReasoning() {
                 <span className="text-xs font-mono text-gray-400 mt-0.5">{i + 1}</span>
                 <div>
                   <span className="text-sm font-medium text-gray-800">{l.title}</span>
-                  <span className="text-sm text-gray-500"> &mdash; {l.desc}</span>
+                  <span className="text-sm text-gray-500"> - {l.desc}</span>
                 </div>
               </div>
             ))}
@@ -448,16 +451,16 @@ export default function LatentReasoning() {
           <h2 className="text-xl font-semibold text-gray-900 mb-4">References</h2>
           <div className="bg-gray-50 rounded-xl p-5 mb-10">
             <ul className="text-sm text-gray-600 space-y-2">
-              <li>Hao et al. (2024). &ldquo;Training Large Language Models to Reason in a Continuous Latent Space&rdquo; (COCONUT)</li>
-              <li>Xu et al. (2025). &ldquo;SoftCoT: Soft Chain-of-Thought for Efficient Reasoning with LLMs&rdquo;</li>
-              <li>McLeish et al. (2025). &ldquo;Teaching Pretrained Language Models to Think Deeper with Retrofitted Recurrence&rdquo;</li>
-              <li>Geiping et al. (2025). &ldquo;Scaling Up Test-Time Compute with Latent Reasoning&rdquo;</li>
-              <li>Belitsky et al. (2025). &ldquo;KV Cache Steering for Controlling Frozen LLMs&rdquo;</li>
-              <li>Sun et al. (2024). &ldquo;You Only Cache Once: Decoder-Decoder Architectures for Language Models&rdquo; (YOCO)</li>
-              <li>Goyal et al. (2024). &ldquo;Think before you speak: Training Language Models With Pause Tokens&rdquo;</li>
-              <li>Zelikman et al. (2024). &ldquo;Quiet-STaR: Language Models Can Teach Themselves to Think Before Speaking&rdquo;</li>
-              <li>Lys et al. (2026). &ldquo;Inner Loop Inference for Pretrained Transformers&rdquo;</li>
-              <li>Graves (2016). &ldquo;Adaptive Computation Time for Recurrent Neural Networks&rdquo;</li>
+              <li>Hao et al. (2024). &quot;Training Large Language Models to Reason in a Continuous Latent Space&quot; (COCONUT)</li>
+              <li>Xu et al. (2025). &quot;SoftCoT: Soft Chain-of-Thought for Efficient Reasoning with LLMs&quot;</li>
+              <li>McLeish et al. (2025). &quot;Teaching Pretrained Language Models to Think Deeper with Retrofitted Recurrence&quot;</li>
+              <li>Geiping et al. (2025). &quot;Scaling Up Test-Time Compute with Latent Reasoning&quot;</li>
+              <li>Belitsky et al. (2025). &quot;KV Cache Steering for Controlling Frozen LLMs&quot;</li>
+              <li>Sun et al. (2024). &quot;You Only Cache Once: Decoder-Decoder Architectures for Language Models&quot; (YOCO)</li>
+              <li>Goyal et al. (2024). &quot;Think before you speak: Training Language Models With Pause Tokens&quot;</li>
+              <li>Zelikman et al. (2024). &quot;Quiet-STaR: Language Models Can Teach Themselves to Think Before Speaking&quot;</li>
+              <li>Lys et al. (2026). &quot;Inner Loop Inference for Pretrained Transformers&quot;</li>
+              <li>Graves (2016). &quot;Adaptive Computation Time for Recurrent Neural Networks&quot;</li>
             </ul>
           </div>
 
