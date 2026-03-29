@@ -58,8 +58,8 @@ const COMMANDS = [
     <b>Other:</b> RAG, Multi-Agent Systems, Chain-of-Thought, Context Management, RESTful APIs, Microservices, Embedded Systems<br>
     `,
     projects: () => `
-    <b>Latent Reasoning Architecture for LLMs</b> (2026)<br>
-    Multi-agent cognitive architecture for latent-space idle reasoning via hidden-state recurrence<br><br>
+    <b>Closed-Thought LLM</b> (2026)<br>
+    Training-free latent reasoning for frozen LLMs — +13pp on GSM8K with zero training<br><br>
     <b>Local Note Taker</b> (2026)<br>
     Privacy-first desktop app using Ollama + Whisper for meeting notes, zero external APIs<br><br>
     <b>LLM Features for Zulip</b> (2026)<br>

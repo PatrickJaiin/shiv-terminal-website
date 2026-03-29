@@ -42,11 +42,11 @@ export const siteData = {
       year: "2026",
     },
     {
-      name: "Latent Reasoning Architecture for LLMs",
+      name: "Closed-Thought LLM",
       description:
-        "Multi-agent cognitive architecture enabling latent-space idle reasoning via hidden-state recurrence, leveraging ReAct and Chain-of-Thought with a gated memory system. Benchmarked against COCONUT and Sleep-Time Compute on GSM-Symbolic and AIME datasets.",
-      stack: ["Python", "PyTorch", "LLMs"],
-      link: null,
+        "Training-free latent reasoning for frozen LLMs. +13pp on GSM8K via KV-cache recurrence, split-layer generation, and answer-mass gating — zero training, zero fine-tuning.",
+      stack: ["Python", "PyTorch", "LLMs", "CUDA"],
+      link: "/projects/latent-reasoning",
       year: "2026",
     },
     {
