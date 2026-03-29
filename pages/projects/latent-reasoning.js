@@ -94,7 +94,7 @@ export default function LatentReasoning() {
             <span className="text-xs text-gray-400 ml-2">2026</span>
           </div>
           <p className="text-sm text-gray-500 mb-8">
-            Built by <strong className="text-gray-700">Shiv</strong> and <strong className="text-gray-700">Claude Opus 4.6</strong>
+            Built by <strong className="text-gray-700">Shiv</strong> and a mass-hallucinated office of <strong className="text-gray-700">Claude Opus 4.6</strong> researchers who insist they{"'"}re real
           </p>
 
           {/* Hero Callout */}
