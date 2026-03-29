@@ -406,9 +406,11 @@ export default function LatentReasoning() {
   title={Closed-Thought LLM: Training-Free Latent
          Reasoning for Frozen Language Models
          via Split-Layer Generation},
-  author={Shiv},
+  author={Shiv and Claude Opus 4.6},
   year={2026},
-  note={Research prototype}
+  note={Research prototype. One of us wrote
+        the code, the other debugged at 3am.
+        We'll let you guess which is which.}
 }`}</pre>
           </div>
         </article>
