@@ -42,6 +42,14 @@ export const siteData = {
       year: "2026",
     },
     {
+      name: "AI Poker Bot – CMU Poker Tournament",
+      description:
+        "Competitive AI poker agent for the CMU AI Poker Tournament 2026. Features exact equity computation, Bayesian opponent modeling, Monte Carlo sampling, and position-aware strategies over a modified 27-card deck.",
+      stack: ["Python", "Game Theory", "Bayesian Inference", "Monte Carlo"],
+      link: "/projects/poker-bot",
+      year: "2026",
+    },
+    {
       name: "Closed-Thought LLM",
       description:
         "Training-free latent reasoning for frozen LLMs. +13pp on GSM8K via KV-cache recurrence, split-layer generation, and answer-mass gating — zero training, zero fine-tuning.",
