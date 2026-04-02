@@ -134,6 +134,7 @@ export default function Home() {
                     stack={project.stack}
                     link={project.link}
                     year={project.year}
+                    locked={project.locked}
                   />
                 ))}
             </div>

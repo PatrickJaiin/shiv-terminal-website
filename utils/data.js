@@ -34,6 +34,15 @@ export const siteData = {
   },
   projects: [
     {
+      name: "IPL Arbitrage Bot",
+      description:
+        "Automated cross-platform arbitrage bot exploiting pricing inefficiencies between Stake (sportsbook) and Kalshi (prediction market) for IPL cricket. Devigging, 12-step execution protocol, and risk-managed shadow/live modes.",
+      stack: ["Python", "httpx", "GraphQL", "REST API", "Arbitrage"],
+      link: "/projects/trading-bot",
+      year: "2026",
+      locked: true,
+    },
+    {
       name: "People Grouper",
       description:
         "Interactive tool for random person picking, team generation, and one-to-many people organization with smart diversity-maximizing shuffles, lock-in preferences, and password-protected saveable boards.",
