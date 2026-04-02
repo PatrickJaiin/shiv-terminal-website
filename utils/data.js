@@ -42,9 +42,9 @@ export const siteData = {
       year: "2026",
     },
     {
-      name: "AI Poker Bot – CMU Poker Tournament",
+      name: "AI Poker Bot – Jump Trading Poker Competition",
       description:
-        "Competitive AI poker agent for the CMU AI Poker Tournament 2026. Features exact equity computation, Bayesian opponent modeling, Monte Carlo sampling, and position-aware strategies over a modified 27-card deck.",
+        "Competitive AI poker agent for the Jump Trading x CMU AI Poker Tournament 2026. Features exact equity computation, Bayesian opponent modeling, Monte Carlo sampling, and position-aware strategies over a modified 27-card deck.",
       stack: ["Python", "Game Theory", "Bayesian Inference", "Monte Carlo"],
       link: "/projects/poker-bot",
       year: "2026",
