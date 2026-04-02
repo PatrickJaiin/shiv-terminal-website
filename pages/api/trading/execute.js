@@ -16,7 +16,7 @@ function devig(oddsA, oddsB) {
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { stakeApiKey, kalshiToken, opportunity: opp, mode, config: cfg } = req.body;
+  const { stakeApiKey, kalshiApiKey, opportunity: opp, mode, config: cfg } = req.body;
   const apiBase = cfg?.kalshiApiBase || "https://trading-api.kalshi.com/trade-api/v2";
   const slippageBuffer = cfg?.slippageBuffer ?? 0.02;
   const kalshiMinDepthMult = cfg?.kalshiMinDepthMult ?? 1.5;
@@ -46,7 +46,7 @@ export default async function handler(req, res) {
   }
 
   // ── Live trade ──
-  if (!stakeApiKey || !kalshiToken) {
+  if (!stakeApiKey || !kalshiApiKey) {
     return res.status(400).json({ error: "API keys required for live trading" });
   }
 
@@ -56,7 +56,7 @@ export default async function handler(req, res) {
   let book;
   try {
     const bookResp = await fetch(`${apiBase}/markets/${opp.kalshiTicker}/orderbook`, {
-      headers: { Authorization: `Bearer ${kalshiToken}` },
+      headers: { Authorization: `Bearer ${kalshiApiKey}` },
     });
     book = await bookResp.json();
   } catch (e) {
@@ -106,7 +106,7 @@ export default async function handler(req, res) {
   try {
     const kResp = await fetch(`${apiBase}/portfolio/orders`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${kalshiToken}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${kalshiApiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({ ticker: opp.kalshiTicker, action: "buy", side: "no", type: "limit", count: contracts, no_price: priceCents }),
     });
     const kData = await kResp.json();

@@ -97,10 +97,7 @@ function ts() { return new Date().toLocaleTimeString("en-US", { hour12: false })
 function Dashboard() {
   // ── credentials ──
   const [stakeApiKey, setStakeApiKey] = useState("");
-  const [kalshiEmail, setKalshiEmail] = useState("");
-  const [kalshiPassword, setKalshiPassword] = useState("");
-  const [kalshiToken, setKalshiToken] = useState(null);
-  const [kalshiStatus, setKalshiStatus] = useState("disconnected"); // disconnected | connecting | connected | error
+  const [kalshiApiKey, setKalshiApiKey] = useState("");
 
   // ── config ──
   const [config, setConfig] = useState(DEFAULT_CONFIG);
@@ -135,7 +132,7 @@ function Dashboard() {
       if (saved) {
         const c = JSON.parse(saved);
         if (c.stakeApiKey) setStakeApiKey(c.stakeApiKey);
-        if (c.kalshiEmail) setKalshiEmail(c.kalshiEmail);
+        if (c.kalshiApiKey) setKalshiApiKey(c.kalshiApiKey);
       }
       const savedCfg = localStorage.getItem("arbbot_config");
       if (savedCfg) setConfig({ ...DEFAULT_CONFIG, ...JSON.parse(savedCfg) });
@@ -145,10 +142,10 @@ function Dashboard() {
   // ── save credentials ──
   const saveCreds = useCallback(() => {
     try {
-      localStorage.setItem("arbbot_creds", JSON.stringify({ stakeApiKey, kalshiEmail }));
+      localStorage.setItem("arbbot_creds", JSON.stringify({ stakeApiKey, kalshiApiKey }));
       localStorage.setItem("arbbot_config", JSON.stringify(config));
     } catch {}
-  }, [stakeApiKey, kalshiEmail, config]);
+  }, [stakeApiKey, kalshiApiKey, config]);
 
   // ── add log entry ──
   const addLog = useCallback((msg, level = "info") => {
@@ -158,29 +155,6 @@ function Dashboard() {
   // auto-scroll log
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [logs]);
 
-  // ── Kalshi login ──
-  const connectKalshi = async () => {
-    if (!kalshiEmail || !kalshiPassword) return;
-    setKalshiStatus("connecting");
-    addLog("Connecting to Kalshi...");
-    try {
-      const resp = await fetch("/api/trading/kalshi-login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: kalshiEmail, password: kalshiPassword, apiBase: config.kalshiApiBase }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || "Login failed");
-      setKalshiToken(data.token);
-      setKalshiStatus("connected");
-      addLog("Kalshi connected", "success");
-      saveCreds();
-    } catch (e) {
-      setKalshiStatus("error");
-      addLog(`Kalshi login failed: ${e.message}`, "error");
-    }
-  };
-
   // ── scan cycle ──
   const runScan = useCallback(async (cycleNum) => {
     addLog(`--- Scan cycle #${cycleNum} ---`);
@@ -188,7 +162,7 @@ function Dashboard() {
       const resp = await fetch("/api/trading/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stakeApiKey, kalshiToken, config }),
+        body: JSON.stringify({ stakeApiKey, kalshiApiKey, config }),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || "Scan failed");
@@ -223,7 +197,7 @@ function Dashboard() {
     } catch (e) {
       addLog(`Scan error: ${e.message}`, "error");
     }
-  }, [stakeApiKey, kalshiToken, config, addLog]);
+  }, [stakeApiKey, kalshiApiKey, config, addLog]);
 
   // ── start/stop scanning ──
   const startScanning = () => {
@@ -274,7 +248,7 @@ function Dashboard() {
         const resp = await fetch("/api/trading/check-fill", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ kalshiToken, orderId, config }),
+          body: JSON.stringify({ kalshiApiKey, orderId, config }),
         });
         const data = await resp.json();
         if (data.filled) return data;
@@ -285,7 +259,7 @@ function Dashboard() {
       await fetch("/api/trading/cancel-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kalshiToken, orderId, config }),
+        body: JSON.stringify({ kalshiApiKey, orderId, config }),
       });
     } catch {}
     return null;
@@ -300,7 +274,7 @@ function Dashboard() {
       const resp = await fetch("/api/trading/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stakeApiKey, kalshiToken, opportunity: opp, mode, config }),
+        body: JSON.stringify({ stakeApiKey, kalshiApiKey, opportunity: opp, mode, config }),
       });
       let result = await resp.json();
 
@@ -372,7 +346,7 @@ function Dashboard() {
   };
   executeTradeRef.current = executeTrade;
 
-  const hasApiKeys = stakeApiKey && kalshiToken;
+  const hasApiKeys = stakeApiKey && kalshiApiKey;
   const qualifyingOpps = opportunities.filter((o) => o.passesThreshold);
   const otherOpps = opportunities.filter((o) => !o.passesThreshold);
 
@@ -432,12 +406,13 @@ function Dashboard() {
                       </ol>
                     </div>
                     <div>
-                      <p className="font-semibold">Kalshi Email & Password</p>
+                      <p className="font-semibold">Kalshi API Key</p>
                       <ol className="list-decimal ml-4 mt-1 space-y-0.5 text-blue-700">
                         <li>Create an account at <strong>kalshi.com</strong></li>
                         <li>Complete identity verification (KYC)</li>
-                        <li>Use your Kalshi login email and password above</li>
-                        <li>Click <strong>Connect to Kalshi</strong> to authenticate</li>
+                        <li>Go to <strong>Settings &rarr; API Keys</strong></li>
+                        <li>Click <strong>Create API Key</strong></li>
+                        <li>Copy the key and paste it above</li>
                       </ol>
                       <p className="mt-1 text-blue-600">Note: Kalshi is US-only. You need a verified, funded account to access market data.</p>
                     </div>
@@ -454,37 +429,12 @@ function Dashboard() {
                       placeholder="Your Stake API key" disabled={scanning}
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400" />
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-xs text-gray-500 block mb-1">Kalshi Email</label>
-                      <input type="email" value={kalshiEmail} onChange={(e) => setKalshiEmail(e.target.value)}
-                        placeholder="email@example.com" disabled={scanning}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400" />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-500 block mb-1">Kalshi Password</label>
-                      <div className="flex gap-2">
-                        <input type="password" value={kalshiPassword} onChange={(e) => setKalshiPassword(e.target.value)}
-                          placeholder="password" disabled={scanning}
-                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400" />
-                      </div>
-                    </div>
+                  <div>
+                    <label className="text-xs text-gray-500 block mb-1">Kalshi API Key</label>
+                    <input type="password" value={kalshiApiKey} onChange={(e) => setKalshiApiKey(e.target.value)}
+                      placeholder="Your Kalshi API key" disabled={scanning}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400" />
                   </div>
-                </div>
-                <div className="flex items-center gap-3 mt-3">
-                  <button onClick={connectKalshi} disabled={scanning || !kalshiEmail || !kalshiPassword || kalshiStatus === "connecting"}
-                    className="px-4 py-2 bg-gray-900 text-white text-xs font-medium rounded-lg hover:bg-gray-800 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed">
-                    {kalshiStatus === "connecting" ? "Connecting..." : "Connect to Kalshi"}
-                  </button>
-                  <span className={`text-xs font-medium ${
-                    kalshiStatus === "connected" ? "text-emerald-600" :
-                    kalshiStatus === "error" ? "text-red-500" :
-                    kalshiStatus === "connecting" ? "text-yellow-600" : "text-gray-400"
-                  }`}>
-                    {kalshiStatus === "connected" ? "Connected" :
-                     kalshiStatus === "error" ? "Failed" :
-                     kalshiStatus === "connecting" ? "Connecting..." : "Not connected"}
-                  </span>
                 </div>
               </div>
 

@@ -64,9 +64,9 @@ async function fetchStakeMatches(apiKey) {
     .filter(Boolean);
 }
 
-async function fetchKalshiMarkets(token, apiBase) {
+async function fetchKalshiMarkets(apiKey, apiBase) {
   const resp = await fetch(`${apiBase}/markets?series_ticker=IPL&status=open`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${apiKey}` },
   });
   const data = await resp.json();
   return (data.markets || []).map((m) => ({
@@ -78,9 +78,9 @@ async function fetchKalshiMarkets(token, apiBase) {
   }));
 }
 
-async function fetchKalshiOrderbook(ticker, token, apiBase) {
+async function fetchKalshiOrderbook(ticker, apiKey, apiBase) {
   const resp = await fetch(`${apiBase}/markets/${ticker}/orderbook`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: `Bearer ${apiKey}` },
   });
   const data = await resp.json();
   const noLevels = data.orderbook?.no || [];
@@ -94,7 +94,7 @@ async function fetchKalshiOrderbook(ticker, token, apiBase) {
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { stakeApiKey, kalshiToken, config: cfg } = req.body;
+  const { stakeApiKey, kalshiApiKey, config: cfg } = req.body;
   const apiBase = cfg?.kalshiApiBase || "https://trading-api.kalshi.com/trade-api/v2";
   const bankroll = cfg?.bankroll || 1000;
   const minGrossArb = cfg?.minGrossArb ?? 0.025;
@@ -105,14 +105,14 @@ export default async function handler(req, res) {
   const kalshiMinDepthMult = cfg?.kalshiMinDepthMult ?? 1.5;
 
   // API keys required — paper and live both use real market data
-  if (!stakeApiKey || !kalshiToken) {
+  if (!stakeApiKey || !kalshiApiKey) {
     return res.status(400).json({ error: "API keys required. Connect your Stake and Kalshi accounts to scan real markets." });
   }
 
   try {
     const [stakeMatches, kalshiMarkets] = await Promise.all([
       fetchStakeMatches(stakeApiKey),
-      fetchKalshiMarkets(kalshiToken, apiBase),
+      fetchKalshiMarkets(kalshiApiKey, apiBase),
     ]);
 
     if (!stakeMatches.length) return res.status(200).json({ opportunities: [], message: "No IPL matches on Stake" });
@@ -124,7 +124,7 @@ export default async function handler(req, res) {
     for (const { stakeMatch: sm, kalshiMarket: km, teamName } of pairs) {
       let book;
       try {
-        book = await fetchKalshiOrderbook(km.ticker, kalshiToken, apiBase);
+        book = await fetchKalshiOrderbook(km.ticker, kalshiApiKey, apiBase);
       } catch {
         continue;
       }

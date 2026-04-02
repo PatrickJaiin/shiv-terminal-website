@@ -6,16 +6,16 @@
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { kalshiToken, orderId, kalshiTicker, config: cfg } = req.body;
+  const { kalshiApiKey, orderId, kalshiTicker, config: cfg } = req.body;
   const apiBase = cfg?.kalshiApiBase || "https://trading-api.kalshi.com/trade-api/v2";
 
-  if (!kalshiToken || !orderId) {
-    return res.status(400).json({ error: "Missing kalshiToken or orderId" });
+  if (!kalshiApiKey || !orderId) {
+    return res.status(400).json({ error: "Missing kalshiApiKey or orderId" });
   }
 
   try {
     const statusResp = await fetch(`${apiBase}/portfolio/orders/${orderId}`, {
-      headers: { Authorization: `Bearer ${kalshiToken}` },
+      headers: { Authorization: `Bearer ${kalshiApiKey}` },
     });
     const statusData = await statusResp.json();
     const order = statusData.order || statusData;
