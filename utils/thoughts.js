@@ -15,6 +15,10 @@ export const thoughts = [
         text: "Every thought is built on the one before it. If each thought shapes the next, then the future was always going to happen this way. We're just watching it unfold.",
         source: "Personal thought",
       },
+      {
+        text: "A man can do what he wants, but can't want what he wants.",
+        source: "Arthur Schopenhauer",
+      },
     ],
   },
   {
