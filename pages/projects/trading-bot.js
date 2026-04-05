@@ -88,7 +88,7 @@ const DEFAULT_CONFIG = {
   kalshiMinDepthMult: 1.5,
   kalshiTimeout: 10000,
   pollInterval: 5,
-  kalshiApiBase: "https://trading-api.kalshi.com/trade-api/v2",
+  kalshiApiBase: "https://api.elections.kalshi.com/trade-api/v2",
 };
 
 function fmt(n, d = 1) { return (n * 100).toFixed(d) + "c"; }

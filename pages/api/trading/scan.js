@@ -93,7 +93,7 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   const { stakeApiKey, kalshiKeyId, kalshiPrivateKey, config: cfg } = req.body;
-  const apiBase = cfg?.kalshiApiBase || "https://trading-api.kalshi.com/trade-api/v2";
+  const apiBase = cfg?.kalshiApiBase || "https://api.elections.kalshi.com/trade-api/v2";
   const bankroll = cfg?.bankroll || 1000;
   const minGrossArb = cfg?.minGrossArb ?? 0.025;
   const minNetArb = cfg?.minNetArb ?? 0.015;
