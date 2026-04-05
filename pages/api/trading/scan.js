@@ -163,14 +163,28 @@ function matchKalshiPolymarket(kalshiMarkets, polymarketMarkets) {
   for (const km of kalshiMarkets) {
     const kalshiNorm = normalizeTeamName(km.team_name);
     for (const pm of polymarketMarkets) {
-      // Only match moneyline/winner markets, not spreads, totals, or props
-      if (!isMoneylineMarket(pm.question)) continue;
-      const polyNorm = normalizeTeamName(pm.question);
-      if (
-        (kalshiNorm && polyNorm && kalshiNorm === polyNorm) ||
-        fuzzyTeamMatch(km.team_name, pm.question)
-      ) {
-        pairs.push({ kalshiMarket: km, polyMarket: pm, teamName: km.team_name });
+      // Match Kalshi team to Polymarket teamA or teamB
+      const polyTeamANorm = normalizeTeamName(pm.teamA || "");
+      const polyTeamBNorm = normalizeTeamName(pm.teamB || "");
+      let polySide = null;
+      if (kalshiNorm && kalshiNorm === polyTeamANorm) polySide = "A";
+      else if (kalshiNorm && kalshiNorm === polyTeamBNorm) polySide = "B";
+      else if (fuzzyTeamMatch(km.team_name, pm.teamA || "")) polySide = "A";
+      else if (fuzzyTeamMatch(km.team_name, pm.teamB || "")) polySide = "B";
+
+      if (polySide) {
+        // polySide A: yesPrice is this team's price, noPrice is opponent's
+        // polySide B: noPrice is this team's price, yesPrice is opponent's
+        const polyTeamPrice = polySide === "A" ? pm.yesPrice : pm.noPrice;
+        const polyOpponentPrice = polySide === "A" ? pm.noPrice : pm.yesPrice;
+        pairs.push({
+          kalshiMarket: km,
+          polyMarket: pm,
+          teamName: km.team_name,
+          polySide,
+          polyTeamPrice,
+          polyOpponentPrice,
+        });
       }
     }
   }
@@ -261,38 +275,68 @@ async function fetchKalshiOrderbook(ticker, kalshiAuth, apiBase) {
   };
 }
 
-const POLYMARKET_GAME_KEYWORDS = {
-  nba: ["nba", "basketball", "lakers", "celtics", "warriors", "cavaliers", "nuggets", "thunder", "bucks", "knicks"],
+// Slug patterns for game events per sport on Polymarket
+const POLYMARKET_GAME_SLUG = {
+  nba: /^nba-[a-z]+-[a-z]+-\d{4}/,
+  ipl: /^(ipl|cricket)/,
+  lol: /^(lol|league)/,
+  valorant: /^(val|valorant|vct)/,
+};
+
+const POLYMARKET_FALLBACK_KEYWORDS = {
+  nba: ["nba", "basketball"],
   ipl: ["ipl", "indian premier league", "cricket"],
-  lol: ["league of legends", "lol:", "bo3", "bo5", "lck", "lec", "lcs", "lpl"],
-  valorant: ["valorant", "vct", "champions tour"],
+  lol: ["league of legends", "lol:"],
+  valorant: ["valorant", "vct"],
 };
 
 async function fetchPolymarketMarkets(game) {
-  const keywords = POLYMARKET_GAME_KEYWORDS[game] || POLYMARKET_GAME_KEYWORDS.ipl;
-  const seen = new Set();
   const allMarkets = [];
+  const slugPattern = POLYMARKET_GAME_SLUG[game];
+  const keywords = POLYMARKET_FALLBACK_KEYWORDS[game] || [];
 
-  // Fetch a large batch sorted by volume and filter client-side
-  // Polymarket's tag/search params are unreliable, so we grab top markets and filter
+  // Use events endpoint to find game events with nested moneyline markets
   try {
-    const resp = await fetch("https://gamma-api.polymarket.com/markets?closed=false&limit=200&order=volume&ascending=false");
+    const resp = await fetch("https://gamma-api.polymarket.com/events?closed=false&active=true&limit=200&tag=sports&order=volume&ascending=false");
     if (resp.ok) {
-      const markets = await resp.json();
-      for (const m of markets) {
-        if (seen.has(m.id)) continue;
-        const q = (m.question || "").toLowerCase();
-        if (keywords.some((kw) => q.includes(kw))) {
-          seen.add(m.id);
-          const prices = JSON.parse(m.outcomePrices || "[]");
+      const events = await resp.json();
+      for (const ev of events) {
+        const slug = (ev.slug || "").toLowerCase();
+        const title = (ev.title || "").toLowerCase();
+        const isGameEvent = slugPattern && slugPattern.test(slug);
+        const isKeywordMatch = keywords.some((kw) => title.includes(kw) || slug.includes(kw));
+
+        if (!isGameEvent && !isKeywordMatch) continue;
+
+        // For game events, find the moneyline market (first market with 2-team outcomes, same title as event)
+        const markets = ev.markets || [];
+        const moneyline = markets.find((m) => {
+          const q = (m.question || "").toLowerCase();
+          const outcomes = m.outcomes || [];
+          // Moneyline: 2 outcomes that are team names (not Yes/No, Over/Under)
+          if (outcomes.length !== 2) return false;
+          const o0 = (outcomes[0] || "").toLowerCase();
+          const o1 = (outcomes[1] || "").toLowerCase();
+          if (o0 === "yes" || o0 === "over" || o0 === "under") return false;
+          // Reject spreads, totals, props, halftime
+          if (q.includes("spread") || q.includes("o/u") || q.includes("over") || q.includes("half") || q.includes("quarter") || q.includes("points") || q.includes("rebounds") || q.includes("assists")) return false;
+          return true;
+        });
+
+        if (moneyline) {
+          const prices = JSON.parse(moneyline.outcomePrices || "[]");
+          const outcomes = moneyline.outcomes || [];
           allMarkets.push({
-            id: m.id,
-            question: m.question,
-            slug: m.slug,
+            id: moneyline.id,
+            question: moneyline.question,
+            slug: ev.slug,
+            eventTitle: ev.title,
+            teamA: outcomes[0] || "",
+            teamB: outcomes[1] || "",
             yesPrice: parseFloat(prices[0] || 0),
             noPrice: parseFloat(prices[1] || 0),
-            volume: parseFloat(m.volume || 0),
-            liquidity: parseFloat(m.liquidity || 0),
+            volume: parseFloat(moneyline.volume || ev.volume || 0),
+            liquidity: parseFloat(moneyline.liquidity || ev.liquidity || 0),
           });
         }
       }
@@ -443,7 +487,7 @@ export default async function handler(req, res) {
     /* ── Kalshi + Polymarket ── */
     if (hasKalshi && hasPoly) {
       const pairs = matchKalshiPolymarket(kalshiMarkets, polymarketMarkets);
-      for (const { kalshiMarket: km, polyMarket: pm, teamName } of pairs) {
+      for (const { kalshiMarket: km, polyMarket: pm, teamName, polyTeamPrice, polyOpponentPrice } of pairs) {
         let book;
         try {
           book = await fetchKalshiOrderbook(km.ticker, kalshiAuth, apiBase);
@@ -451,11 +495,18 @@ export default async function handler(req, res) {
           continue;
         }
 
-        // Two-sided check: buy YES on cheaper platform, buy NO on the other
-        // Direction 1: Kalshi YES + Polymarket NO
-        const grossArb1 = 1.0 - km.yes_price - pm.noPrice;
-        // Direction 2: Polymarket YES + Kalshi NO
-        const grossArb2 = 1.0 - pm.yesPrice - book.best_no_ask;
+        // Kalshi market is for this team winning (YES = team wins)
+        // polyTeamPrice = Polymarket's price for this same team winning
+        // Arb: if Kalshi YES price + Polymarket opponent price < 1.0
+        //   -> buy YES on Kalshi, buy opponent on Polymarket
+        // Or: if Polymarket team price + Kalshi NO price < 1.0
+        //   -> buy team on Polymarket, buy NO on Kalshi
+
+        // Direction 1: Kalshi YES (this team) + Polymarket opponent
+        const kalshiYes = km.yes_price || 0;
+        const grossArb1 = 1.0 - kalshiYes - polyOpponentPrice;
+        // Direction 2: Polymarket team + Kalshi NO
+        const grossArb2 = 1.0 - polyTeamPrice - book.best_no_ask;
 
         // Pick the better direction
         let grossArb, direction, buyPlatform, buyPrice, sellPlatform, sellPrice;
@@ -463,14 +514,14 @@ export default async function handler(req, res) {
           grossArb = grossArb1;
           direction = "kalshi_yes_poly_no";
           buyPlatform = "Kalshi YES";
-          buyPrice = km.yes_price;
-          sellPlatform = "Polymarket NO";
-          sellPrice = pm.noPrice;
+          buyPrice = kalshiYes;
+          sellPlatform = "Poly opponent";
+          sellPrice = polyOpponentPrice;
         } else {
           grossArb = grossArb2;
           direction = "poly_yes_kalshi_no";
-          buyPlatform = "Polymarket YES";
-          buyPrice = pm.yesPrice;
+          buyPlatform = "Poly team";
+          buyPrice = polyTeamPrice;
           sellPlatform = "Kalshi NO";
           sellPrice = book.best_no_ask;
         }
