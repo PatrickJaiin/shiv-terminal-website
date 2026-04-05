@@ -74,6 +74,48 @@ function PasswordGate({ onUnlock }) {
   );
 }
 
+const STAKE_GQL_URL = "https://stake.com/_api/graphql";
+const STAKE_SPORT_QUERY = `
+query SportEvents($sport: String!, $league: String!) {
+  sportEvents(sport: $sport, league: $league, status: "upcoming") {
+    id
+    name
+    slug
+    startTime
+    competitors { name, id }
+    markets {
+      id
+      name
+      selections { id, name, odds }
+    }
+  }
+}`;
+
+async function fetchStakeMatchesClient(apiKey) {
+  const resp = await fetch(STAKE_GQL_URL, {
+    method: "POST",
+    headers: { "x-access-token": apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({ query: STAKE_SPORT_QUERY, variables: { sport: "cricket", league: "ipl" } }),
+  });
+  if (!resp.ok) throw new Error(`Stake API ${resp.status}`);
+  const data = await resp.json();
+  if (data.errors) throw new Error(data.errors[0]?.message || "Stake GQL error");
+  const events = data.data?.sportEvents || [];
+  return events
+    .map((e) => {
+      const wm = e.markets?.find((m) => m.name?.toLowerCase().includes("winner"));
+      if (!wm || wm.selections?.length < 2) return null;
+      const s = wm.selections;
+      return {
+        match_id: e.id,
+        name: e.name,
+        team_a: { name: s[0].name, odds: parseFloat(s[0].odds), selection_id: s[0].id },
+        team_b: { name: s[1].name, odds: parseFloat(s[1].odds), selection_id: s[1].id },
+      };
+    })
+    .filter(Boolean);
+}
+
 /* ═══════════════════════════════════════════════════
    Dashboard
    ═══════════════════════════════════════════════════ */
@@ -161,10 +203,19 @@ function Dashboard() {
   const runScan = useCallback(async (cycleNum) => {
     addLog(`--- Scan cycle #${cycleNum} ---`);
     try {
+      // Fetch Stake data client-side (bypasses Cloudflare)
+      let stakeMatches = [];
+      try {
+        stakeMatches = await fetchStakeMatchesClient(stakeApiKey);
+        addLog(`Fetched ${stakeMatches.length} Stake matches (client-side)`);
+      } catch (e) {
+        addLog(`Stake fetch failed: ${e.message}`, "error");
+      }
+
       const resp = await fetch("/api/trading/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stakeApiKey, kalshiKeyId, kalshiPrivateKey, config }),
+        body: JSON.stringify({ stakeMatches, kalshiKeyId, kalshiPrivateKey, config }),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || "Scan failed");

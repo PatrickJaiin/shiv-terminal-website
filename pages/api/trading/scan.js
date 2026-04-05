@@ -1,22 +1,5 @@
 import { kalshiFetch } from "../../../utils/kalshi-auth";
 
-const STAKE_GQL_URL = "https://stake.com/_api/graphql";
-const SPORT_EVENTS_QUERY = `
-query SportEvents($sport: String!, $league: String!) {
-  sportEvents(sport: $sport, league: $league, status: "upcoming") {
-    id
-    name
-    slug
-    startTime
-    competitors { name, id }
-    markets {
-      id
-      name
-      selections { id, name, odds }
-    }
-  }
-}`;
-
 function devig(oddsA, oddsB) {
   const rawA = 1 / oddsA;
   const rawB = 1 / oddsB;
@@ -40,49 +23,6 @@ function matchTeams(stakeMatches, kalshiMarkets) {
     }
   }
   return pairs;
-}
-
-async function fetchStakeMatches(apiKey) {
-  const resp = await fetch(STAKE_GQL_URL, {
-    method: "POST",
-    headers: {
-      "authority": "stake.com",
-      "accept": "*/*",
-      "accept-language": "en-US,en;q=0.9",
-      "content-type": "application/json",
-      "origin": "https://stake.com",
-      "referer": "https://stake.com/",
-      "sec-ch-ua": '"Chromium";v="131", "Google Chrome";v="131", "Not:A-Brand";v="99"',
-      "sec-ch-ua-mobile": "?0",
-      "sec-ch-ua-platform": '"Windows"',
-      "sec-fetch-dest": "empty",
-      "sec-fetch-mode": "cors",
-      "sec-fetch-site": "same-origin",
-      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-      "x-access-token": apiKey,
-    },
-    body: JSON.stringify({ query: SPORT_EVENTS_QUERY, variables: { sport: "cricket", league: "ipl" } }),
-  });
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`Stake API ${resp.status}: ${text.slice(0, 200)}`);
-  }
-  const data = await resp.json();
-  if (data.errors) throw new Error(data.errors[0]?.message || "Stake GQL error");
-  const events = data.data?.sportEvents || [];
-  return events
-    .map((e) => {
-      const wm = e.markets?.find((m) => m.name?.toLowerCase().includes("winner"));
-      if (!wm || wm.selections?.length < 2) return null;
-      const s = wm.selections;
-      return {
-        match_id: e.id,
-        name: e.name,
-        team_a: { name: s[0].name, odds: parseFloat(s[0].odds), selection_id: s[0].id },
-        team_b: { name: s[1].name, odds: parseFloat(s[1].odds), selection_id: s[1].id },
-      };
-    })
-    .filter(Boolean);
 }
 
 async function fetchKalshiMarkets(kalshiAuth, apiBase) {
@@ -111,7 +51,7 @@ async function fetchKalshiOrderbook(ticker, kalshiAuth, apiBase) {
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { stakeApiKey, kalshiKeyId, kalshiPrivateKey, config: cfg } = req.body;
+  const { stakeMatches, kalshiKeyId, kalshiPrivateKey, config: cfg } = req.body;
   const apiBase = cfg?.kalshiApiBase || "https://api.elections.kalshi.com/trade-api/v2";
   const bankroll = cfg?.bankroll || 1000;
   const minGrossArb = cfg?.minGrossArb ?? 0.025;
@@ -121,21 +61,19 @@ export default async function handler(req, res) {
   const maxStakeVig = cfg?.maxStakeVig ?? 0.06;
   const kalshiMinDepthMult = cfg?.kalshiMinDepthMult ?? 1.5;
 
-  // API keys required — paper and live both use real market data
-  if (!stakeApiKey || !kalshiKeyId || !kalshiPrivateKey) {
-    return res.status(400).json({ error: "API keys required. Connect your Stake and Kalshi accounts to scan real markets." });
+  if (!kalshiKeyId || !kalshiPrivateKey) {
+    return res.status(400).json({ error: "Kalshi API credentials required." });
+  }
+  if (!stakeMatches || !stakeMatches.length) {
+    return res.status(200).json({ opportunities: [], message: "No Stake matches provided", stakeMatchCount: 0, kalshiMarketCount: 0 });
   }
 
   const kalshiAuth = { keyId: kalshiKeyId, privateKey: kalshiPrivateKey };
 
   try {
-    const [stakeMatches, kalshiMarkets] = await Promise.all([
-      fetchStakeMatches(stakeApiKey),
-      fetchKalshiMarkets(kalshiAuth, apiBase),
-    ]);
+    const kalshiMarkets = await fetchKalshiMarkets(kalshiAuth, apiBase);
 
-    if (!stakeMatches.length) return res.status(200).json({ opportunities: [], message: "No IPL matches on Stake" });
-    if (!kalshiMarkets.length) return res.status(200).json({ opportunities: [], message: "No IPL markets on Kalshi" });
+    if (!kalshiMarkets.length) return res.status(200).json({ opportunities: [], message: "No IPL markets on Kalshi", stakeMatchCount: stakeMatches.length, kalshiMarketCount: 0 });
 
     const pairs = matchTeams(stakeMatches, kalshiMarkets);
     const opportunities = [];
