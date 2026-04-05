@@ -309,29 +309,40 @@ function extractMoneyline(markets) {
   });
 }
 
+const POLYMARKET_SEARCH_QUERIES = {
+  nba: ["nba", "celtics", "lakers", "warriors", "thunder", "cavaliers", "knicks", "rockets", "nuggets", "suns", "bucks"],
+  ipl: ["ipl", "cricket"],
+  lol: ["league of legends"],
+  valorant: ["valorant"],
+};
+
 async function fetchPolymarketMarkets(game) {
   const allMarkets = [];
   const slugPattern = POLYMARKET_GAME_SLUG[game];
-  const keywords = POLYMARKET_FALLBACK_KEYWORDS[game] || [];
+  const queries = POLYMARKET_SEARCH_QUERIES[game] || [];
+  const seen = new Set();
 
-  // Polymarket's tag/search/category params are broken - all return the same garbage.
-  // The only reliable way to find NBA games is fetching all sports events (35MB with limit=500).
-  // We stream-parse and only keep what we need to stay within memory limits.
-  try {
-    const resp = await fetch("https://gamma-api.polymarket.com/events?closed=false&active=true&limit=500&tag=sports&order=volume&ascending=false");
-    if (resp.ok) {
-      const events = await resp.json();
-      for (const ev of events) {
-        const slug = (ev.slug || "").toLowerCase();
-        const title = (ev.title || "").toLowerCase();
-        const isGameEvent = slugPattern && slugPattern.test(slug);
-        const isKeywordMatch = keywords.some((kw) => title.includes(kw) || slug.includes(kw));
-        if (!isGameEvent && !isKeywordMatch) continue;
+  // Use public-search endpoint — fast, lightweight (~50KB per query)
+  for (const q of queries) {
+    try {
+      const resp = await fetch(`https://gamma-api.polymarket.com/public-search?q=${encodeURIComponent(q)}&keep_closed_markets=0`);
+      if (!resp.ok) continue;
+      const data = await resp.json();
+      for (const ev of (data.events || [])) {
+        if (seen.has(ev.slug)) continue;
+        // Filter by slug pattern if available (e.g. nba-xxx-yyy-date for game events)
+        if (slugPattern && !slugPattern.test(ev.slug || "")) continue;
+        seen.add(ev.slug);
 
         const ml = extractMoneyline(ev.markets);
         if (!ml) continue;
         const prices = JSON.parse(ml.outcomePrices || "[]");
         const outcomes = ml.outcomes || [];
+        // Skip resolved markets (prices at 0/1 or 1/0)
+        const yp = parseFloat(prices[0] || 0);
+        const np = parseFloat(prices[1] || 0);
+        if ((yp <= 0.001 && np >= 0.999) || (yp >= 0.999 && np <= 0.001)) continue;
+
         allMarkets.push({
           id: ml.id,
           question: ml.question,
@@ -339,14 +350,14 @@ async function fetchPolymarketMarkets(game) {
           eventTitle: ev.title,
           teamA: outcomes[0] || "",
           teamB: outcomes[1] || "",
-          yesPrice: parseFloat(prices[0] || 0),
-          noPrice: parseFloat(prices[1] || 0),
+          yesPrice: yp,
+          noPrice: np,
           volume: parseFloat(ml.volume || ev.volume || 0),
           liquidity: parseFloat(ml.liquidity || ev.liquidity || 0),
         });
       }
-    }
-  } catch {}
+    } catch {}
+  }
 
   return allMarkets;
 }
