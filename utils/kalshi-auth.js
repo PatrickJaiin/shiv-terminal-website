@@ -6,38 +6,36 @@ import crypto from "crypto";
  */
 function normalizePem(raw) {
   let key = raw.trim();
-  // If newlines were stripped (single-line paste), reconstruct PEM
-  const pkcs8Header = "-----BEGIN PRIVATE KEY-----";
-  const pkcs8Footer = "-----END PRIVATE KEY-----";
-  const rsaHeader = "-----BEGIN RSA PRIVATE KEY-----";
-  const rsaFooter = "-----END RSA PRIVATE KEY-----";
-
-  if (key.includes(pkcs8Header)) {
-    const body = key.replace(pkcs8Header, "").replace(pkcs8Footer, "").replace(/\s+/g, "");
-    const lines = body.match(/.{1,64}/g) || [];
-    key = [pkcs8Header, ...lines, pkcs8Footer].join("\n");
-  } else if (key.includes(rsaHeader)) {
-    const body = key.replace(rsaHeader, "").replace(rsaFooter, "").replace(/\s+/g, "");
-    const lines = body.match(/.{1,64}/g) || [];
-    key = [rsaHeader, ...lines, rsaFooter].join("\n");
+  // Detect header type
+  const headers = [
+    { h: "-----BEGIN PRIVATE KEY-----", f: "-----END PRIVATE KEY-----" },
+    { h: "-----BEGIN RSA PRIVATE KEY-----", f: "-----END RSA PRIVATE KEY-----" },
+  ];
+  for (const { h, f } of headers) {
+    if (key.includes(h)) {
+      const body = key.replace(h, "").replace(f, "").replace(/\s+/g, "");
+      const lines = body.match(/.{1,64}/g) || [];
+      return [h, ...lines, f].join("\n");
+    }
   }
   return key;
+}
+
+function parseKey(rawPem) {
+  const pem = normalizePem(rawPem);
+  // createPrivateKey handles both PKCS#1 (RSA PRIVATE KEY) and PKCS#8 (PRIVATE KEY)
+  return crypto.createPrivateKey(pem);
 }
 
 function signRequest(keyId, privateKeyPem, method, path) {
   const timestampMs = Date.now().toString();
   const message = `${timestampMs}${method.toUpperCase()}${path}`;
-  const pem = normalizePem(privateKeyPem);
-  const sign = crypto.createSign("RSA-SHA256");
-  sign.update(message);
-  const signature = sign.sign(
-    {
-      key: pem,
-      padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
-      saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST,
-    },
-    "base64"
-  );
+  const key = parseKey(privateKeyPem);
+  const signature = crypto.sign("sha256", Buffer.from(message), {
+    key,
+    padding: crypto.constants.RSA_PKCS1_PSS_PADDING,
+    saltLength: crypto.constants.RSA_PSS_SALTLEN_DIGEST,
+  }).toString("base64");
   return {
     "KALSHI-ACCESS-KEY": keyId,
     "KALSHI-ACCESS-TIMESTAMP": timestampMs,
