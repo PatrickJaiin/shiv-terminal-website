@@ -92,6 +92,7 @@ query SportEvents($sport: String!, $league: String!) {
 }`;
 
 const GAME_OPTIONS = {
+  nba: { label: "NBA", stakeVars: { sport: "basketball", league: "nba" }, icon: "🏀" },
   ipl: { label: "Cricket - IPL", stakeVars: { sport: "cricket", league: "ipl" }, icon: "🏏" },
   lol: { label: "League of Legends", stakeVars: { sport: "esports", league: "lol" }, icon: "⚔" },
   valorant: { label: "Valorant", stakeVars: { sport: "esports", league: "valorant" }, icon: "🎯" },
@@ -167,7 +168,7 @@ function ts() { return new Date().toLocaleTimeString("en-US", { hour12: false })
 function Dashboard() {
   // ── platforms & game ──
   const [platforms, setPlatforms] = useState(["kalshi", "polymarket"]);
-  const [game, setGame] = useState("lol");
+  const [game, setGame] = useState("nba");
 
   // ── credentials ──
   const [stakeApiKey, setStakeApiKey] = useState("");

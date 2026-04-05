@@ -20,6 +20,37 @@ const TEAM_ALIASES = {
   "hyderabad": ["hyderabad", "srh", "sunrisers"],
   "lucknow": ["lucknow", "lsg", "super giants"],
   "gujarat": ["gujarat", "gt", "titans"],
+  // NBA teams
+  "atlanta": ["atlanta", "hawks", "atl"],
+  "boston": ["boston", "celtics", "bos"],
+  "brooklyn": ["brooklyn", "nets", "bkn"],
+  "charlotte": ["charlotte", "hornets", "cha"],
+  "chicago": ["chicago", "bulls", "chi"],
+  "cleveland": ["cleveland", "cavaliers", "cavs", "cle"],
+  "dallas": ["dallas", "mavericks", "mavs", "dal"],
+  "denver": ["denver", "nuggets", "den"],
+  "detroit": ["detroit", "pistons", "det"],
+  "golden state": ["golden state", "warriors", "gsw"],
+  "houston": ["houston", "rockets", "hou"],
+  "indiana": ["indiana", "pacers", "ind"],
+  "los angeles c": ["los angeles c", "clippers", "lac"],
+  "los angeles l": ["los angeles l", "lakers", "lal"],
+  "memphis": ["memphis", "grizzlies", "mem"],
+  "miami": ["miami", "heat", "mia"],
+  "milwaukee": ["milwaukee", "bucks", "mil"],
+  "minnesota": ["minnesota", "timberwolves", "wolves", "min"],
+  "new orleans": ["new orleans", "pelicans", "nop"],
+  "new york": ["new york", "knicks", "nyk"],
+  "oklahoma city": ["oklahoma city", "thunder", "okc"],
+  "orlando": ["orlando", "magic", "orl"],
+  "philadelphia": ["philadelphia", "76ers", "sixers", "phi"],
+  "phoenix": ["phoenix", "suns", "phx"],
+  "portland": ["portland", "trail blazers", "blazers", "por"],
+  "sacramento": ["sacramento", "kings", "sac"],
+  "san antonio": ["san antonio", "spurs", "sas"],
+  "toronto": ["toronto", "raptors", "tor"],
+  "utah": ["utah", "jazz", "uta"],
+  "washington": ["washington", "wizards", "was"],
   // LoL teams
   "t1": ["t1", "sk telecom", "skt"],
   "gen.g": ["gen.g", "geng", "gen g"],
@@ -132,9 +163,21 @@ function matchKalshiPolymarket(kalshiMarkets, polymarketMarkets) {
 /* ── Platform fetch functions ── */
 
 const KALSHI_GAME_TICKERS = {
+  nba: ["KXNBAGAME"],
   ipl: ["IPL"],
   lol: ["KXESPORTSLOL", "KXLOL", "LOL"],
   valorant: ["KXESPORTSVAL", "KXVAL", "VALORANT"],
+};
+
+// NBA team abbreviation map for Kalshi tickers
+const NBA_ABBREV = {
+  ATL: "Atlanta", BOS: "Boston", BKN: "Brooklyn", CHA: "Charlotte", CHI: "Chicago",
+  CLE: "Cleveland", DAL: "Dallas", DEN: "Denver", DET: "Detroit", GSW: "Golden State",
+  HOU: "Houston", IND: "Indiana", LAC: "Los Angeles C", LAL: "Los Angeles L",
+  MEM: "Memphis", MIA: "Miami", MIL: "Milwaukee", MIN: "Minnesota", NOP: "New Orleans",
+  NYK: "New York", OKC: "Oklahoma City", ORL: "Orlando", PHI: "Philadelphia",
+  PHX: "Phoenix", POR: "Portland", SAC: "Sacramento", SAS: "San Antonio",
+  TOR: "Toronto", UTA: "Utah", WAS: "Washington",
 };
 
 async function fetchKalshiMarkets(kalshiAuth, apiBase, game) {
@@ -144,13 +187,21 @@ async function fetchKalshiMarkets(kalshiAuth, apiBase, game) {
     try {
       const resp = await kalshiFetch(`${apiBase}/markets?series_ticker=${ticker}&status=open&limit=100`, kalshiAuth);
       const data = await resp.json();
-      const markets = (data.markets || []).map((m) => ({
-        ticker: m.ticker,
-        title: m.title || "",
-        team_name: m.subtitle || m.title || "",
-        yes_price: (m.yes_ask || 0) / 100,
-        no_price: (m.no_ask || 0) / 100,
-      }));
+      const markets = (data.markets || []).map((m) => {
+        // For NBA games, extract team from ticker (e.g. KXNBAGAME-26APR07MIATOR-TOR)
+        let teamName = m.subtitle || m.title || "";
+        if (game === "nba" && m.ticker) {
+          const abbrev = m.ticker.split("-").pop();
+          if (NBA_ABBREV[abbrev]) teamName = NBA_ABBREV[abbrev];
+        }
+        return {
+          ticker: m.ticker,
+          title: m.title || "",
+          team_name: teamName,
+          yes_price: (m.yes_ask || 0) / 100,
+          no_price: (m.no_ask || 0) / 100,
+        };
+      });
       allMarkets.push(...markets);
     } catch {}
   }
@@ -194,6 +245,7 @@ async function fetchKalshiOrderbook(ticker, kalshiAuth, apiBase) {
 }
 
 const POLYMARKET_GAME_KEYWORDS = {
+  nba: ["nba", "basketball", "lakers", "celtics", "warriors", "cavaliers", "nuggets", "thunder", "bucks", "knicks"],
   ipl: ["ipl", "indian premier league", "cricket"],
   lol: ["league of legends", "lol:", "bo3", "bo5", "lck", "lec", "lcs", "lpl"],
   valorant: ["valorant", "vct", "champions tour"],
