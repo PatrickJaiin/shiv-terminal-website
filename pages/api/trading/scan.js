@@ -290,12 +290,33 @@ const POLYMARKET_FALLBACK_KEYWORDS = {
   valorant: ["valorant", "vct"],
 };
 
+// NBA team abbreviations for Polymarket slug construction
+const POLY_NBA_ABBREVS = [
+  "atl", "bos", "bkn", "cha", "chi", "cle", "dal", "den", "det", "gsw",
+  "hou", "ind", "lac", "lal", "mem", "mia", "mil", "min", "nop", "nyk",
+  "okc", "orl", "phi", "phx", "por", "sac", "sas", "tor", "uta", "was",
+];
+
+function extractMoneyline(markets) {
+  return (markets || []).find((m) => {
+    const q = (m.question || "").toLowerCase();
+    const outcomes = m.outcomes || [];
+    if (outcomes.length !== 2) return false;
+    const o0 = (outcomes[0] || "").toLowerCase();
+    if (o0 === "yes" || o0 === "over" || o0 === "under") return false;
+    if (q.includes("spread") || q.includes("o/u") || q.includes("over") || q.includes("half") || q.includes("quarter") || q.includes("points") || q.includes("rebounds") || q.includes("assists")) return false;
+    return true;
+  });
+}
+
 async function fetchPolymarketMarkets(game) {
   const allMarkets = [];
   const slugPattern = POLYMARKET_GAME_SLUG[game];
   const keywords = POLYMARKET_FALLBACK_KEYWORDS[game] || [];
 
-  // Use events endpoint to find game events with nested moneyline markets
+  // Polymarket's tag/search/category params are broken - all return the same garbage.
+  // The only reliable way to find NBA games is fetching all sports events (35MB with limit=500).
+  // We stream-parse and only keep what we need to stay within memory limits.
   try {
     const resp = await fetch("https://gamma-api.polymarket.com/events?closed=false&active=true&limit=500&tag=sports&order=volume&ascending=false");
     if (resp.ok) {
@@ -305,40 +326,24 @@ async function fetchPolymarketMarkets(game) {
         const title = (ev.title || "").toLowerCase();
         const isGameEvent = slugPattern && slugPattern.test(slug);
         const isKeywordMatch = keywords.some((kw) => title.includes(kw) || slug.includes(kw));
-
         if (!isGameEvent && !isKeywordMatch) continue;
 
-        // For game events, find the moneyline market (first market with 2-team outcomes, same title as event)
-        const markets = ev.markets || [];
-        const moneyline = markets.find((m) => {
-          const q = (m.question || "").toLowerCase();
-          const outcomes = m.outcomes || [];
-          // Moneyline: 2 outcomes that are team names (not Yes/No, Over/Under)
-          if (outcomes.length !== 2) return false;
-          const o0 = (outcomes[0] || "").toLowerCase();
-          const o1 = (outcomes[1] || "").toLowerCase();
-          if (o0 === "yes" || o0 === "over" || o0 === "under") return false;
-          // Reject spreads, totals, props, halftime
-          if (q.includes("spread") || q.includes("o/u") || q.includes("over") || q.includes("half") || q.includes("quarter") || q.includes("points") || q.includes("rebounds") || q.includes("assists")) return false;
-          return true;
+        const ml = extractMoneyline(ev.markets);
+        if (!ml) continue;
+        const prices = JSON.parse(ml.outcomePrices || "[]");
+        const outcomes = ml.outcomes || [];
+        allMarkets.push({
+          id: ml.id,
+          question: ml.question,
+          slug: ev.slug,
+          eventTitle: ev.title,
+          teamA: outcomes[0] || "",
+          teamB: outcomes[1] || "",
+          yesPrice: parseFloat(prices[0] || 0),
+          noPrice: parseFloat(prices[1] || 0),
+          volume: parseFloat(ml.volume || ev.volume || 0),
+          liquidity: parseFloat(ml.liquidity || ev.liquidity || 0),
         });
-
-        if (moneyline) {
-          const prices = JSON.parse(moneyline.outcomePrices || "[]");
-          const outcomes = moneyline.outcomes || [];
-          allMarkets.push({
-            id: moneyline.id,
-            question: moneyline.question,
-            slug: ev.slug,
-            eventTitle: ev.title,
-            teamA: outcomes[0] || "",
-            teamB: outcomes[1] || "",
-            yesPrice: parseFloat(prices[0] || 0),
-            noPrice: parseFloat(prices[1] || 0),
-            volume: parseFloat(moneyline.volume || ev.volume || 0),
-            liquidity: parseFloat(moneyline.liquidity || ev.liquidity || 0),
-          });
-        }
       }
     }
   } catch {}
@@ -347,6 +352,8 @@ async function fetchPolymarketMarkets(game) {
 }
 
 /* ── Main handler ── */
+
+export const config = { maxDuration: 30 };
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
