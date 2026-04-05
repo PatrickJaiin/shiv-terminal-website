@@ -309,54 +309,63 @@ function extractMoneyline(markets) {
   });
 }
 
-const POLYMARKET_SEARCH_QUERIES = {
-  nba: ["nba", "celtics", "lakers", "warriors", "thunder", "cavaliers", "knicks", "rockets", "nuggets", "suns", "bucks"],
-  ipl: ["ipl", "cricket"],
-  lol: ["league of legends"],
-  valorant: ["valorant"],
-};
+async function searchPolymarket(query) {
+  try {
+    const resp = await fetch(`https://gamma-api.polymarket.com/public-search?q=${encodeURIComponent(query)}&keep_closed_markets=0`);
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    return data.events || [];
+  } catch { return []; }
+}
 
-async function fetchPolymarketMarkets(game) {
+function parsePolyGame(ev, slugPattern) {
+  if (slugPattern && !slugPattern.test(ev.slug || "")) return null;
+  const ml = extractMoneyline(ev.markets);
+  if (!ml) return null;
+  const prices = JSON.parse(ml.outcomePrices || "[]");
+  const outcomes = ml.outcomes || [];
+  const yp = parseFloat(prices[0] || 0);
+  const np = parseFloat(prices[1] || 0);
+  if ((yp <= 0.001 && np >= 0.999) || (yp >= 0.999 && np <= 0.001)) return null;
+  return {
+    id: ml.id, question: ml.question, slug: ev.slug, eventTitle: ev.title,
+    teamA: outcomes[0] || "", teamB: outcomes[1] || "",
+    yesPrice: yp, noPrice: np,
+    volume: parseFloat(ml.volume || ev.volume || 0),
+    liquidity: parseFloat(ml.liquidity || ev.liquidity || 0),
+  };
+}
+
+async function fetchPolymarketMarkets(game, kalshiMarkets) {
   const allMarkets = [];
   const slugPattern = POLYMARKET_GAME_SLUG[game];
-  const queries = POLYMARKET_SEARCH_QUERIES[game] || [];
   const seen = new Set();
 
-  // Use public-search endpoint — fast, lightweight (~50KB per query)
-  for (const q of queries) {
-    try {
-      const resp = await fetch(`https://gamma-api.polymarket.com/public-search?q=${encodeURIComponent(q)}&keep_closed_markets=0`);
-      if (!resp.ok) continue;
-      const data = await resp.json();
-      for (const ev of (data.events || [])) {
-        if (seen.has(ev.slug)) continue;
-        // Filter by slug pattern if available (e.g. nba-xxx-yyy-date for game events)
-        if (slugPattern && !slugPattern.test(ev.slug || "")) continue;
-        seen.add(ev.slug);
+  // Build search queries from Kalshi game titles
+  // e.g. "Miami at Toronto Winner?" -> search "Miami Toronto"
+  const queries = new Set();
+  if (kalshiMarkets && kalshiMarkets.length > 0) {
+    const titles = new Set(kalshiMarkets.map((m) => m.title));
+    for (const title of titles) {
+      const clean = (title || "").replace(/Winner\??/gi, "").replace(/ at /gi, " ").trim();
+      if (clean) queries.add(clean);
+    }
+  }
+  // Fallback
+  if (queries.size === 0) {
+    const fb = { nba: ["nba"], ipl: ["ipl"], lol: ["league of legends"], valorant: ["valorant"] };
+    for (const q of (fb[game] || [])) queries.add(q);
+  }
 
-        const ml = extractMoneyline(ev.markets);
-        if (!ml) continue;
-        const prices = JSON.parse(ml.outcomePrices || "[]");
-        const outcomes = ml.outcomes || [];
-        // Skip resolved markets (prices at 0/1 or 1/0)
-        const yp = parseFloat(prices[0] || 0);
-        const np = parseFloat(prices[1] || 0);
-        if ((yp <= 0.001 && np >= 0.999) || (yp >= 0.999 && np <= 0.001)) continue;
-
-        allMarkets.push({
-          id: ml.id,
-          question: ml.question,
-          slug: ev.slug,
-          eventTitle: ev.title,
-          teamA: outcomes[0] || "",
-          teamB: outcomes[1] || "",
-          yesPrice: yp,
-          noPrice: np,
-          volume: parseFloat(ml.volume || ev.volume || 0),
-          liquidity: parseFloat(ml.liquidity || ev.liquidity || 0),
-        });
-      }
-    } catch {}
+  // Search all matchups in parallel
+  const results = await Promise.all([...queries].map((q) => searchPolymarket(q)));
+  for (const events of results) {
+    for (const ev of events) {
+      if (seen.has(ev.slug)) continue;
+      seen.add(ev.slug);
+      const m = parsePolyGame(ev, slugPattern);
+      if (m) allMarkets.push(m);
+    }
   }
 
   return allMarkets;
@@ -404,7 +413,8 @@ export default async function handler(req, res) {
       kalshiMarkets = await fetchKalshiMarkets(kalshiAuth, apiBase, activeGame);
     }
     if (hasPoly) {
-      polymarketMarkets = await fetchPolymarketMarkets(activeGame);
+      // Pass Kalshi markets so we can build targeted searches from matchup names
+      polymarketMarkets = await fetchPolymarketMarkets(activeGame, kalshiMarkets);
     }
 
     const opportunities = [];
