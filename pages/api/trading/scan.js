@@ -297,7 +297,7 @@ async function fetchPolymarketMarkets(game) {
 
   // Use events endpoint to find game events with nested moneyline markets
   try {
-    const resp = await fetch("https://gamma-api.polymarket.com/events?closed=false&active=true&limit=200&tag=sports&order=volume&ascending=false");
+    const resp = await fetch("https://gamma-api.polymarket.com/events?closed=false&active=true&limit=500&tag=sports&order=volume&ascending=false");
     if (resp.ok) {
       const events = await resp.json();
       for (const ev of events) {
