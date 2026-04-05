@@ -8,7 +8,8 @@ function devig(oddsA, oddsB) {
 }
 
 /* ── Team name matching helpers ── */
-const IPL_TEAM_ALIASES = {
+const TEAM_ALIASES = {
+  // IPL Cricket
   "chennai": ["chennai", "csk", "super kings"],
   "mumbai": ["mumbai", "mi", "indians"],
   "bangalore": ["bangalore", "bengaluru", "rcb", "royal challengers"],
@@ -19,11 +20,45 @@ const IPL_TEAM_ALIASES = {
   "hyderabad": ["hyderabad", "srh", "sunrisers"],
   "lucknow": ["lucknow", "lsg", "super giants"],
   "gujarat": ["gujarat", "gt", "titans"],
+  // LoL teams
+  "t1": ["t1", "sk telecom", "skt"],
+  "gen.g": ["gen.g", "geng", "gen g"],
+  "hanwha": ["hanwha", "hle", "hanwha life"],
+  "dplus": ["dplus", "dplus kia", "dk", "dwg", "damwon"],
+  "kt rolster": ["kt rolster", "kt", "kt rolster"],
+  "drx": ["drx"],
+  "fnatic": ["fnatic", "fnc"],
+  "g2": ["g2", "g2 esports"],
+  "cloud9": ["cloud9", "c9"],
+  "team liquid": ["team liquid", "liquid", "tl"],
+  "flyquest": ["flyquest", "fly"],
+  "100 thieves": ["100 thieves", "100t"],
+  "nrg": ["nrg", "nrg esports"],
+  "bilibili": ["bilibili", "blg", "bilibili gaming"],
+  "jdg": ["jdg", "jd gaming"],
+  "weibo": ["weibo", "wbg", "weibo gaming"],
+  "top esports": ["top esports", "tes", "top"],
+  "lng": ["lng", "lng esports"],
+  // Valorant teams
+  "sentinels": ["sentinels", "sen"],
+  "loud": ["loud"],
+  "paper rex": ["paper rex", "prx"],
+  "drx val": ["drx"],
+  "fnatic val": ["fnatic", "fnc"],
+  "navi": ["navi", "natus vincere"],
+  "evil geniuses": ["evil geniuses", "eg"],
+  "leviatán": ["leviatán", "leviatan", "lev"],
+  "edg": ["edward gaming", "edg"],
+  "fut": ["fut", "fut esports"],
+  "karmine": ["karmine", "karmine corp", "kc"],
+  "gentle mates": ["gentle mates", "m8"],
+  "trace": ["trace", "trace esports"],
+  "team heretics": ["heretics", "team heretics", "th"],
 };
 
 function normalizeTeamName(name) {
   const lower = (name || "").toLowerCase().trim();
-  for (const [canonical, aliases] of Object.entries(IPL_TEAM_ALIASES)) {
+  for (const [canonical, aliases] of Object.entries(TEAM_ALIASES)) {
     if (aliases.some((a) => lower.includes(a))) return canonical;
   }
   return lower;
@@ -96,16 +131,55 @@ function matchKalshiPolymarket(kalshiMarkets, polymarketMarkets) {
 
 /* ── Platform fetch functions ── */
 
-async function fetchKalshiMarkets(kalshiAuth, apiBase) {
-  const resp = await kalshiFetch(`${apiBase}/markets?series_ticker=IPL&status=open`, kalshiAuth);
-  const data = await resp.json();
-  return (data.markets || []).map((m) => ({
-    ticker: m.ticker,
-    title: m.title || "",
-    team_name: m.subtitle || m.title || "",
-    yes_price: (m.yes_ask || 0) / 100,
-    no_price: (m.no_ask || 0) / 100,
-  }));
+const KALSHI_GAME_TICKERS = {
+  ipl: ["IPL"],
+  lol: ["KXESPORTSLOL", "KXLOL", "LOL"],
+  valorant: ["KXESPORTSVAL", "KXVAL", "VALORANT"],
+};
+
+async function fetchKalshiMarkets(kalshiAuth, apiBase, game) {
+  const tickers = KALSHI_GAME_TICKERS[game] || KALSHI_GAME_TICKERS.ipl;
+  const allMarkets = [];
+  for (const ticker of tickers) {
+    try {
+      const resp = await kalshiFetch(`${apiBase}/markets?series_ticker=${ticker}&status=open&limit=100`, kalshiAuth);
+      const data = await resp.json();
+      const markets = (data.markets || []).map((m) => ({
+        ticker: m.ticker,
+        title: m.title || "",
+        team_name: m.subtitle || m.title || "",
+        yes_price: (m.yes_ask || 0) / 100,
+        no_price: (m.no_ask || 0) / 100,
+      }));
+      allMarkets.push(...markets);
+    } catch {}
+  }
+  // Also try keyword search for esports
+  if (game === "lol" || game === "valorant") {
+    try {
+      const keyword = game === "lol" ? "league of legends" : "valorant";
+      const resp = await kalshiFetch(`${apiBase}/events?status=open&limit=50`, kalshiAuth);
+      const data = await resp.json();
+      const events = (data.events || []).filter((e) => {
+        const t = ((e.title || "") + " " + (e.sub_title || "")).toLowerCase();
+        return t.includes(keyword) || t.includes(game);
+      });
+      for (const ev of events) {
+        for (const m of (ev.markets || [])) {
+          if (!allMarkets.some((am) => am.ticker === m.ticker)) {
+            allMarkets.push({
+              ticker: m.ticker,
+              title: m.title || "",
+              team_name: m.subtitle || m.title || "",
+              yes_price: (m.yes_ask || 0) / 100,
+              no_price: (m.no_ask || 0) / 100,
+            });
+          }
+        }
+      }
+    } catch {}
+  }
+  return allMarkets;
 }
 
 async function fetchKalshiOrderbook(ticker, kalshiAuth, apiBase) {
@@ -119,27 +193,68 @@ async function fetchKalshiOrderbook(ticker, kalshiAuth, apiBase) {
   };
 }
 
-async function fetchPolymarketMarkets() {
-  const resp = await fetch(`https://gamma-api.polymarket.com/markets?tag=sports&closed=false&limit=100`);
-  if (!resp.ok) throw new Error(`Polymarket API ${resp.status}`);
-  const markets = await resp.json();
-  return markets
-    .filter((m) => {
-      const q = (m.question || "").toLowerCase();
-      return q.includes("ipl") || q.includes("cricket") || (q.includes("premier league") && q.includes("india"));
-    })
-    .map((m) => {
-      const prices = JSON.parse(m.outcomePrices || "[]");
-      return {
-        id: m.id,
-        question: m.question,
-        slug: m.slug,
-        yesPrice: parseFloat(prices[0] || 0),
-        noPrice: parseFloat(prices[1] || 0),
-        volume: parseFloat(m.volume || 0),
-        liquidity: parseFloat(m.liquidity || 0),
-      };
-    });
+const POLYMARKET_GAME_KEYWORDS = {
+  ipl: ["ipl", "indian premier league", "cricket"],
+  lol: ["league of legends", "lol", "worlds", "lck", "lec", "lcs", "lpl"],
+  valorant: ["valorant", "vct", "champions tour"],
+};
+
+async function fetchPolymarketMarkets(game) {
+  const keywords = POLYMARKET_GAME_KEYWORDS[game] || POLYMARKET_GAME_KEYWORDS.ipl;
+  // Fetch from multiple tags to maximize coverage
+  const tags = game === "ipl" ? ["sports"] : ["esports", "sports", "gaming"];
+  const seen = new Set();
+  const allMarkets = [];
+
+  for (const tag of tags) {
+    try {
+      const resp = await fetch(`https://gamma-api.polymarket.com/markets?tag=${tag}&closed=false&limit=100`);
+      if (!resp.ok) continue;
+      const markets = await resp.json();
+      for (const m of markets) {
+        if (seen.has(m.id)) continue;
+        const q = (m.question || "").toLowerCase();
+        if (keywords.some((kw) => q.includes(kw))) {
+          seen.add(m.id);
+          const prices = JSON.parse(m.outcomePrices || "[]");
+          allMarkets.push({
+            id: m.id,
+            question: m.question,
+            slug: m.slug,
+            yesPrice: parseFloat(prices[0] || 0),
+            noPrice: parseFloat(prices[1] || 0),
+            volume: parseFloat(m.volume || 0),
+            liquidity: parseFloat(m.liquidity || 0),
+          });
+        }
+      }
+    } catch {}
+  }
+
+  // Also try direct keyword search
+  for (const kw of keywords.slice(0, 2)) {
+    try {
+      const resp = await fetch(`https://gamma-api.polymarket.com/markets?closed=false&limit=50&_q=${encodeURIComponent(kw)}`);
+      if (!resp.ok) continue;
+      const markets = await resp.json();
+      for (const m of markets) {
+        if (seen.has(m.id)) continue;
+        seen.add(m.id);
+        const prices = JSON.parse(m.outcomePrices || "[]");
+        allMarkets.push({
+          id: m.id,
+          question: m.question,
+          slug: m.slug,
+          yesPrice: parseFloat(prices[0] || 0),
+          noPrice: parseFloat(prices[1] || 0),
+          volume: parseFloat(m.volume || 0),
+          liquidity: parseFloat(m.liquidity || 0),
+        });
+      }
+    } catch {}
+  }
+
+  return allMarkets;
 }
 
 /* ── Main handler ── */
@@ -147,7 +262,8 @@ async function fetchPolymarketMarkets() {
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { platforms, stakeMatches, kalshiKeyId, kalshiPrivateKey, config: cfg } = req.body;
+  const { platforms, game, stakeMatches, kalshiKeyId, kalshiPrivateKey, config: cfg } = req.body;
+  const activeGame = game || "ipl";
   const apiBase = cfg?.kalshiApiBase || "https://api.elections.kalshi.com/trade-api/v2";
   const bankroll = cfg?.bankroll || 1000;
   const minGrossArb = cfg?.minGrossArb ?? 0.025;
@@ -178,10 +294,10 @@ export default async function handler(req, res) {
     let polymarketMarkets = [];
 
     if (hasKalshi) {
-      kalshiMarkets = await fetchKalshiMarkets(kalshiAuth, apiBase);
+      kalshiMarkets = await fetchKalshiMarkets(kalshiAuth, apiBase, activeGame);
     }
     if (hasPoly) {
-      polymarketMarkets = await fetchPolymarketMarkets();
+      polymarketMarkets = await fetchPolymarketMarkets(activeGame);
     }
 
     const opportunities = [];

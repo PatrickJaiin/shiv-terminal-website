@@ -91,11 +91,18 @@ query SportEvents($sport: String!, $league: String!) {
   }
 }`;
 
-async function fetchStakeMatchesClient(apiKey) {
+const GAME_OPTIONS = {
+  ipl: { label: "Cricket - IPL", stakeVars: { sport: "cricket", league: "ipl" }, icon: "🏏" },
+  lol: { label: "League of Legends", stakeVars: { sport: "esports", league: "lol" }, icon: "⚔" },
+  valorant: { label: "Valorant", stakeVars: { sport: "esports", league: "valorant" }, icon: "🎯" },
+};
+
+async function fetchStakeMatchesClient(apiKey, game) {
+  const vars = GAME_OPTIONS[game]?.stakeVars || GAME_OPTIONS.ipl.stakeVars;
   const resp = await fetch(STAKE_GQL_URL, {
     method: "POST",
     headers: { "x-access-token": apiKey, "Content-Type": "application/json" },
-    body: JSON.stringify({ query: STAKE_SPORT_QUERY, variables: { sport: "cricket", league: "ipl" } }),
+    body: JSON.stringify({ query: STAKE_SPORT_QUERY, variables: vars }),
   });
   if (!resp.ok) throw new Error(`Stake API ${resp.status}`);
   const data = await resp.json();
@@ -158,8 +165,9 @@ function fmt(n, d = 1) { return (n * 100).toFixed(d) + "c"; }
 function ts() { return new Date().toLocaleTimeString("en-US", { hour12: false }); }
 
 function Dashboard() {
-  // ── platforms ──
+  // ── platforms & game ──
   const [platforms, setPlatforms] = useState(["kalshi", "polymarket"]);
+  const [game, setGame] = useState("lol");
 
   // ── credentials ──
   const [stakeApiKey, setStakeApiKey] = useState("");
@@ -207,6 +215,7 @@ function Dashboard() {
         if (c.kalshiKeyId) setKalshiKeyId(c.kalshiKeyId);
         if (c.kalshiPrivateKey) setKalshiPrivateKey(c.kalshiPrivateKey);
         if (c.platforms) setPlatforms(c.platforms);
+        if (c.game) setGame(c.game);
       }
       const savedCfg = localStorage.getItem("arbbot_config");
       if (savedCfg) setConfig({ ...DEFAULT_CONFIG, ...JSON.parse(savedCfg) });
@@ -216,10 +225,10 @@ function Dashboard() {
   // ── save credentials ──
   const saveCreds = useCallback(() => {
     try {
-      localStorage.setItem("arbbot_creds", JSON.stringify({ stakeApiKey, kalshiKeyId, kalshiPrivateKey, platforms }));
+      localStorage.setItem("arbbot_creds", JSON.stringify({ stakeApiKey, kalshiKeyId, kalshiPrivateKey, platforms, game }));
       localStorage.setItem("arbbot_config", JSON.stringify(config));
     } catch {}
-  }, [stakeApiKey, kalshiKeyId, kalshiPrivateKey, platforms, config]);
+  }, [stakeApiKey, kalshiKeyId, kalshiPrivateKey, platforms, game, config]);
 
   // ── add log entry ──
   const addLog = useCallback((msg, level = "info") => {
@@ -245,7 +254,7 @@ function Dashboard() {
       let stakeMatches = [];
       if (hasStake) {
         try {
-          stakeMatches = await fetchStakeMatchesClient(stakeApiKey);
+          stakeMatches = await fetchStakeMatchesClient(stakeApiKey, game);
           addLog(`Fetched ${stakeMatches.length} Stake matches (client-side)`);
         } catch (e) {
           addLog(`Stake fetch failed: ${e.message}`, "error");
@@ -257,6 +266,7 @@ function Dashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           platforms,
+          game,
           stakeMatches: hasStake ? stakeMatches : undefined,
           kalshiKeyId: hasKalshi ? kalshiKeyId : undefined,
           kalshiPrivateKey: hasKalshi ? kalshiPrivateKey : undefined,
@@ -528,7 +538,7 @@ function Dashboard() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">IPL Arbitrage Bot</h1>
+            <h1 className="text-3xl font-bold text-gray-900">{GAME_OPTIONS[game]?.icon} {GAME_OPTIONS[game]?.label || "Esports"} Arb Bot</h1>
             <p className="text-gray-400 text-sm mt-1">{platformPairLabel(platforms)} Cross-Platform Arb Scanner</p>
           </div>
           <div className="flex items-center gap-3">
@@ -581,6 +591,23 @@ function Dashboard() {
                       </button>
                     );
                   })}
+                </div>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-4 mb-3">Game</p>
+                <div className="flex gap-2 flex-wrap">
+                  {Object.entries(GAME_OPTIONS).map(([key, g]) => (
+                    <button
+                      key={key}
+                      onClick={() => { if (!scanning) setGame(key); }}
+                      disabled={scanning}
+                      className={`px-4 py-2 rounded-full text-sm font-medium transition-colors border ${
+                        game === key
+                          ? "bg-gray-900 text-white border-gray-900"
+                          : "bg-white text-gray-500 border-gray-200 hover:border-gray-400 hover:text-gray-700"
+                      } disabled:opacity-50`}
+                    >
+                      {g.icon} {g.label}
+                    </button>
+                  ))}
                 </div>
                 {hasPoly && !hasStake && !hasKalshi && (
                   <p className="text-xs text-amber-600 mt-2">Select one more platform to pair with Polymarket</p>
@@ -1000,7 +1027,7 @@ export default function TradingBot() {
   return (
     <>
       <Head>
-        <title>IPL Arbitrage Bot - Shiv Gupta</title>
+        <title>Esports Arbitrage Bot - Shiv Gupta</title>
       </Head>
       <Navbar />
       {unlocked ? <Dashboard /> : <PasswordGate onUnlock={() => setUnlocked(true)} />}
