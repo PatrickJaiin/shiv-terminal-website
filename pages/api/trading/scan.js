@@ -48,6 +48,10 @@ async function fetchStakeMatches(apiKey) {
     headers: { "x-access-token": apiKey, "Content-Type": "application/json" },
     body: JSON.stringify({ query: SPORT_EVENTS_QUERY, variables: { sport: "cricket", league: "ipl" } }),
   });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Stake API ${resp.status}: ${text.slice(0, 200)}`);
+  }
   const data = await resp.json();
   if (data.errors) throw new Error(data.errors[0]?.message || "Stake GQL error");
   const events = data.data?.sportEvents || [];
