@@ -1,3 +1,5 @@
+import { kalshiFetch } from "../../../utils/kalshi-auth";
+
 /**
  * Poll Kalshi order fill status.
  * Called by the client after execute returns pending.
@@ -6,17 +8,17 @@
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { kalshiApiKey, orderId, kalshiTicker, config: cfg } = req.body;
+  const { kalshiKeyId, kalshiPrivateKey, orderId, kalshiTicker, config: cfg } = req.body;
   const apiBase = cfg?.kalshiApiBase || "https://trading-api.kalshi.com/trade-api/v2";
 
-  if (!kalshiApiKey || !orderId) {
-    return res.status(400).json({ error: "Missing kalshiApiKey or orderId" });
+  if (!kalshiKeyId || !kalshiPrivateKey || !orderId) {
+    return res.status(400).json({ error: "Missing Kalshi credentials or orderId" });
   }
 
+  const kalshiAuth = { keyId: kalshiKeyId, privateKey: kalshiPrivateKey };
+
   try {
-    const statusResp = await fetch(`${apiBase}/portfolio/orders/${orderId}`, {
-      headers: { Authorization: `Bearer ${kalshiApiKey}` },
-    });
+    const statusResp = await kalshiFetch(`${apiBase}/portfolio/orders/${orderId}`, kalshiAuth);
     const statusData = await statusResp.json();
     const order = statusData.order || statusData;
 

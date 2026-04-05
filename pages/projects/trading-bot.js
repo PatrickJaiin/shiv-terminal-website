@@ -97,7 +97,8 @@ function ts() { return new Date().toLocaleTimeString("en-US", { hour12: false })
 function Dashboard() {
   // ── credentials ──
   const [stakeApiKey, setStakeApiKey] = useState("");
-  const [kalshiApiKey, setKalshiApiKey] = useState("");
+  const [kalshiKeyId, setKalshiKeyId] = useState("");
+  const [kalshiPrivateKey, setKalshiPrivateKey] = useState("");
 
   // ── config ──
   const [config, setConfig] = useState(DEFAULT_CONFIG);
@@ -132,7 +133,8 @@ function Dashboard() {
       if (saved) {
         const c = JSON.parse(saved);
         if (c.stakeApiKey) setStakeApiKey(c.stakeApiKey);
-        if (c.kalshiApiKey) setKalshiApiKey(c.kalshiApiKey);
+        if (c.kalshiKeyId) setKalshiKeyId(c.kalshiKeyId);
+        if (c.kalshiPrivateKey) setKalshiPrivateKey(c.kalshiPrivateKey);
       }
       const savedCfg = localStorage.getItem("arbbot_config");
       if (savedCfg) setConfig({ ...DEFAULT_CONFIG, ...JSON.parse(savedCfg) });
@@ -142,10 +144,10 @@ function Dashboard() {
   // ── save credentials ──
   const saveCreds = useCallback(() => {
     try {
-      localStorage.setItem("arbbot_creds", JSON.stringify({ stakeApiKey, kalshiApiKey }));
+      localStorage.setItem("arbbot_creds", JSON.stringify({ stakeApiKey, kalshiKeyId, kalshiPrivateKey }));
       localStorage.setItem("arbbot_config", JSON.stringify(config));
     } catch {}
-  }, [stakeApiKey, kalshiApiKey, config]);
+  }, [stakeApiKey, kalshiKeyId, kalshiPrivateKey, config]);
 
   // ── add log entry ──
   const addLog = useCallback((msg, level = "info") => {
@@ -162,7 +164,7 @@ function Dashboard() {
       const resp = await fetch("/api/trading/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stakeApiKey, kalshiApiKey, config }),
+        body: JSON.stringify({ stakeApiKey, kalshiKeyId, kalshiPrivateKey, config }),
       });
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || "Scan failed");
@@ -197,7 +199,7 @@ function Dashboard() {
     } catch (e) {
       addLog(`Scan error: ${e.message}`, "error");
     }
-  }, [stakeApiKey, kalshiApiKey, config, addLog]);
+  }, [stakeApiKey, kalshiKeyId, kalshiPrivateKey, config, addLog]);
 
   // ── start/stop scanning ──
   const startScanning = () => {
@@ -248,7 +250,7 @@ function Dashboard() {
         const resp = await fetch("/api/trading/check-fill", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ kalshiApiKey, orderId, config }),
+          body: JSON.stringify({ kalshiKeyId, kalshiPrivateKey, orderId, config }),
         });
         const data = await resp.json();
         if (data.filled) return data;
@@ -259,7 +261,7 @@ function Dashboard() {
       await fetch("/api/trading/cancel-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kalshiApiKey, orderId, config }),
+        body: JSON.stringify({ kalshiKeyId, kalshiPrivateKey, orderId, config }),
       });
     } catch {}
     return null;
@@ -274,7 +276,7 @@ function Dashboard() {
       const resp = await fetch("/api/trading/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stakeApiKey, kalshiApiKey, opportunity: opp, mode, config }),
+        body: JSON.stringify({ stakeApiKey, kalshiKeyId, kalshiPrivateKey, opportunity: opp, mode, config }),
       });
       let result = await resp.json();
 
@@ -346,7 +348,7 @@ function Dashboard() {
   };
   executeTradeRef.current = executeTrade;
 
-  const hasApiKeys = stakeApiKey && kalshiApiKey;
+  const hasApiKeys = stakeApiKey && kalshiKeyId && kalshiPrivateKey;
   const qualifyingOpps = opportunities.filter((o) => o.passesThreshold);
   const otherOpps = opportunities.filter((o) => !o.passesThreshold);
 
@@ -411,8 +413,9 @@ function Dashboard() {
                         <li>Create an account at <strong>kalshi.com</strong></li>
                         <li>Complete identity verification (KYC)</li>
                         <li>Go to <strong>Settings &rarr; API Keys</strong></li>
-                        <li>Click <strong>Create API Key</strong></li>
-                        <li>Copy the key and paste it above</li>
+                        <li>Click <strong>Create API Key</strong> &mdash; this generates an RSA key pair</li>
+                        <li>Copy the <strong>Key ID</strong> into the &quot;Kalshi API Key ID&quot; field</li>
+                        <li>Download the <strong>Private Key</strong> (.pem file), open it, and paste the full contents into the &quot;RSA Private Key&quot; field</li>
                       </ol>
                       <p className="mt-1 text-blue-600">Note: Kalshi is US-only. You need a verified, funded account to access market data.</p>
                     </div>
@@ -430,11 +433,17 @@ function Dashboard() {
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400" />
                   </div>
                   <div>
-                    <label className="text-xs text-gray-500 block mb-1">Kalshi API Key</label>
-                    <input type="password" value={kalshiApiKey} onChange={(e) => setKalshiApiKey(e.target.value)}
-                      placeholder="Your Kalshi API key" disabled={scanning}
+                    <label className="text-xs text-gray-500 block mb-1">Kalshi API Key ID</label>
+                    <input type="password" value={kalshiKeyId} onChange={(e) => setKalshiKeyId(e.target.value)}
+                      placeholder="Your Kalshi key ID" disabled={scanning}
                       className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400" />
                   </div>
+                </div>
+                <div className="mt-3">
+                  <label className="text-xs text-gray-500 block mb-1">Kalshi RSA Private Key</label>
+                  <textarea value={kalshiPrivateKey} onChange={(e) => setKalshiPrivateKey(e.target.value)}
+                    placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----" disabled={scanning} rows={3}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400 resize-y" />
                 </div>
               </div>
 

@@ -1,3 +1,5 @@
+import { kalshiFetch } from "../../../utils/kalshi-auth";
+
 const STAKE_GQL_URL = "https://stake.com/_api/graphql";
 const PLACE_BET_MUTATION = `
 mutation PlaceBet($selectionId: String!, $amount: Float!, $odds: Float!) {
@@ -16,7 +18,7 @@ function devig(oddsA, oddsB) {
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { stakeApiKey, kalshiApiKey, opportunity: opp, mode, config: cfg } = req.body;
+  const { stakeApiKey, kalshiKeyId, kalshiPrivateKey, opportunity: opp, mode, config: cfg } = req.body;
   const apiBase = cfg?.kalshiApiBase || "https://trading-api.kalshi.com/trade-api/v2";
   const slippageBuffer = cfg?.slippageBuffer ?? 0.02;
   const kalshiMinDepthMult = cfg?.kalshiMinDepthMult ?? 1.5;
@@ -46,18 +48,18 @@ export default async function handler(req, res) {
   }
 
   // ── Live trade ──
-  if (!stakeApiKey || !kalshiApiKey) {
+  if (!stakeApiKey || !kalshiKeyId || !kalshiPrivateKey) {
     return res.status(400).json({ error: "API keys required for live trading" });
   }
+
+  const kalshiAuth = { keyId: kalshiKeyId, privateKey: kalshiPrivateKey };
 
   const positionSize = opp.positionSize || (cfg?.bankroll || 1000) * (cfg?.maxPositionPct || 0.05);
 
   // Step 8: Verify Kalshi depth
   let book;
   try {
-    const bookResp = await fetch(`${apiBase}/markets/${opp.kalshiTicker}/orderbook`, {
-      headers: { Authorization: `Bearer ${kalshiApiKey}` },
-    });
+    const bookResp = await kalshiFetch(`${apiBase}/markets/${opp.kalshiTicker}/orderbook`, kalshiAuth);
     book = await bookResp.json();
   } catch (e) {
     return res.status(200).json({ success: false, timestamp: ts, error: `Orderbook fetch failed: ${e.message}` });
@@ -104,10 +106,10 @@ export default async function handler(req, res) {
   const contracts = Math.max(1, Math.floor(positionSize));
   let kalshiResult;
   try {
-    const kResp = await fetch(`${apiBase}/portfolio/orders`, {
+    const kResp = await kalshiFetch(`${apiBase}/portfolio/orders`, {
+      ...kalshiAuth,
       method: "POST",
-      headers: { Authorization: `Bearer ${kalshiApiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ ticker: opp.kalshiTicker, action: "buy", side: "no", type: "limit", count: contracts, no_price: priceCents }),
+      body: { ticker: opp.kalshiTicker, action: "buy", side: "no", type: "limit", count: contracts, no_price: priceCents },
     });
     const kData = await kResp.json();
     if (!kResp.ok) throw new Error(kData.message || "Order failed");
