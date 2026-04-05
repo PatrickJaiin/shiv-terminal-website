@@ -18,36 +18,99 @@ function devig(oddsA, oddsB) {
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const { stakeApiKey, kalshiKeyId, kalshiPrivateKey, opportunity: opp, mode, config: cfg } = req.body;
+  const { platforms, stakeApiKey, kalshiKeyId, kalshiPrivateKey, opportunity: opp, mode, config: cfg } = req.body;
   const apiBase = cfg?.kalshiApiBase || "https://api.elections.kalshi.com/trade-api/v2";
   const slippageBuffer = cfg?.slippageBuffer ?? 0.02;
   const kalshiMinDepthMult = cfg?.kalshiMinDepthMult ?? 1.5;
   const ts = Date.now();
 
+  const activePlatforms = platforms || ["stake", "kalshi"];
+  const hasStake = activePlatforms.includes("stake");
+  const hasKalshi = activePlatforms.includes("kalshi");
+  const hasPoly = activePlatforms.includes("polymarket");
+  const pairType = opp.pairType || "stake_kalshi";
+
   // ── Paper trade: simulate execution with realistic slippage ──
   if (mode === "paper") {
     const posSize = opp.positionSize || (cfg?.bankroll || 1000) * (cfg?.maxPositionPct || 0.05);
-    const stakeSlip = (Math.random() - 0.4) * 0.04;
-    const kalshiSlip = (Math.random() - 0.4) * 0.02;
-    const simStakeOdds = opp.stakeOddsA + stakeSlip;
-    const simKalshiFill = Math.max(0.01, opp.kalshiNoPrice + kalshiSlip);
-    const simDevigA = devig(simStakeOdds, opp.stakeOddsB);
-    const simGross = 1.0 - simDevigA - simKalshiFill;
-    const simNet = simGross - slippageBuffer;
     await new Promise((r) => setTimeout(r, 200 + Math.random() * 400));
+
+    if (pairType === "stake_kalshi") {
+      const stakeSlip = (Math.random() - 0.4) * 0.04;
+      const kalshiSlip = (Math.random() - 0.4) * 0.02;
+      const simStakeOdds = opp.stakeOddsA + stakeSlip;
+      const simKalshiFill = Math.max(0.01, opp.kalshiNoPrice + kalshiSlip);
+      const simDevigA = devig(simStakeOdds, opp.stakeOddsB);
+      const simGross = 1.0 - simDevigA - simKalshiFill;
+      const simNet = simGross - slippageBuffer;
+      return res.status(200).json({
+        success: true, shadow: true, timestamp: ts,
+        stakeConfirmedOdds: +simStakeOdds.toFixed(3),
+        stakeAmount: posSize,
+        kalshiFillPrice: +simKalshiFill.toFixed(4),
+        actualGrossArb: +simGross.toFixed(4),
+        actualNetArb: +simNet.toFixed(4),
+      });
+    }
+
+    if (pairType === "stake_polymarket") {
+      const stakeSlip = (Math.random() - 0.4) * 0.04;
+      const polySlip = (Math.random() - 0.4) * 0.02;
+      const simStakeOdds = opp.stakeOddsA + stakeSlip;
+      const simPolyFill = Math.max(0.01, opp.polymarketNoPrice + polySlip);
+      const simDevigA = devig(simStakeOdds, opp.stakeOddsB);
+      const simGross = 1.0 - simDevigA - simPolyFill;
+      const simNet = simGross - slippageBuffer;
+      return res.status(200).json({
+        success: true, shadow: true, timestamp: ts,
+        stakeConfirmedOdds: +simStakeOdds.toFixed(3),
+        stakeAmount: posSize,
+        polymarketFillPrice: +simPolyFill.toFixed(4),
+        actualGrossArb: +simGross.toFixed(4),
+        actualNetArb: +simNet.toFixed(4),
+        polymarketNote: "Polymarket leg simulated (paper mode)",
+      });
+    }
+
+    if (pairType === "kalshi_polymarket") {
+      const slip1 = (Math.random() - 0.4) * 0.02;
+      const slip2 = (Math.random() - 0.4) * 0.02;
+      const simBuyPrice = Math.max(0.01, opp.buyPrice + slip1);
+      const simSellPrice = Math.max(0.01, opp.sellPrice + slip2);
+      const simGross = 1.0 - simBuyPrice - simSellPrice;
+      const simNet = simGross - slippageBuffer;
+      return res.status(200).json({
+        success: true, shadow: true, timestamp: ts,
+        buyPlatform: opp.buyPlatform,
+        buyFillPrice: +simBuyPrice.toFixed(4),
+        sellPlatform: opp.sellPlatform,
+        sellFillPrice: +simSellPrice.toFixed(4),
+        positionSize: posSize,
+        actualGrossArb: +simGross.toFixed(4),
+        actualNetArb: +simNet.toFixed(4),
+        polymarketNote: "Polymarket leg simulated (paper mode - on-chain execution not supported)",
+      });
+    }
+
+    // Fallback paper
     return res.status(200).json({
-      success: true,
-      shadow: true,
-      timestamp: ts,
-      stakeConfirmedOdds: +simStakeOdds.toFixed(3),
-      stakeAmount: posSize,
-      kalshiFillPrice: +simKalshiFill.toFixed(4),
-      actualGrossArb: +simGross.toFixed(4),
-      actualNetArb: +simNet.toFixed(4),
+      success: true, shadow: true, timestamp: ts,
+      actualGrossArb: opp.grossArb,
+      actualNetArb: opp.netArb,
     });
   }
 
   // ── Live trade ──
+
+  // Polymarket live execution is not supported (requires on-chain transactions)
+  if (hasPoly && (pairType === "stake_polymarket" || pairType === "kalshi_polymarket")) {
+    return res.status(200).json({
+      success: false, timestamp: ts,
+      error: "Polymarket live execution not supported yet (requires on-chain transactions). Use Paper mode for Polymarket pairs.",
+    });
+  }
+
+  // Original Stake + Kalshi live execution
   if (!stakeApiKey || !kalshiKeyId || !kalshiPrivateKey) {
     return res.status(400).json({ error: "API keys required for live trading" });
   }
