@@ -195,21 +195,20 @@ async function fetchKalshiOrderbook(ticker, kalshiAuth, apiBase) {
 
 const POLYMARKET_GAME_KEYWORDS = {
   ipl: ["ipl", "indian premier league", "cricket"],
-  lol: ["league of legends", "lol", "worlds", "lck", "lec", "lcs", "lpl"],
+  lol: ["league of legends", "lol:", "bo3", "bo5", "lck", "lec", "lcs", "lpl"],
   valorant: ["valorant", "vct", "champions tour"],
 };
 
 async function fetchPolymarketMarkets(game) {
   const keywords = POLYMARKET_GAME_KEYWORDS[game] || POLYMARKET_GAME_KEYWORDS.ipl;
-  // Fetch from multiple tags to maximize coverage
-  const tags = game === "ipl" ? ["sports"] : ["esports", "sports", "gaming"];
   const seen = new Set();
   const allMarkets = [];
 
-  for (const tag of tags) {
-    try {
-      const resp = await fetch(`https://gamma-api.polymarket.com/markets?tag=${tag}&closed=false&limit=100`);
-      if (!resp.ok) continue;
+  // Fetch a large batch sorted by volume and filter client-side
+  // Polymarket's tag/search params are unreliable, so we grab top markets and filter
+  try {
+    const resp = await fetch("https://gamma-api.polymarket.com/markets?closed=false&limit=200&order=volume&ascending=false");
+    if (resp.ok) {
       const markets = await resp.json();
       for (const m of markets) {
         if (seen.has(m.id)) continue;
@@ -228,31 +227,8 @@ async function fetchPolymarketMarkets(game) {
           });
         }
       }
-    } catch {}
-  }
-
-  // Also try direct keyword search
-  for (const kw of keywords.slice(0, 2)) {
-    try {
-      const resp = await fetch(`https://gamma-api.polymarket.com/markets?closed=false&limit=50&_q=${encodeURIComponent(kw)}`);
-      if (!resp.ok) continue;
-      const markets = await resp.json();
-      for (const m of markets) {
-        if (seen.has(m.id)) continue;
-        seen.add(m.id);
-        const prices = JSON.parse(m.outcomePrices || "[]");
-        allMarkets.push({
-          id: m.id,
-          question: m.question,
-          slug: m.slug,
-          yesPrice: parseFloat(prices[0] || 0),
-          noPrice: parseFloat(prices[1] || 0),
-          volume: parseFloat(m.volume || 0),
-          liquidity: parseFloat(m.liquidity || 0),
-        });
-      }
-    } catch {}
-  }
+    }
+  } catch {}
 
   return allMarkets;
 }
