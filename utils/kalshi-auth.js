@@ -51,7 +51,7 @@ export async function kalshiFetch(url, { keyId, privateKey, method = "GET", body
   const urlObj = new URL(url);
   const path = urlObj.pathname; // sign path only, no query string
   const authHeaders = signRequest(keyId, privateKey, method, path);
-  return fetch(url, {
+  const resp = await fetch(url, {
     method,
     headers: {
       ...authHeaders,
@@ -60,4 +60,9 @@ export async function kalshiFetch(url, { keyId, privateKey, method = "GET", body
     },
     ...(body ? { body: typeof body === "string" ? body : JSON.stringify(body) } : {}),
   });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Kalshi API ${resp.status}: ${text.slice(0, 200)}`);
+  }
+  return resp;
 }
