@@ -128,6 +128,7 @@ function matchStakePolymarket(stakeMatches, polymarketMarkets) {
     const teamANorm = normalizeTeamName(sm.team_a.name);
     const teamBNorm = normalizeTeamName(sm.team_b.name);
     for (const pm of polymarketMarkets) {
+      if (!isMoneylineMarket(pm.question)) continue;
       const qNorm = (pm.question || "").toLowerCase();
       // Check if this polymarket question mentions one of the teams
       const teamAInQ = teamANorm && (qNorm.includes(teamANorm) || fuzzyTeamMatch(sm.team_a.name, pm.question));
@@ -143,11 +144,27 @@ function matchStakePolymarket(stakeMatches, polymarketMarkets) {
   return pairs;
 }
 
+function isMoneylineMarket(question) {
+  const q = (question || "").toLowerCase();
+  // Reject spreads, totals, props, over/under, player stats
+  if (q.includes("spread") || q.includes("(-") || q.includes("(+")) return false;
+  if (q.includes("over/under") || q.includes("over ") || q.includes("under ")) return false;
+  if (q.includes("total") || q.includes("points scored")) return false;
+  if (q.includes("player") || q.includes("mvp") || q.includes("award") || q.includes("year")) return false;
+  if (q.includes("kills") || q.includes("assists") || q.includes("rebounds")) return false;
+  // Accept "winner", "win", "vs", "beat", or simple team names
+  if (q.includes("winner") || q.includes(" win") || q.includes(" vs") || q.includes(" beat")) return true;
+  // Accept if it looks like a simple team matchup
+  return true;
+}
+
 function matchKalshiPolymarket(kalshiMarkets, polymarketMarkets) {
   const pairs = [];
   for (const km of kalshiMarkets) {
     const kalshiNorm = normalizeTeamName(km.team_name);
     for (const pm of polymarketMarkets) {
+      // Only match moneyline/winner markets, not spreads, totals, or props
+      if (!isMoneylineMarket(pm.question)) continue;
       const polyNorm = normalizeTeamName(pm.question);
       if (
         (kalshiNorm && polyNorm && kalshiNorm === polyNorm) ||
