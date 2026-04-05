@@ -187,6 +187,7 @@ function Dashboard() {
   const [showSettings, setShowSettings] = useState(true);
   const [executing, setExecuting] = useState({});
   const [liveConfirm, setLiveConfirm] = useState(false);
+  const [rawMarkets, setRawMarkets] = useState({ kalshi: [], polymarket: [] });
 
   // ── paper balance tracking ──
   const [paperBalance, setPaperBalance] = useState(null);
@@ -278,6 +279,7 @@ function Dashboard() {
 
       const opps = data.opportunities || [];
       setOpportunities(opps);
+      setRawMarkets({ kalshi: data.kalshiRawMarkets || [], polymarket: data.polymarketRawMarkets || [] });
 
       if (data.message) addLog(data.message, "warn");
 
@@ -873,6 +875,55 @@ function Dashboard() {
               ))}
             </div>
           </div>
+        )}
+
+        {/* ── Available Markets Browse ── */}
+        {(rawMarkets.kalshi.length > 0 || rawMarkets.polymarket.length > 0) && (
+          <details className="border border-gray-200 rounded-xl overflow-hidden mb-6">
+            <summary className="px-5 py-3 bg-gray-50 hover:bg-gray-100 cursor-pointer text-sm font-semibold text-gray-700">
+              Available Markets ({rawMarkets.kalshi.length + rawMarkets.polymarket.length})
+            </summary>
+            <div className="p-4 border-t border-gray-200 space-y-4 max-h-96 overflow-y-auto">
+              {rawMarkets.kalshi.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Kalshi ({rawMarkets.kalshi.length})</p>
+                  <div className="space-y-2">
+                    {rawMarkets.kalshi.map((m) => (
+                      <div key={m.ticker} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-800 truncate">{m.team_name || m.title}</p>
+                          <p className="text-xs text-gray-400 font-mono">{m.ticker}</p>
+                        </div>
+                        <div className="flex gap-3 ml-3 text-xs font-mono shrink-0">
+                          <span className="text-emerald-600">Y {(m.yes_price * 100).toFixed(0)}c</span>
+                          <span className="text-red-500">N {(m.no_price * 100).toFixed(0)}c</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {rawMarkets.polymarket.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Polymarket ({rawMarkets.polymarket.length})</p>
+                  <div className="space-y-2">
+                    {rawMarkets.polymarket.map((m) => (
+                      <div key={m.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-800 truncate">{m.question}</p>
+                          <p className="text-xs text-gray-400">Vol: ${m.volume >= 1000 ? (m.volume/1000).toFixed(1) + "k" : m.volume.toFixed(0)} | Liq: ${m.liquidity >= 1000 ? (m.liquidity/1000).toFixed(1) + "k" : m.liquidity.toFixed(0)}</p>
+                        </div>
+                        <div className="flex gap-3 ml-3 text-xs font-mono shrink-0">
+                          <span className="text-emerald-600">Y {(m.yesPrice * 100).toFixed(0)}c</span>
+                          <span className="text-red-500">N {(m.noPrice * 100).toFixed(0)}c</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </details>
         )}
 
         {/* ── Scan Log ── */}

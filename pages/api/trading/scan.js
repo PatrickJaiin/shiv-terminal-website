@@ -473,6 +473,9 @@ export default async function handler(req, res) {
       stakeMatchCount: hasStake ? (stakeMatches || []).length : 0,
       kalshiMarketCount: kalshiMarkets.length,
       polymarketCount: polymarketMarkets.length,
+      // Return raw markets for browse view when no arbs found
+      kalshiRawMarkets: kalshiMarkets.slice(0, 20),
+      polymarketRawMarkets: polymarketMarkets.slice(0, 20),
       mock: false,
     });
   } catch (e) {
