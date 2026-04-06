@@ -34,10 +34,10 @@ export const siteData = {
   },
   projects: [
     {
-      name: "IPL Arbitrage Bot",
+      name: "AI Trading Bot",
       description:
-        "Automated cross-platform arbitrage bot exploiting pricing inefficiencies between Stake (sportsbook) and Kalshi (prediction market) for IPL cricket. Devigging, 12-step execution protocol, and risk-managed shadow/live modes.",
-      stack: ["Python", "httpx", "GraphQL", "REST API", "Arbitrage"],
+        "Full AI-native trading pipeline for prediction platforms like Kalshi and Polymarket. Currently exploring strategies including arbitrage and others — strategies are kept private as the project is proprietary.",
+      stack: ["Python", "httpx", "GraphQL", "REST API", "AI"],
       link: "/projects/trading-bot",
       year: "2026",
       locked: true,

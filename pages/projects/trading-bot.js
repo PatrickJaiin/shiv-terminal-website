@@ -1079,7 +1079,7 @@ export default function TradingBot() {
   return (
     <>
       <Head>
-        <title>Esports Arbitrage Bot - Shiv Gupta</title>
+        <title>AI Trading Bot - Shiv Gupta</title>
       </Head>
       <Navbar />
       {unlocked ? <Dashboard /> : <PasswordGate onUnlock={() => setUnlocked(true)} />}
