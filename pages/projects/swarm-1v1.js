@@ -322,8 +322,10 @@ export default function Swarm1v1() {
     const round = currentRound;
     const log = [];
 
-    // Income
-    let pIncome = 0, aIncome = 0;
+    // Income: airspace base income + resource income
+    const airspaceIncome = Math.floor(playerAirspace * 200); // $200 per meter of radius per round
+    const aiAirspaceIncome = Math.floor(aiSetup.airspace * 200);
+    let pIncome = airspaceIncome, aIncome = aiAirspaceIncome;
     for (const r of playerResources) { if (r.alive) { const res = RESOURCES.find((rr) => rr.key === r.key); if (res) pIncome += res.income; } }
     for (const r of aiSetup.resources) { if (r.alive) { const res = RESOURCES.find((rr) => rr.key === r.key); if (res) aIncome += res.income; } }
     setPlayerBudget((p) => p + pIncome);
@@ -704,13 +706,17 @@ export default function Swarm1v1() {
                         <span style={{ fontSize: 10, color: "#4a9eff" }}>{playerAirspace}m</span>
                       </div>
                       {(() => {
+                        const airIncome = Math.floor(playerAirspace * 200);
                         const resIncome = playerResources.filter((r) => r.alive).reduce((s, r) => { const res = RESOURCES.find((rr) => rr.key === r.key); return s + (res?.income || 0); }, 0);
+                        const totalIncome = airIncome + resIncome;
                         const armsCount = playerResources.filter((r) => r.alive && r.key === "arms").length;
                         return (
                           <div style={{ fontSize: 9, color: "#666", marginBottom: 8 }}>
-                            Income/round: <span style={{ color: "#4caf50" }}>${formatUSD(resIncome)}</span>
-                            {armsCount > 0 && <span style={{ color: "#8888cc" }}> + {armsCount * 2} free drones</span>}
-                            <br/>Airspace: {playerAirspace}m - <span style={{ color: playerAirspace > 3000 ? "#ff9800" : "#4caf50" }}>{playerAirspace > 3000 ? "large (hard to defend)" : playerAirspace > 2000 ? "medium" : "compact (easy to defend)"}</span>
+                            <div>Airspace income: <span style={{ color: "#4a9eff" }}>${formatUSD(airIncome)}/rnd</span></div>
+                            {resIncome > 0 && <div>Resource income: <span style={{ color: "#cc8800" }}>${formatUSD(resIncome)}/rnd</span></div>}
+                            <div>Total: <span style={{ color: "#4caf50", fontWeight: 600 }}>${formatUSD(totalIncome)}/rnd</span>
+                            {armsCount > 0 && <span style={{ color: "#8888cc" }}> + {armsCount * 2} drones</span>}</div>
+                            <div style={{ marginTop: 2 }}>Airspace: <span style={{ color: playerAirspace > 3000 ? "#ff9800" : "#4caf50" }}>{playerAirspace > 3000 ? "large - hard to defend" : playerAirspace > 2000 ? "medium" : "compact - easy to defend"}</span></div>
                           </div>
                         );
                       })()}
