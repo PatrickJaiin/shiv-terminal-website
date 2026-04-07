@@ -21,17 +21,11 @@ const DRONE_DB = {
 
 // ── Theater configs with geographic bounds ──
 const THEATERS = {
-  default: {
-    name: "Default (abstract arena)",
-    bounds: { south: 27.95, north: 28.05, west: 44.95, east: 45.05 },
-    mapCenter: [28.0, 45.0], mapZoom: 12,
-    defensePos: [[5000, 5000]], attackOrigins: [[0, 0], [10000, 0], [0, 10000], [10000, 10000]],
-  },
   kashmir: {
     name: "LoC Kashmir",
     bounds: { south: 33.5, north: 34.5, west: 73.5, east: 75.0 },
     mapCenter: [34.0, 74.25], mapZoom: 9,
-    defensePos: [[5000, 6000]], attackOrigins: [[500, 500], [9500, 500], [500, 9500]],
+    defensePos: [[5000, 5000]], attackOrigins: [[500, 500], [9500, 500], [500, 9500]],
   },
   israel_iran: {
     name: "Israel-Iran",
@@ -43,7 +37,7 @@ const THEATERS = {
     name: "Red Sea",
     bounds: { south: 12.0, north: 15.0, west: 42.0, east: 45.0 },
     mapCenter: [13.5, 43.5], mapZoom: 7,
-    defensePos: [[3000, 5000]], attackOrigins: [[9000, 2000], [9000, 8000]],
+    defensePos: [[5000, 5000]], attackOrigins: [[9000, 2000], [9000, 8000]],
   },
   ukraine_kyiv: {
     name: "Ukraine Kyiv",
@@ -55,7 +49,7 @@ const THEATERS = {
     name: "Taiwan Strait",
     bounds: { south: 23.0, north: 26.0, west: 119.0, east: 122.0 },
     mapCenter: [24.5, 120.5], mapZoom: 7,
-    defensePos: [[2000, 5000]], attackOrigins: [[9000, 2000], [9000, 5000], [9000, 8000]],
+    defensePos: [[5000, 5000]], attackOrigins: [[9000, 2000], [9000, 5000], [9000, 8000]],
   },
 };
 
@@ -96,7 +90,7 @@ function latLngToSim(lat, lng, bounds) {
 
 // ── Create drones for a scenario ──
 function createDrones(scenario, theater, customAttackSpawns, customDefenseSpawns) {
-  const th = THEATERS[theater] || THEATERS.default;
+  const th = THEATERS[theater] || THEATERS.kashmir;
   const center = [5000, 5000];
   const hasCustomAtk = customAttackSpawns.length > 0;
   const hasCustomDef = customDefenseSpawns.length > 0;
@@ -283,8 +277,6 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
   const spawnLayerRef = useRef(null);
   const legacyLayerRef = useRef(null);
   const flashLayerRef = useRef(null);
-  const tileLayersRef = useRef([]);
-  const arenaRectRef = useRef(null);
   const LRef = useRef(null);
   const onPlaceRef = useRef(onPlaceSpawn);
   const theaterRef2 = useRef(theater);
@@ -303,62 +295,34 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
       const Leaf = LRef.current;
 
       if (mapInstanceRef.current) return;
-      const th = THEATERS[theaterRef2.current] || THEATERS.default;
-      const isDefault = theaterRef2.current === "default";
+      const th = THEATERS[theaterRef2.current] || THEATERS.kashmir;
 
       const map = Leaf.map(mapRef.current, {
-        center: isDefault ? [5000, 5000] : th.mapCenter,
-        zoom: isDefault ? -1 : th.mapZoom,
+        center: th.mapCenter,
+        zoom: th.mapZoom,
         zoomControl: true,
-        crs: isDefault ? Leaf.CRS.Simple : Leaf.CRS.EPSG3857,
-        maxBounds: isDefault ? [[-500, -500], [10500, 10500]] : undefined,
       });
       mapInstanceRef.current = map;
 
-      if (isDefault) {
-        // Fit to arena bounds for simple CRS
-        map.fitBounds([[0, 0], [ARENA, ARENA]]);
-        // Draw arena rectangle
-        arenaRectRef.current = Leaf.rectangle([[0, 0], [ARENA, ARENA]], {
-          color: "#2a2a35", fillColor: "#0f0f18", fillOpacity: 1, weight: 2,
-        }).addTo(map);
-        // Grid lines
-        for (let i = 1; i < 10; i++) {
-          const v = (i / 10) * ARENA;
-          Leaf.polyline([[v, 0], [v, ARENA]], { color: "#1a1a28", weight: 0.5, interactive: false }).addTo(map);
-          Leaf.polyline([[0, v], [ARENA, v]], { color: "#1a1a28", weight: 0.5, interactive: false }).addTo(map);
-        }
-      } else {
-        const sat = Leaf.tileLayer(
-          "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-          { attribution: "Esri Satellite", maxZoom: 18 }
-        ).addTo(map);
-        const streets = Leaf.tileLayer(
-          "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-          { attribution: "OSM", maxZoom: 19, opacity: 0.35 }
-        ).addTo(map);
-        tileLayersRef.current = [sat, streets];
-      }
+      Leaf.tileLayer(
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+        { attribution: "Esri Satellite", maxZoom: 18 }
+      ).addTo(map);
+      Leaf.tileLayer(
+        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        { attribution: "OSM", maxZoom: 19, opacity: 0.35 }
+      ).addTo(map);
 
       droneLayerRef.current = Leaf.layerGroup().addTo(map);
       spawnLayerRef.current = Leaf.layerGroup().addTo(map);
       legacyLayerRef.current = Leaf.layerGroup().addTo(map);
       flashLayerRef.current = Leaf.layerGroup().addTo(map);
 
-      // Click handler for spawn placement
       map.on("click", (e) => {
         const fn = onPlaceRef.current;
         if (!fn) return;
-        const curTheater = theaterRef2.current;
-        const isSimple = curTheater === "default";
-        let x, y;
-        if (isSimple) {
-          x = e.latlng.lng;
-          y = e.latlng.lat;
-        } else {
-          const th2 = THEATERS[curTheater] || THEATERS.default;
-          [x, y] = latLngToSim(e.latlng.lat, e.latlng.lng, th2.bounds);
-        }
+        const th2 = THEATERS[theaterRef2.current] || THEATERS.kashmir;
+        let [x, y] = latLngToSim(e.latlng.lat, e.latlng.lng, th2.bounds);
         x = Math.max(0, Math.min(ARENA, x));
         y = Math.max(0, Math.min(ARENA, y));
         fn(x, y);
@@ -370,95 +334,16 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
 
   // Helper: convert sim coords to map latlng based on theater
   const simToLL = useCallback((x, y) => {
-    if (theater === "default") return [y, x]; // Simple CRS: lat=y, lng=x
-    const th = THEATERS[theater] || THEATERS.default;
+    const th = THEATERS[theater] || THEATERS.kashmir;
     return simToLatLng(x, y, th.bounds);
   }, [theater]);
 
-  // Reinitialize map when switching between default (Simple CRS) and geo theaters
-  const prevTheaterTypeRef = useRef(theater === "default" ? "simple" : "geo");
+  // Pan to new theater
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
-    const isDefault = theater === "default";
-    const newType = isDefault ? "simple" : "geo";
-    if (newType !== prevTheaterTypeRef.current) {
-      // CRS changed - must recreate map
-      map.remove();
-      mapInstanceRef.current = null;
-      droneLayerRef.current = null;
-      spawnLayerRef.current = null;
-      legacyLayerRef.current = null;
-      flashLayerRef.current = null;
-      tileLayersRef.current = [];
-      arenaRectRef.current = null;
-      LRef.current = null;
-      prevTheaterTypeRef.current = newType;
-
-      // Re-run init
-      (async () => {
-        const L = await import("leaflet");
-        const Leaf = L.default || L;
-        LRef.current = Leaf;
-        const th = THEATERS[theater] || THEATERS.default;
-
-        const newMap = Leaf.map(mapRef.current, {
-          center: isDefault ? [5000, 5000] : th.mapCenter,
-          zoom: isDefault ? -1 : th.mapZoom,
-          zoomControl: true,
-          crs: isDefault ? Leaf.CRS.Simple : Leaf.CRS.EPSG3857,
-          maxBounds: isDefault ? [[-500, -500], [10500, 10500]] : undefined,
-        });
-        mapInstanceRef.current = newMap;
-
-        if (isDefault) {
-          newMap.fitBounds([[0, 0], [ARENA, ARENA]]);
-          arenaRectRef.current = Leaf.rectangle([[0, 0], [ARENA, ARENA]], {
-            color: "#2a2a35", fillColor: "#0f0f18", fillOpacity: 1, weight: 2,
-          }).addTo(newMap);
-          for (let i = 1; i < 10; i++) {
-            const v = (i / 10) * ARENA;
-            Leaf.polyline([[v, 0], [v, ARENA]], { color: "#1a1a28", weight: 0.5, interactive: false }).addTo(newMap);
-            Leaf.polyline([[0, v], [ARENA, v]], { color: "#1a1a28", weight: 0.5, interactive: false }).addTo(newMap);
-          }
-        } else {
-          const sat = Leaf.tileLayer(
-            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-            { attribution: "Esri Satellite", maxZoom: 18 }
-          ).addTo(newMap);
-          const streets = Leaf.tileLayer(
-            "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-            { attribution: "OSM", maxZoom: 19, opacity: 0.35 }
-          ).addTo(newMap);
-          tileLayersRef.current = [sat, streets];
-        }
-
-        droneLayerRef.current = Leaf.layerGroup().addTo(newMap);
-        spawnLayerRef.current = Leaf.layerGroup().addTo(newMap);
-        legacyLayerRef.current = Leaf.layerGroup().addTo(newMap);
-        flashLayerRef.current = Leaf.layerGroup().addTo(newMap);
-
-        newMap.on("click", (e) => {
-          const fn = onPlaceRef.current;
-          if (!fn) return;
-          const curTheater = theaterRef2.current;
-          const isSimple = curTheater === "default";
-          let x2, y2;
-          if (isSimple) { x2 = e.latlng.lng; y2 = e.latlng.lat; }
-          else {
-            const th2 = THEATERS[curTheater] || THEATERS.default;
-            [x2, y2] = latLngToSim(e.latlng.lat, e.latlng.lng, th2.bounds);
-          }
-          x2 = Math.max(0, Math.min(ARENA, x2));
-          y2 = Math.max(0, Math.min(ARENA, y2));
-          fn(x2, y2);
-        });
-      })();
-    } else if (!isDefault) {
-      // Same CRS type, just pan to new theater
-      const th = THEATERS[theater] || THEATERS.default;
-      map.setView(th.mapCenter, th.mapZoom);
-    }
+    const th = THEATERS[theater] || THEATERS.kashmir;
+    map.setView(th.mapCenter, th.mapZoom);
   }, [theater]);
 
   // Draw spawn markers
@@ -468,7 +353,7 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
     if (!L || !layer) return;
     layer.clearLayers();
 
-    const th = THEATERS[theater] || THEATERS.default;
+    const th = THEATERS[theater] || THEATERS.kashmir;
     const atkCustom = attackSpawns.length > 0;
     const defCustom = defenseSpawns.length > 0;
 
@@ -531,23 +416,14 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
     layer.clearLayers();
 
     const center = simToLL(LEGACY_CENTER[0], LEGACY_CENTER[1]);
-    const isDefault = theater === "default";
-
-    if (isDefault) {
-      L.circle(center, {
-        radius: LEGACY_RADIUS, color: "#22aa22", fillColor: "#22aa22",
-        fillOpacity: 0.04, weight: 2, opacity: 0.8,
-      }).addTo(layer);
-    } else {
-      const th = THEATERS[theater] || THEATERS.default;
-      const latSpan = th.bounds.north - th.bounds.south;
-      const metersPerUnit = (latSpan * 111000) / ARENA;
-      const geoRadius = LEGACY_RADIUS * metersPerUnit;
-      L.circle(center, {
-        radius: geoRadius, color: "#22aa22", fillColor: "#22aa22",
-        fillOpacity: 0.04, weight: 2, opacity: 0.8,
-      }).addTo(layer);
-    }
+    const th = THEATERS[theater] || THEATERS.kashmir;
+    const latSpan = th.bounds.north - th.bounds.south;
+    const metersPerUnit = (latSpan * 111000) / ARENA;
+    const geoRadius = LEGACY_RADIUS * metersPerUnit;
+    L.circle(center, {
+      radius: geoRadius, color: "#22aa22", fillColor: "#22aa22",
+      fillOpacity: 0.04, weight: 2, opacity: 0.8,
+    }).addTo(layer);
 
     L.marker(center, {
       icon: L.divIcon({
@@ -630,7 +506,7 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
 
 // ── Main page ──
 export default function SwarmInterception() {
-  const [theater, setTheater] = useState("default");
+  const [theater, setTheater] = useState("kashmir");
   const [scenario, setScenario] = useState("default_30v20");
   const [simState, setSimState] = useState(null);
   const [running, setRunning] = useState(false);
