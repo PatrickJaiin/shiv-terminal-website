@@ -43,38 +43,43 @@ const THEATERS = {
     bounds: { south: 33.5, north: 34.5, west: 73.5, east: 75.0 },
     mapCenter: [34.0, 74.25], mapZoom: 9,
     defensePos: [[5000, 5000]], attackOrigins: [[500, 500], [9500, 500], [500, 9500]],
+    freeAD: { key: "s300", x: 5000, y: 5200 },
   },
   israel_iran: {
     name: "Israel-Iran",
     bounds: { south: 31.0, north: 33.0, west: 34.0, east: 36.0 },
     mapCenter: [32.0, 35.0], mapZoom: 8,
     defensePos: [[5000, 5000]], attackOrigins: [[9500, 500], [9500, 9500], [9500, 5000]],
+    freeAD: { key: "iron_dome", x: 5000, y: 5200 },
   },
   red_sea: {
     name: "Red Sea",
     bounds: { south: 12.0, north: 15.0, west: 42.0, east: 45.0 },
     mapCenter: [13.5, 43.5], mapZoom: 7,
     defensePos: [[5000, 5000]], attackOrigins: [[9000, 2000], [9000, 8000]],
+    freeAD: { key: "nasams", x: 5000, y: 5200 },
   },
   ukraine_kyiv: {
     name: "Ukraine Kyiv",
     bounds: { south: 49.0, north: 51.0, west: 30.0, east: 33.0 },
     mapCenter: [50.0, 31.5], mapZoom: 8,
     defensePos: [[5000, 5000]], attackOrigins: [[9500, 1000], [9500, 5000], [9500, 9000], [7000, 200]],
+    freeAD: { key: "nasams", x: 5000, y: 5200 },
   },
   taiwan_strait: {
     name: "Taiwan Strait",
     bounds: { south: 23.0, north: 26.0, west: 119.0, east: 122.0 },
     mapCenter: [24.5, 120.5], mapZoom: 7,
     defensePos: [[5000, 5000]], attackOrigins: [[9000, 2000], [9000, 5000], [9000, 8000]],
+    freeAD: { key: "patriot", x: 5000, y: 5200 },
   },
 };
 
 const SCENARIOS = {
   sandbox: { name: "Sandbox", attackers: { fpv_kamikaze: 10, shahed_136: 5 }, interceptors: 20, budget: null },
-  medium: { name: "Medium", attackers: { fpv_kamikaze: 80, shahed_136: 40, lancet_3: 20 }, interceptors: 6, budget: 8 },
-  hard: { name: "Hard", attackers: { fpv_kamikaze: 150, shahed_136: 70, lancet_3: 40, mohajer_6: 15 }, interceptors: 5, budget: 12 },
-  nightmare: { name: "Nightmare", attackers: { fpv_kamikaze: 250, shahed_136: 100, lancet_3: 60, mohajer_6: 25, orion: 10, wing_loong: 5 }, interceptors: 4, budget: 15 },
+  medium: { name: "Medium", attackers: { fpv_kamikaze: 80, shahed_136: 40, lancet_3: 20 }, interceptors: 6, budget: 100 },
+  hard: { name: "Hard", attackers: { fpv_kamikaze: 150, shahed_136: 70, lancet_3: 40, mohajer_6: 15 }, interceptors: 5, budget: 150 },
+  nightmare: { name: "Nightmare", attackers: { fpv_kamikaze: 250, shahed_136: 100, lancet_3: 60, mohajer_6: 25, orion: 10, wing_loong: 5 }, interceptors: 4, budget: 200 },
 };
 
 const KILL_RADIUS = 120;
@@ -792,9 +797,12 @@ export default function SwarmInterception() {
   const [zoneCenter, setZoneCenter] = useState(DEFAULT_ZONE_CENTER);
   const [zoneRadius, setZoneRadius] = useState(DEFAULT_ZONE_RADIUS);
   const [assetRadius, setAssetRadius] = useState(DEFAULT_ASSET_RADIUS);
-  const [defenseBudget, setDefenseBudget] = useState(8); // in millions USD
+  const [defenseBudget, setDefenseBudget] = useState(100); // in millions USD
   const [adPlaceKey, setAdPlaceKey] = useState("iron_dome");
   const [adUnits, setAdUnits] = useState([
+    { id: 0, key: "nasams", x: 4500, y: 5500, health: 1, ammo: 6, free: true },
+    { id: 1, key: "iron_dome", x: 5500, y: 5500, health: 1, ammo: 20, free: true },
+    { id: 2, key: "gepard", x: 5000, y: 4500, health: 1, ammo: 680, free: true },
   ]);
 
   const simRef = useRef(null);
@@ -942,11 +950,11 @@ export default function SwarmInterception() {
     setZoneCenter(DEFAULT_ZONE_CENTER);
     setZoneRadius(DEFAULT_ZONE_RADIUS);
     setAssetRadius(DEFAULT_ASSET_RADIUS);
-    setDefenseBudget(8);
+    setDefenseBudget(100);
     setAdUnits([
-      { id: 0, key: "nasams", x: 4500, y: 5800, health: 1, ammo: 6 },
-      { id: 1, key: "iron_dome", x: 5500, y: 5800, health: 1, ammo: 20 },
-      { id: 2, key: "gepard", x: 5000, y: 4200, health: 1, ammo: 680 },
+      { id: 0, key: "nasams", x: 4500, y: 5500, health: 1, ammo: 6, free: true },
+      { id: 1, key: "iron_dome", x: 5500, y: 5500, health: 1, ammo: 20, free: true },
+      { id: 2, key: "gepard", x: 5000, y: 4500, health: 1, ammo: 680, free: true },
     ]);
   }, []);
 
@@ -1116,7 +1124,7 @@ export default function SwarmInterception() {
               const sys = AD_SYSTEMS.find((s) => s.key === ad.key);
               return (
                 <div key={ad.id} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 3, fontSize: 10, color: sys?.color || "#888" }}>
-                  <span style={{ flex: 1 }}>{sys?.name || ad.key} [{ad.ammo}]</span>
+                  <span style={{ flex: 1 }}>{sys?.name || ad.key} [{ad.ammo}]{ad.free ? " (free)" : ""}</span>
                   <button onClick={() => setAdUnits((prev) => prev.filter((_, j) => j !== i))} disabled={running}
                     style={{ background: "transparent", border: "1px solid #333", color: "#888", width: 18, height: 18, padding: 0, fontSize: 12, lineHeight: "16px", textAlign: "center", cursor: "pointer", borderRadius: 3 }}>&times;</button>
                 </div>
@@ -1272,7 +1280,7 @@ export default function SwarmInterception() {
               }
               const lostDroneCost = simState ? simState.interceptors.filter((i) => i.status === "expended").reduce((s, i) => s + i.cost, 0) : 0;
               const flightCost = m.defense_cost || 0;
-              const adDeployCost = adUnits.reduce((s, ad) => { const sys = AD_SYSTEMS.find((s2) => s2.key === ad.key); return s + (sys ? sys.cost : 0); }, 0);
+              const adDeployCost = adUnits.reduce((s, ad) => { if (ad.free) return s; const sys = AD_SYSTEMS.find((s2) => s2.key === ad.key); return s + (sys ? sys.cost : 0); }, 0);
               const adDamageCost = adUnits.reduce((s, ad) => { if (ad.health <= 0) { const sys = AD_SYSTEMS.find((s2) => s2.key === ad.key); return s + (sys ? sys.cost * 0.5 : 0); } return s; }, 0);
               const breachDmg = m.breach_damage || 0;
               const totalSpent = droneFleetCost + lostDroneCost + flightCost + adDeployCost + adDamageCost + breachDmg;
