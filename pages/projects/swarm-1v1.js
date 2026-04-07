@@ -13,15 +13,15 @@ const THEATERS = {
 };
 
 const ATTACK_UNITS = [
-  { key: "fpv", name: "FPV Drone", cost: 500, speed: 1.5, threat: "cheap" },
-  { key: "shahed", name: "Shahed-136", cost: 20000, speed: 1.0, threat: "cheap" },
-  { key: "lancet", name: "Lancet-3", cost: 35000, speed: 1.8, threat: "medium" },
-  { key: "mohajer", name: "Mohajer-6", cost: 500000, speed: 0.8, threat: "expensive" },
+  { key: "fpv", name: "FPV Drone", cost: 500, speed: 8, threat: "cheap" },
+  { key: "shahed", name: "Shahed-136", cost: 20000, speed: 6, threat: "cheap" },
+  { key: "lancet", name: "Lancet-3", cost: 35000, speed: 10, threat: "medium" },
+  { key: "mohajer", name: "Mohajer-6", cost: 500000, speed: 5, threat: "expensive" },
 ];
 
 const DEFENSE_UNITS = [
-  { key: "kamikaze", name: "Kamikaze Interceptor", cost: 15000, speed: 2.2, destroyOnKill: true },
-  { key: "armed", name: "Armed Interceptor", cost: 180000, speed: 1.8, destroyOnKill: false, survivalRate: 0.73 },
+  { key: "kamikaze", name: "Kamikaze Interceptor", cost: 15000, speed: 12, destroyOnKill: true },
+  { key: "armed", name: "Armed Interceptor", cost: 180000, speed: 10, destroyOnKill: false, survivalRate: 0.73 },
 ];
 
 const AD_SYSTEMS_1V1 = [
@@ -64,7 +64,7 @@ function generateAISetup() {
     ],
     interceptors: Array.from({ length: 8 }, (_, i) => ({
       id: 5000 + i, x: hqX + (Math.random() - 0.5) * 800, y: hqY + 1200 + Math.random() * 400,
-      speed: 2.0, status: "active", targetId: null, destroyOnKill: i < 6, survivalRate: 0.73,
+      speed: i < 6 ? 12 : 10, status: "active", targetId: null, destroyOnKill: i < 6, survivalRate: 0.73,
     })),
     adUnits: [
       { key: "gepard", x: hqX, y: hqY + 600, health: 1, ammo: 680 },
@@ -645,10 +645,13 @@ export default function Swarm1v1() {
 
       setBattleDrones({ playerAttackers: [...b.pAttackers], aiAttackers: [...b.aAttackers], playerInts: [...b.pInts], aiInts: [...b.aInts] });
 
-      // RTB phase: when no active attackers remain, interceptors fly home
+      // RTB phase: interceptors only RTB when ALL attackers on BOTH sides are gone
       const aAtk = b.aAttackers.filter((a) => a.status === "active").length;
       const pAtk = b.pAttackers.filter((a) => a.status === "active").length;
-      if (aAtk === 0) {
+      const allAttackersGone = aAtk === 0 && pAtk === 0;
+
+      if (allAttackersGone) {
+        // Player interceptors RTB
         for (const int of b.pInts) {
           if (int.status !== "active") continue;
           const dx = int.spawnX - int.x, dy = int.spawnY - int.y;
@@ -658,8 +661,7 @@ export default function Swarm1v1() {
           int.y += Math.sin(int.heading) * int.speed;
           int.targetId = null;
         }
-      }
-      if (pAtk === 0) {
+        // AI interceptors RTB
         for (const int of b.aInts) {
           if (int.status !== "active") continue;
           const dx = int.spawnX - int.x, dy = int.spawnY - int.y;
@@ -674,8 +676,8 @@ export default function Swarm1v1() {
       // Check if battle is over: all attackers gone AND all interceptors landed/expended
       const pIntsActive = b.pInts.filter((i) => i.status === "active").length;
       const aIntsActive = b.aInts.filter((i) => i.status === "active").length;
-      const allDone = aAtk === 0 && pAtk === 0 && pIntsActive === 0 && aIntsActive === 0;
-      if ((allDone && b.step > 50) || b.step > 5000) {
+      const allDone = allAttackersGone && pIntsActive === 0 && aIntsActive === 0;
+      if ((allDone && b.step > 100) || b.step > 30000) {
         // Battle ended
         const endLog = [];
         endLog.push(`Battle ${round + 1} done: You killed ${b.aKills}, lost ${b.pBreaches} breaches | AI killed ${b.pKills}, lost ${b.aBreaches} breaches`);
