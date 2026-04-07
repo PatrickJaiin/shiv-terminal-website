@@ -281,12 +281,13 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
 
       // Click handler for spawn placement
       map.on("click", (e) => {
-        if (onMapClick.current) {
-          const th2 = THEATERS[onMapClick.theaterRef?.current] || THEATERS.default;
-          const [x, y] = latLngToSim(e.latlng.lat, e.latlng.lng, th2.bounds);
-          if (x >= 0 && x <= ARENA && y >= 0 && y <= ARENA) {
-            onMapClick.current(x, y);
-          }
+        const cb = onMapClick.current;
+        if (!cb) return;
+        const thKey = onMapClick.theater || "default";
+        const th2 = THEATERS[thKey] || THEATERS.default;
+        const [x, y] = latLngToSim(e.latlng.lat, e.latlng.lng, th2.bounds);
+        if (x >= 0 && x <= ARENA && y >= 0 && y <= ARENA) {
+          cb(x, y);
         }
       });
     }
@@ -457,23 +458,18 @@ export default function SwarmInterception() {
   const frameRef = useRef(null);
   const theaterRef = useRef(theater);
 
-  // Mutable callback ref for map clicks
+  // Mutable callback ref for map clicks - stores .current (callback) and .theater (string)
   const mapClickRef = useRef(null);
-  mapClickRef.theaterRef = theaterRef;
 
   useEffect(() => { speedRef.current = speed; }, [speed]);
   useEffect(() => { pausedRef.current = paused; }, [paused]);
-  useEffect(() => { theaterRef.current = theater; }, [theater]);
+  useEffect(() => { theaterRef.current = theater; mapClickRef.theater = theater; }, [theater]);
 
   useEffect(() => {
-    if (placementMode) {
-      mapClickRef.current = (x, y) => {
-        if (placementMode === "attack") {
-          setAttackSpawns((prev) => [...prev, [x, y]]);
-        } else {
-          setDefenseSpawns((prev) => [...prev, [x, y]]);
-        }
-      };
+    if (placementMode === "attack") {
+      mapClickRef.current = (x, y) => setAttackSpawns((prev) => [...prev, [x, y]]);
+    } else if (placementMode === "defense") {
+      mapClickRef.current = (x, y) => setDefenseSpawns((prev) => [...prev, [x, y]]);
     } else {
       mapClickRef.current = null;
     }
