@@ -116,6 +116,7 @@ export default function Swarm1v1() {
   const [playerInterceptors, setPlayerInterceptors] = useState([]);
   const [playerAD, setPlayerAD] = useState([]);
   const [playerAttack, setPlayerAttack] = useState({ fpv: 10, shahed: 3 });
+  const [attackPriority, setAttackPriority] = useState("hq"); // "hq" | "ad" | "resources" | "interceptors"
   const [playerBudget, setPlayerBudget] = useState(STARTING_BUDGET);
   const [placingWhat, setPlacingWhat] = useState(null);
 
@@ -286,20 +287,22 @@ export default function Swarm1v1() {
     const aiWave = generateAIAttack(round);
     const aAttackers = spawnDrones(aiWave, aiSetup.hqX, aiSetup.hqY + 500, playerHQ.x, playerHQ.y, 20000 + round * 1000);
 
-    // Player interceptors
+    // Player interceptors with spawn positions for RTB
     const pInts = [];
     for (const d of playerInterceptors) {
       const def = DEFENSE_UNITS.find((dd) => dd.key === d.key);
       for (let i = 0; i < d.count; i++) {
+        const sx = d.x + (Math.random() - 0.5) * 300;
+        const sy = d.y + (Math.random() - 0.5) * 300;
         pInts.push({
-          id: 30000 + pInts.length, x: d.x + (Math.random() - 0.5) * 300, y: d.y + (Math.random() - 0.5) * 300,
+          id: 30000 + pInts.length, x: sx, y: sy, spawnX: sx, spawnY: sy,
           speed: def?.speed || 2.0, status: "active", targetId: null,
           destroyOnKill: def?.destroyOnKill !== false, survivalRate: def?.survivalRate || 0,
         });
       }
     }
-    // AI interceptors
-    const aInts = aiSetup.interceptors.filter((i) => i.status === "active").map((i) => ({ ...i }));
+    // AI interceptors with spawn positions
+    const aInts = aiSetup.interceptors.filter((i) => i.status === "active").map((i) => ({ ...i, spawnX: i.x, spawnY: i.y }));
 
     log.push(`You sent ${pAttackers.length} drones | ${opponentName} sent ${aAttackers.length} drones`);
     setCombatLog((prev) => [...prev, ...log]);
@@ -328,10 +331,29 @@ export default function Swarm1v1() {
         a.y += Math.sin(a.heading) * a.speed;
         if (dist(a, playerHQ) < 200) { a.status = "breached"; b.aBreaches++; }
       }
-      // Move player attackers toward AI HQ
+      // Move player attackers - target based on priority
       for (const a of b.pAttackers) {
         if (a.status !== "active") continue;
-        const dx = aiSetup.hqX - a.x, dy = aiSetup.hqY - a.y;
+        let tx = aiSetup.hqX, ty = aiSetup.hqY;
+        if (attackPriority === "ad" && b.aAD.some((ad) => ad.health > 0)) {
+          const alive = b.aAD.filter((ad) => ad.health > 0);
+          const closest = alive.reduce((best, ad) => dist(a, ad) < dist(a, best) ? ad : best, alive[0]);
+          tx = closest.x; ty = closest.y;
+          if (dist(a, closest) < 100) { closest.health = 0; closest.ammo = 0; a.status = "expended"; continue; }
+        } else if (attackPriority === "resources") {
+          const alive = aiSetup.resources.filter((r) => r.alive);
+          if (alive.length > 0) {
+            const closest = alive.reduce((best, r) => dist(a, r) < dist(a, best) ? r : best, alive[0]);
+            tx = closest.x; ty = closest.y;
+            if (dist(a, closest) < 100) { closest.alive = false; a.status = "expended"; b.pBreaches++; continue; }
+          }
+        } else if (attackPriority === "interceptors" && b.aInts.some((i) => i.status === "active")) {
+          const alive = b.aInts.filter((i) => i.status === "active");
+          const closest = alive.reduce((best, i) => dist(a, i) < dist(a, best) ? i : best, alive[0]);
+          tx = closest.x; ty = closest.y;
+          if (dist(a, closest) < KILL_RADIUS) { closest.status = "expended"; a.status = "expended"; continue; }
+        }
+        const dx = tx - a.x, dy = ty - a.y;
         let diff = Math.atan2(dy, dx) - a.heading;
         while (diff > Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
@@ -407,18 +429,51 @@ export default function Swarm1v1() {
         for (const a of b.aAttackers) { if (a.status === "active") L.circleMarker(toLL(a.x, a.y), { radius: 3, color: "#ff4444", fillColor: "#ff4444", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
         // Your attack drones: cyan small (heading north->south)
         for (const a of b.pAttackers) { if (a.status === "active") L.circleMarker(toLL(a.x, a.y), { radius: 3, color: "#00ddff", fillColor: "#00ddff", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
-        // Your interceptors: blue with white border (larger, defending)
-        for (const i of b.pInts) { if (i.status === "active") L.circleMarker(toLL(i.x, i.y), { radius: 5, color: "#ffffff", fillColor: "#4a9eff", fillOpacity: 0.9, weight: 1.5 }).addTo(bl); }
-        // Enemy interceptors: red with dark border (larger, defending)
-        for (const i of b.aInts) { if (i.status === "active") L.circleMarker(toLL(i.x, i.y), { radius: 5, color: "#880000", fillColor: "#ff5555", fillOpacity: 0.9, weight: 1.5 }).addTo(bl); }
+        // Your interceptors: blue with white border (active), dimmer when returning/landed
+        for (const i of b.pInts) {
+          if (i.status === "active") L.circleMarker(toLL(i.x, i.y), { radius: 5, color: "#ffffff", fillColor: "#4a9eff", fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
+          else if (i.status === "landed") L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#336699", fillColor: "#336699", fillOpacity: 0.5, weight: 1 }).addTo(bl);
+        }
+        // Enemy interceptors
+        for (const i of b.aInts) {
+          if (i.status === "active") L.circleMarker(toLL(i.x, i.y), { radius: 5, color: "#880000", fillColor: "#ff5555", fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
+          else if (i.status === "landed") L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#663333", fillColor: "#663333", fillOpacity: 0.5, weight: 1 }).addTo(bl);
+        }
       }
 
       setBattleDrones({ playerAttackers: [...b.pAttackers], aiAttackers: [...b.aAttackers], playerInts: [...b.pInts], aiInts: [...b.aInts] });
 
-      // Check if battle is over
+      // RTB phase: when no active attackers remain, interceptors fly home
       const aAtk = b.aAttackers.filter((a) => a.status === "active").length;
       const pAtk = b.pAttackers.filter((a) => a.status === "active").length;
-      if (aAtk === 0 && pAtk === 0 || b.step > 2000) {
+      if (aAtk === 0) {
+        for (const int of b.pInts) {
+          if (int.status !== "active") continue;
+          const dx = int.spawnX - int.x, dy = int.spawnY - int.y;
+          if (Math.sqrt(dx * dx + dy * dy) < 30) { int.status = "landed"; continue; }
+          int.heading = Math.atan2(dy, dx);
+          int.x += Math.cos(int.heading) * int.speed;
+          int.y += Math.sin(int.heading) * int.speed;
+          int.targetId = null;
+        }
+      }
+      if (pAtk === 0) {
+        for (const int of b.aInts) {
+          if (int.status !== "active") continue;
+          const dx = int.spawnX - int.x, dy = int.spawnY - int.y;
+          if (Math.sqrt(dx * dx + dy * dy) < 30) { int.status = "landed"; continue; }
+          int.heading = Math.atan2(dy, dx);
+          int.x += Math.cos(int.heading) * int.speed;
+          int.y += Math.sin(int.heading) * int.speed;
+          int.targetId = null;
+        }
+      }
+
+      // Check if battle is over: all attackers gone AND all interceptors landed/expended
+      const pIntsActive = b.pInts.filter((i) => i.status === "active").length;
+      const aIntsActive = b.aInts.filter((i) => i.status === "active").length;
+      const allDone = aAtk === 0 && pAtk === 0 && pIntsActive === 0 && aIntsActive === 0;
+      if (allDone || b.step > 3000) {
         // Battle ended
         const endLog = [];
         endLog.push(`Battle ${round + 1} done: You killed ${b.aKills}, lost ${b.pBreaches} breaches | AI killed ${b.pKills}, lost ${b.aBreaches} breaches`);
@@ -485,7 +540,7 @@ export default function Swarm1v1() {
     }
 
     frameRef.current = requestAnimationFrame(tick);
-  }, [playerHQ, aiSetup, currentRound, playerResources, playerInterceptors, playerAD, playerAttack, playerBudget, aiBudget, gameOver, battleActive, username, opponentName]);
+  }, [playerHQ, aiSetup, currentRound, playerResources, playerInterceptors, playerAD, playerAttack, playerBudget, aiBudget, gameOver, battleActive, username, opponentName, attackPriority]);
 
   useEffect(() => () => { if (frameRef.current) cancelAnimationFrame(frameRef.current); }, []);
 
@@ -606,6 +661,18 @@ export default function Swarm1v1() {
                             style={{ width: 45, ...inputStyle, fontSize: 10, textAlign: "center", padding: "2px 4px" }} />
                         </div>
                       ))}
+                      <div style={{ fontSize: 10, textTransform: "uppercase", color: "#ff9800", margin: "8px 0 4px" }}>Attack Priority</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3 }}>
+                        {[["hq", "HQ"], ["ad", "Ground AD"], ["resources", "Resources"], ["interceptors", "Interceptors"]].map(([k, label]) => (
+                          <button key={k} onClick={() => setAttackPriority(k)}
+                            style={{ ...inputStyle, fontSize: 9, padding: "5px 4px", textAlign: "center", cursor: "pointer",
+                              border: attackPriority === k ? "1px solid #ff9800" : "1px solid #2a2a35",
+                              color: attackPriority === k ? "#ff9800" : "#666",
+                              background: attackPriority === k ? "rgba(255,152,0,0.1)" : "#1a1a24" }}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
 
                       <button onClick={() => { setPhase(PHASE.COMBAT); }} disabled={remaining < 0}
                         style={{ ...btnStyle, width: "100%", marginTop: 12, background: remaining >= 0 ? "#4a1a2a" : "#1a1a24", borderColor: remaining >= 0 ? "#ff6688" : "#333", color: remaining >= 0 ? "#ff6688" : "#555", fontSize: 12 }}>
@@ -656,9 +723,21 @@ export default function Swarm1v1() {
                             style={{ width: 40, ...inputStyle, fontSize: 9, textAlign: "center", padding: "2px" }} />
                         </div>
                       ))}
+                      <div style={{ fontSize: 9, textTransform: "uppercase", color: "#ff9800", margin: "4px 0 3px" }}>Priority Target</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2, marginBottom: 6 }}>
+                        {[["hq", "HQ"], ["ad", "Ground AD"], ["resources", "Resources"], ["interceptors", "Interceptors"]].map(([k, label]) => (
+                          <button key={k} onClick={() => setAttackPriority(k)}
+                            style={{ ...inputStyle, fontSize: 8, padding: "4px 3px", textAlign: "center", cursor: "pointer",
+                              border: attackPriority === k ? "1px solid #ff9800" : "1px solid #2a2a35",
+                              color: attackPriority === k ? "#ff9800" : "#666",
+                              background: attackPriority === k ? "rgba(255,152,0,0.1)" : "#1a1a24" }}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
 
                       <button onClick={launchRound}
-                        style={{ ...btnStyle, width: "100%", marginTop: 8, background: "#4a1a2a", borderColor: "#ff6688", color: "#ff6688", fontSize: 12 }}>
+                        style={{ ...btnStyle, width: "100%", marginTop: 4, background: "#4a1a2a", borderColor: "#ff6688", color: "#ff6688", fontSize: 12 }}>
                         LAUNCH ROUND {currentRound + 1}
                       </button>
                     </>
