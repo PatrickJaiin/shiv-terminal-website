@@ -193,7 +193,6 @@ export default function Swarm1v1() {
     if (battleActive && (placingWhat === "sell" || placingWhat === "delete")) return;
 
     if (placingWhat === "hq") {
-      if (y < 5500) return;
       setPlayerHQ({ x, y }); setPlacingWhat(null);
     } else if (placingWhat === "sell") {
       // Sell: find closest unit within 200 and remove with 42% refund
@@ -289,8 +288,12 @@ export default function Swarm1v1() {
         setTimeout(() => infoRef.setInfoPopup(null), 3000);
       });
       setMapReady(true);
-      // Fix map sizing after render
+      // Fix map sizing after render - multiple attempts
       setTimeout(() => map.invalidateSize(), 100);
+      setTimeout(() => map.invalidateSize(), 500);
+      // Watch for container resizes
+      const ro = new ResizeObserver(() => map.invalidateSize());
+      ro.observe(mapRef.current);
     })();
     return () => { cancelled = true; };
   }, [phase, theater]);
@@ -318,7 +321,12 @@ export default function Swarm1v1() {
     for (const d of playerInterceptors) L.circleMarker(toLL(d.x, d.y), { radius: 4, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 0.6, weight: 1 }).addTo(layer);
     for (const ad of playerAD) {
       const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
-      if (sys) L.circleMarker(toLL(ad.x, ad.y), { radius: 6, color: ad.health > 0 ? sys.color : "#444", fillColor: ad.health > 0 ? sys.color : "#333", fillOpacity: 0.8, weight: 2 }).addTo(layer);
+      if (!sys) continue;
+      // Range circle
+      if (ad.health > 0) {
+        L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.03, weight: 1, opacity: 0.3, dashArray: "6 4", interactive: false }).addTo(layer);
+      }
+      L.circleMarker(toLL(ad.x, ad.y), { radius: 6, color: ad.health > 0 ? sys.color : "#444", fillColor: ad.health > 0 ? sys.color : "#333", fillOpacity: 0.8, weight: 2 }).addTo(layer);
     }
 
     // AI
@@ -753,7 +761,7 @@ export default function Swarm1v1() {
               {phase === PHASE.SETUP && (
                 <>
                   <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "#ff6688", marginBottom: 8 }}>Setup Phase</div>
-                  <div style={{ fontSize: 10, color: "#666", marginBottom: 8 }}>Place HQ in the north half, add resources, defenses, ground AD, then design your attack wave and launch.</div>
+                  <div style={{ fontSize: 10, color: "#666", marginBottom: 8 }}>Place HQ anywhere on the map, add resources, defenses, ground AD, then design your attack wave.</div>
                   <div style={{ fontSize: 11, color: "#888", marginBottom: 8, transition: "transform 0.1s", transform: budgetShake ? `translateX(${Math.random() > 0.5 ? 4 : -4}px)` : "none" }}>
                     Budget: <span style={{ color: remaining >= 0 ? "#4caf50" : "#ff5555", fontWeight: 600 }}>${formatUSD(Math.max(0, remaining))}</span>
                     <span style={{ color: "#555", fontSize: 9 }}> / ${formatUSD(playerBudget)}</span>
@@ -761,7 +769,7 @@ export default function Swarm1v1() {
 
                   <button onClick={() => setPlacingWhat("hq")} disabled={!!playerHQ}
                     style={{ ...inputStyle, width: "100%", marginBottom: 6, cursor: playerHQ ? "not-allowed" : "pointer", opacity: playerHQ ? 0.4 : 1, textAlign: "center", fontSize: 11, border: placingWhat === "hq" ? "1px solid #4a9eff" : "1px solid #2a2a35" }}>
-                    {playerHQ ? "HQ Placed" : placingWhat === "hq" ? "Click north half..." : "Place HQ"}
+                    {playerHQ ? "HQ Placed" : placingWhat === "hq" ? "Click on map..." : "Place HQ"}
                   </button>
 
                   {playerHQ && (
@@ -965,13 +973,15 @@ export default function Swarm1v1() {
                         </button>
                       ))}
 
-                      <div style={{ fontSize: 10, textTransform: "uppercase", color: "#ff5555", margin: "4px 0 4px" }}>Attack Wave</div>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", color: "#ff5555", margin: "4px 0 4px" }}>Attack Wave (cost: ${formatUSD(attackWaveCost)})</div>
                       {ATTACK_UNITS.map((a) => (
-                        <div key={a.key} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
-                          <span style={{ flex: 1, fontSize: 9, color: "#ff6666" }}>{a.name}</span>
-                          <input type="number" value={playerAttack[a.key] || 0} min="0" max="200"
-                            onChange={(e) => { const v = Math.max(0, parseInt(e.target.value) || 0); setPlayerAttack((p) => ({ ...p, [a.key]: v })); }}
-                            style={{ width: 40, ...inputStyle, fontSize: 9, textAlign: "center", padding: "2px" }} />
+                        <div key={a.key} style={{ marginBottom: 4 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#ff6666", marginBottom: 1 }}>
+                            <span>{a.name}</span><span>{playerAttack[a.key] || 0} (${formatUSD((playerAttack[a.key] || 0) * a.cost)})</span>
+                          </div>
+                          <input type="range" value={playerAttack[a.key] || 0} min="0" max="100" step="1"
+                            onChange={(e) => setPlayerAttack((p) => ({ ...p, [a.key]: parseInt(e.target.value) }))}
+                            style={{ width: "100%", height: 14, margin: 0, padding: 0 }} />
                         </div>
                       ))}
                       <div style={{ fontSize: 9, textTransform: "uppercase", color: "#ff9800", margin: "4px 0 3px" }}>Priority Target</div>
