@@ -193,6 +193,8 @@ function simStep(state) {
     a.y += Math.sin(a.heading) * a.speed;
     if (dist(a, { x: LEGACY_CENTER[0], y: LEGACY_CENTER[1] }) < LEGACY_RADIUS * 0.3) {
       a.status = "breached";
+      a.breachX = a.x;
+      a.breachY = a.y;
       metrics.legacy_breaches++;
       metrics.misses++;
     }
@@ -478,20 +480,60 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
       }
     }
 
-    // Kill flashes
+    // Kill impact flashes and breach flashes
     if (flashLayer) {
       flashLayer.clearLayers();
       const now = Date.now();
       for (const flash of killFlashes) {
         const age = now - flash.time;
-        if (age > 500) continue;
-        const progress = age / 500;
         const ll = simToLL(flash.x, flash.y);
-        L.circleMarker(ll, {
-          radius: 10 + progress * 20,
-          color: "#ffc800", fillColor: "#ff8800",
-          fillOpacity: (1 - progress) * 0.6, weight: 2, opacity: 1 - progress,
-        }).addTo(flashLayer);
+
+        if (flash.type === "breach") {
+          // Breach: red pulsing expanding ring, lasts longer
+          if (age > 2000) continue;
+          const progress = age / 2000;
+          // Outer warning ring
+          L.circleMarker(ll, {
+            radius: 12 + progress * 30,
+            color: "#ff0000", fillColor: "transparent",
+            fillOpacity: 0, weight: 3, opacity: (1 - progress) * 0.8,
+          }).addTo(flashLayer);
+          // Inner solid
+          L.circleMarker(ll, {
+            radius: 6,
+            color: "#ff0000", fillColor: "#ff0000",
+            fillOpacity: (1 - progress) * 0.7, weight: 2, opacity: (1 - progress),
+          }).addTo(flashLayer);
+          // Breach label
+          if (progress < 0.7) {
+            L.marker(ll, {
+              icon: L.divIcon({
+                className: "", iconSize: [60, 16], iconAnchor: [30, -12],
+                html: `<div style="color:#ff0000;font-size:10px;font-family:monospace;font-weight:bold;text-align:center;text-shadow:0 0 4px #000;opacity:${1 - progress}">BREACH</div>`,
+              }),
+              interactive: false,
+            }).addTo(flashLayer);
+          }
+        } else {
+          // Kill impact: orange expanding flash
+          if (age > 500) continue;
+          const progress = age / 500;
+          L.circleMarker(ll, {
+            radius: 10 + progress * 20,
+            color: "#ffc800", fillColor: "#ff8800",
+            fillOpacity: (1 - progress) * 0.6, weight: 2, opacity: 1 - progress,
+          }).addTo(flashLayer);
+          // Impact X marker
+          if (progress < 0.5) {
+            L.marker(ll, {
+              icon: L.divIcon({
+                className: "", iconSize: [20, 16], iconAnchor: [10, 8],
+                html: `<div style="color:#ffc800;font-size:14px;font-weight:bold;text-align:center;text-shadow:0 0 4px #000;opacity:${1 - progress * 2}">X</div>`,
+              }),
+              interactive: false,
+            }).addTo(flashLayer);
+          }
+        }
       }
     }
   }, [simState, killFlashes, simToLL]);
@@ -578,18 +620,29 @@ export default function SwarmInterception() {
     for (let i = 0; i < steps; i++) {
       if (s.done) break;
       const prevKills = s.metrics.kills;
+      const prevBreaches = s.metrics.legacy_breaches;
       s = simStep(s);
+      const now = Date.now();
+      // Kill impact flashes
       if (s.metrics.kills > prevKills) {
         const newKilled = s.attackers.filter((a) => a.status === "destroyed");
         for (const k of newKilled.slice(-(s.metrics.kills - prevKills))) {
-          flashesRef.current.push({ x: k.x, y: k.y, time: Date.now() });
+          flashesRef.current.push({ x: k.x, y: k.y, time: now, type: "kill" });
+        }
+      }
+      // Breach flashes
+      if (s.metrics.legacy_breaches > prevBreaches) {
+        const newBreached = s.attackers.filter((a) => a.status === "breached" && a.breachX != null);
+        for (const b of newBreached.slice(-(s.metrics.legacy_breaches - prevBreaches))) {
+          flashesRef.current.push({ x: b.breachX, y: b.breachY, time: now, type: "breach" });
+          b.breachX = null; // mark as counted
         }
       }
     }
 
     simRef.current = s;
     const now = Date.now();
-    flashesRef.current = flashesRef.current.filter((f) => now - f.time < 600);
+    flashesRef.current = flashesRef.current.filter((f) => now - f.time < (f.type === "breach" ? 2000 : 600));
     setSimState({ ...s });
     setKillFlashes([...flashesRef.current]);
 
@@ -611,11 +664,20 @@ export default function SwarmInterception() {
     if (!simRef.current || simRef.current.done) return;
     pausedRef.current = true; setPaused(true); setStatusText("PAUSED");
     const prevKills = simRef.current.metrics.kills;
+    const prevBreaches = simRef.current.metrics.legacy_breaches;
     simRef.current = simStep(simRef.current);
+    const now = Date.now();
     if (simRef.current.metrics.kills > prevKills) {
       const newKilled = simRef.current.attackers.filter((a) => a.status === "destroyed");
       for (const k of newKilled.slice(-(simRef.current.metrics.kills - prevKills))) {
-        flashesRef.current.push({ x: k.x, y: k.y, time: Date.now() });
+        flashesRef.current.push({ x: k.x, y: k.y, time: now, type: "kill" });
+      }
+    }
+    if (simRef.current.metrics.legacy_breaches > prevBreaches) {
+      const newBreached = simRef.current.attackers.filter((a) => a.status === "breached" && a.breachX != null);
+      for (const b of newBreached.slice(-(simRef.current.metrics.legacy_breaches - prevBreaches))) {
+        flashesRef.current.push({ x: b.breachX, y: b.breachY, time: now, type: "breach" });
+        b.breachX = null;
       }
     }
     setSimState({ ...simRef.current });
