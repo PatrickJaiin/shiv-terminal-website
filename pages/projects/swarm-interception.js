@@ -998,7 +998,7 @@ export default function SwarmInterception() {
     setKillFlashes([]); setBreachPoints([]);
     setAttackSpawns([]); setDefenseSpawns([]);
     setPlacementMode(null);
-    setScenario("default_30v20");
+    setScenario("medium");
     setZoneCenter(DEFAULT_ZONE_CENTER);
     setZoneRadius(DEFAULT_ZONE_RADIUS);
     setAssetRadius(DEFAULT_ASSET_RADIUS);
@@ -1091,16 +1091,23 @@ export default function SwarmInterception() {
         <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
           {/* Left panel */}
           <div style={{ width: 280, background: "#111118", borderRight: "1px solid #2a2a35", padding: 16, overflowY: "auto", flexShrink: 0 }}>
-            <PanelTitle>Difficulty</PanelTitle>
-            <div style={{ display: "flex", gap: 3, marginBottom: 6 }}>
+            <PanelTitle>Difficulty (Attack Wave)</PanelTitle>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginBottom: 6 }}>
               {Object.entries(SCENARIOS).map(([k, v]) => {
                 const total = Object.values(v.attackers).reduce((s, n) => s + n, 0);
-                const colors = { easy: "#4caf50", medium: "#ff9800", hard: "#ff5555", nightmare: "#cc00cc" };
+                const colorMap = { easy: "#4caf50", medium: "#ff9800", hard: "#ff5555", nightmare: "#cc00cc" };
+                const c = colorMap[k] || "#888";
                 const active = scenario === k;
                 return (
                   <button key={k} onClick={() => setScenario(k)} disabled={running}
-                    style={{ flex: 1, padding: "6px 2px", fontSize: 10, fontWeight: active ? 700 : 400, borderRadius: 4, cursor: running ? "not-allowed" : "pointer", opacity: running ? 0.5 : 1, border: `1px solid ${active ? colors[k] : "#2a2a35"}`, background: active ? `${colors[k]}15` : "#1a1a24", color: active ? colors[k] : "#888" }}>
-                    {v.name}<br/><span style={{ fontSize: 8, opacity: 0.7 }}>{total} drones</span>
+                    style={{
+                      padding: "8px 6px", fontSize: 11, fontWeight: active ? 700 : 400, borderRadius: 4,
+                      cursor: running ? "not-allowed" : "pointer", opacity: running ? 0.5 : 1,
+                      border: `2px solid ${active ? c : "#2a2a35"}`,
+                      background: active ? "rgba(255,255,255,0.05)" : "#1a1a24",
+                      color: active ? c : "#888", textAlign: "center", lineHeight: 1.4,
+                    }}>
+                    {v.name}<br/><span style={{ fontSize: 9, opacity: 0.7 }}>{total} drones</span>
                   </button>
                 );
               })}
@@ -1108,12 +1115,11 @@ export default function SwarmInterception() {
             {(() => {
               const sc = SCENARIOS[scenario];
               if (!sc) return null;
-              const entries = Object.entries(sc.attackers);
               return (
-                <div style={{ fontSize: 9, color: "#666", marginBottom: 6, lineHeight: 1.6 }}>
-                  {entries.map(([k, n]) => {
+                <div style={{ fontSize: 9, color: "#555", marginBottom: 6 }}>
+                  {Object.entries(sc.attackers).map(([k, n]) => {
                     const p = DRONE_DB.attack.find((d) => d.key === k);
-                    return <div key={k}>{p ? p.name : k} x{n}</div>;
+                    return <span key={k} style={{ marginRight: 6 }}>{p ? p.name.split(" ")[0] : k} x{n}</span>;
                   })}
                 </div>
               );
