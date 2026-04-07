@@ -2,67 +2,44 @@ import Head from "next/head";
 import Link from "next/link";
 import { useEffect, useRef, useState, useCallback } from "react";
 
-// Mock drone data for showcase
-const MOCK_INTERCEPTORS = Array.from({ length: 20 }, (_, i) => ({
-  id: i,
-  x: 4000 + Math.random() * 2000,
-  y: 4000 + Math.random() * 2000,
-  type: "interceptor",
-  status: i < 16 ? "active" : "destroyed",
-  threat_level: "cheap",
-  heading: Math.random() * Math.PI * 2,
-}));
-
-const MOCK_ATTACKERS = Array.from({ length: 30 }, (_, i) => {
-  const threat =
-    i < 20 ? "cheap" : i < 27 ? "medium" : "expensive";
-  return {
-    id: 100 + i,
-    x: Math.random() * 10000,
-    y: i < 15 ? Math.random() * 3000 : 3000 + Math.random() * 7000,
-    type: threat === "cheap" ? "fpv" : threat === "medium" ? "loitering" : "cruise_missile",
-    status: i < 8 ? "destroyed" : "active",
-    threat_level: threat,
-    heading: Math.random() * Math.PI * 2,
-  };
-});
-
-const MOCK_DRONES = [...MOCK_INTERCEPTORS, ...MOCK_ATTACKERS];
-
-const MOCK_METRICS = {
-  kills: 12,
-  misses: 2,
-  active_interceptors: 16,
-  active_threats: 22,
-  total_defense_cost: 3200000,
-  threat_value_destroyed: 890000,
-  cost_efficiency: 0.28,
-  legacy_breaches: 0,
-};
-
+// ── Drone database ──
 const DRONE_DB = {
   attack: [
-    { name: "Shahed-136", country: "Iran", max_speed_kmh: 185, unit_cost_usd: 20000, rcs_m2: 0.1 },
-    { name: "Lancet-3", country: "Russia", max_speed_kmh: 300, unit_cost_usd: 35000, rcs_m2: 0.05 },
-    { name: "Mohajer-6", country: "Iran", max_speed_kmh: 200, unit_cost_usd: 500000, rcs_m2: 0.5 },
-    { name: "Orion (Pacer)", country: "Russia", max_speed_kmh: 200, unit_cost_usd: 1000000, rcs_m2: 1.0 },
-    { name: "Wing Loong II", country: "China", max_speed_kmh: 370, unit_cost_usd: 2000000, rcs_m2: 1.5 },
-    { name: "FPV Kamikaze", country: "Generic", max_speed_kmh: 150, unit_cost_usd: 500, rcs_m2: 0.01 },
+    { key: "shahed_136", name: "Shahed-136", country: "Iran", speed: 185, cost: 20000, rcs: 0.1, threat: "cheap" },
+    { key: "lancet_3", name: "Lancet-3", country: "Russia", speed: 300, cost: 35000, rcs: 0.05, threat: "medium" },
+    { key: "fpv_kamikaze", name: "FPV Kamikaze", country: "Generic", speed: 150, cost: 500, rcs: 0.01, threat: "cheap" },
+    { key: "mohajer_6", name: "Mohajer-6", country: "Iran", speed: 200, cost: 500000, rcs: 0.5, threat: "expensive" },
+    { key: "orion", name: "Orion (Pacer)", country: "Russia", speed: 200, cost: 1000000, rcs: 1.0, threat: "expensive" },
+    { key: "wing_loong", name: "Wing Loong II", country: "China", speed: 370, cost: 2000000, rcs: 1.5, threat: "expensive" },
   ],
   interceptor: [
-    { name: "Custom Interceptor", country: "Generic", max_speed_kmh: 400, unit_cost_usd: 200000, rcs_m2: 0.05 },
-    { name: "Anduril Anvil", country: "USA", max_speed_kmh: 320, unit_cost_usd: 100000, rcs_m2: 0.03 },
-    { name: "Fortem DroneHunter", country: "USA", max_speed_kmh: 160, unit_cost_usd: 150000, rcs_m2: 0.08 },
+    { key: "custom", name: "Custom Interceptor", country: "Generic", speed: 400, cost: 200000, rcs: 0.05 },
+    { key: "anduril", name: "Anduril Anvil", country: "USA", speed: 320, cost: 100000, rcs: 0.03 },
+    { key: "fortem", name: "Fortem DroneHunter", country: "USA", speed: 160, cost: 150000, rcs: 0.08 },
   ],
 };
 
-const THEATERS = [
-  "LoC Kashmir",
-  "Israel-Iran",
-  "Red Sea",
-  "Ukraine Kyiv",
-  "Taiwan Strait",
-];
+// ── Theater configs ──
+const THEATERS = {
+  default: { name: "Default (abstract arena)", center: [5000, 5000], defensePos: [[5000, 5000]], attackOrigins: [[0, 0], [10000, 0], [0, 10000], [10000, 10000]], color: "#1a1a24" },
+  kashmir: { name: "LoC Kashmir", center: [5000, 5000], defensePos: [[5000, 6000]], attackOrigins: [[500, 500], [9500, 500], [500, 9500]], color: "#1a2418" },
+  israel_iran: { name: "Israel-Iran", center: [5000, 5000], defensePos: [[5000, 5000]], attackOrigins: [[9500, 500], [9500, 9500], [9500, 5000]], color: "#241a18" },
+  red_sea: { name: "Red Sea", center: [5000, 5000], defensePos: [[3000, 5000]], attackOrigins: [[9000, 2000], [9000, 8000]], color: "#181a24" },
+  ukraine_kyiv: { name: "Ukraine Kyiv", center: [5000, 5000], defensePos: [[5000, 5000]], attackOrigins: [[9500, 1000], [9500, 5000], [9500, 9000], [7000, 200]], color: "#24241a" },
+  taiwan_strait: { name: "Taiwan Strait", center: [5000, 5000], defensePos: [[2000, 5000]], attackOrigins: [[9000, 2000], [9000, 5000], [9000, 8000]], color: "#1a2024" },
+};
+
+const SCENARIOS = {
+  default_30v20: { name: "default_30v20", attackers: { fpv_kamikaze: 15, shahed_136: 10, lancet_3: 5 }, interceptors: 20 },
+  massive_100v50: { name: "massive_100v50", attackers: { fpv_kamikaze: 50, shahed_136: 30, lancet_3: 15, mohajer_6: 5 }, interceptors: 50 },
+  cruise_strike: { name: "cruise_missile_strike", attackers: { mohajer_6: 5, orion: 3, wing_loong: 2 }, interceptors: 30 },
+  mixed_wave: { name: "mixed_wave", attackers: { fpv_kamikaze: 20, shahed_136: 10, lancet_3: 8, mohajer_6: 2 }, interceptors: 25 },
+};
+
+const KILL_RADIUS = 120;
+const LEGACY_RADIUS = 2000;
+const LEGACY_CENTER = [5000, 5000];
+const ARENA = 10000;
 
 function formatUSD(n) {
   if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
@@ -70,37 +47,160 @@ function formatUSD(n) {
   return Math.round(n).toString();
 }
 
-function Metric({ label, value, color = "white" }) {
-  const colors = {
-    blue: "#4a9eff",
-    red: "#ff5555",
-    green: "#4caf50",
-    orange: "#ff9800",
-    white: "#e0e0e0",
+function dist(a, b) {
+  return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+}
+
+// ── Create drones for a scenario ──
+function createDrones(scenario, theater) {
+  const th = THEATERS[theater] || THEATERS.default;
+  const attackerList = [];
+  let id = 100;
+  for (const [key, count] of Object.entries(scenario.attackers)) {
+    const profile = DRONE_DB.attack.find((d) => d.key === key);
+    if (!profile) continue;
+    for (let i = 0; i < count; i++) {
+      const origin = th.attackOrigins[Math.floor(Math.random() * th.attackOrigins.length)];
+      attackerList.push({
+        id: id++,
+        x: origin[0] + (Math.random() - 0.5) * 1500,
+        y: origin[1] + (Math.random() - 0.5) * 1500,
+        speed: profile.speed / 200,
+        cost: profile.cost,
+        threat: profile.threat,
+        status: "active",
+        heading: Math.atan2(th.center[1] - origin[1], th.center[0] - origin[0]) + (Math.random() - 0.5) * 0.8,
+        type: "attacker",
+        profileName: profile.name,
+      });
+    }
+  }
+
+  const interceptors = [];
+  for (let i = 0; i < scenario.interceptors; i++) {
+    const dp = th.defensePos[Math.floor(Math.random() * th.defensePos.length)];
+    interceptors.push({
+      id: i,
+      x: dp[0] + (Math.random() - 0.5) * 1000,
+      y: dp[1] + (Math.random() - 0.5) * 1000,
+      speed: 2.0,
+      cost: 200000,
+      status: "active",
+      heading: 0,
+      type: "interceptor",
+      targetId: null,
+    });
+  }
+  return { interceptors, attackers: attackerList };
+}
+
+// ── Simulation step ──
+function simStep(state) {
+  const { interceptors, attackers, metrics, step } = state;
+
+  // Move attackers toward legacy center with some wander
+  for (const a of attackers) {
+    if (a.status !== "active") continue;
+    const dx = LEGACY_CENTER[0] - a.x;
+    const dy = LEGACY_CENTER[1] - a.y;
+    const angle = Math.atan2(dy, dx);
+    a.heading = a.heading * 0.95 + angle * 0.05 + (Math.random() - 0.5) * 0.03;
+    a.x += Math.cos(a.heading) * a.speed;
+    a.y += Math.sin(a.heading) * a.speed;
+
+    // Check legacy breach
+    if (dist(a, { x: LEGACY_CENTER[0], y: LEGACY_CENTER[1] }) < LEGACY_RADIUS * 0.3) {
+      a.status = "breached";
+      metrics.legacy_breaches++;
+      metrics.misses++;
+    }
+  }
+
+  // Assign targets and move interceptors
+  const activeAttackers = attackers.filter((a) => a.status === "active");
+  for (const int of interceptors) {
+    if (int.status !== "active") continue;
+
+    // Find or reassign target
+    let target = activeAttackers.find((a) => a.id === int.targetId);
+    if (!target) {
+      // Find closest unassigned or closest active attacker
+      let best = null;
+      let bestDist = Infinity;
+      for (const a of activeAttackers) {
+        const d = dist(int, a);
+        if (d < bestDist) {
+          bestDist = d;
+          best = a;
+        }
+      }
+      if (best) {
+        int.targetId = best.id;
+        target = best;
+      }
+    }
+
+    if (target) {
+      const dx = target.x - int.x;
+      const dy = target.y - int.y;
+      const angle = Math.atan2(dy, dx);
+      // Proportional navigation
+      int.heading = angle;
+      int.x += Math.cos(int.heading) * int.speed;
+      int.y += Math.sin(int.heading) * int.speed;
+
+      // Check kill
+      if (dist(int, target) < KILL_RADIUS) {
+        target.status = "destroyed";
+        metrics.kills++;
+        metrics.threat_value_destroyed += target.cost;
+        metrics.defense_cost += int.cost * 0.1; // engagement cost
+        int.targetId = null;
+        // 30% chance interceptor is expended (kinetic ram)
+        if (Math.random() < 0.3) {
+          int.status = "expended";
+        }
+      }
+    }
+  }
+
+  const activeInt = interceptors.filter((i) => i.status === "active").length;
+  const activeThreats = attackers.filter((a) => a.status === "active").length;
+  const done = activeThreats === 0 || activeInt === 0;
+
+  return {
+    interceptors,
+    attackers,
+    metrics: {
+      ...metrics,
+      active_interceptors: activeInt,
+      active_threats: activeThreats,
+    },
+    step: step + 1,
+    done,
   };
+}
+
+// ── UI components ──
+function Metric({ label, value, color = "white" }) {
+  const colors = { blue: "#4a9eff", red: "#ff5555", green: "#4caf50", orange: "#ff9800", white: "#e0e0e0" };
   return (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #1a1a24" }}>
       <span style={{ fontSize: 12, color: "#888" }}>{label}</span>
-      <span style={{ fontSize: 14, fontWeight: 600, color: colors[color] || "#e0e0e0", fontVariantNumeric: "tabular-nums" }}>{value}</span>
+      <span style={{ fontSize: 14, fontWeight: 600, color: colors[color], fontVariantNumeric: "tabular-nums" }}>{value}</span>
     </div>
   );
 }
 
 function PanelTitle({ children }) {
-  return (
-    <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "#666", marginBottom: 8, marginTop: 16 }}>
-      {children}
-    </div>
-  );
+  return <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "#666", marginBottom: 8, marginTop: 16 }}>{children}</div>;
 }
 
 function ProfileCard({ name, country, speed, cost, rcs }) {
   return (
     <div style={{ background: "#1a1a24", border: "1px solid #2a2a35", borderRadius: 4, padding: "8px 10px", marginBottom: 6, fontSize: 11 }}>
-      <div style={{ fontWeight: 600, color: "#e0e0e0", marginBottom: 4 }}>
-        {name} <span style={{ color: "#666" }}>({country})</span>
-      </div>
-      <div style={{ color: "#888", display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div style={{ fontWeight: 600, color: "#e0e0e0", marginBottom: 4 }}>{name} <span style={{ color: "#666" }}>({country})</span></div>
+      <div style={{ color: "#888", display: "flex", gap: 8 }}>
         <span>{speed} km/h</span>
         <span>${formatUSD(cost)}</span>
         <span>RCS: {rcs} m2</span>
@@ -112,50 +212,46 @@ function ProfileCard({ name, country, speed, cost, rcs }) {
 function LegendItem({ color, label, hollow }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 0", fontSize: 12, color: "#e0e0e0" }}>
-      <div
-        style={{
-          width: 10,
-          height: 10,
-          borderRadius: "50%",
-          flexShrink: 0,
-          background: hollow ? "transparent" : color,
-          border: hollow ? `2px solid ${color}` : "none",
-        }}
-      />
+      <div style={{ width: 10, height: 10, borderRadius: "50%", flexShrink: 0, background: hollow ? "transparent" : color, border: hollow ? `2px solid ${color}` : "none" }} />
       {label}
     </div>
   );
 }
 
-function Canvas({ drones }) {
+// ── Canvas renderer ──
+function SimCanvas({ simState, theater, killFlashes }) {
   const canvasRef = useRef(null);
-  const animRef = useRef(null);
-  const dronesRef = useRef(drones.map((d) => ({ ...d })));
+  const th = THEATERS[theater] || THEATERS.default;
 
-  const draw = useCallback(() => {
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
+    const parent = canvas.parentElement;
+    canvas.width = parent.clientWidth;
+    canvas.height = parent.clientHeight;
     const w = canvas.width;
     const h = canvas.height;
 
-    ctx.fillStyle = "#0a0a0f";
+    ctx.fillStyle = th.color;
     ctx.fillRect(0, 0, w, h);
 
     // Grid
-    ctx.strokeStyle = "#1a1a24";
+    ctx.strokeStyle = "#2a2a35";
     ctx.lineWidth = 0.5;
-    for (let x = 0; x < w; x += w / 20) {
+    for (let gx = 0; gx <= 20; gx++) {
+      const x = (gx / 20) * w;
       ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
     }
-    for (let y = 0; y < h; y += h / 20) {
+    for (let gy = 0; gy <= 20; gy++) {
+      const y = (gy / 20) * h;
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
     }
 
     // Legacy zone
-    const cx = (5000 / 10000) * w;
-    const cy = (5000 / 10000) * h;
-    const r = (2000 / 10000) * Math.min(w, h);
+    const cx = (LEGACY_CENTER[0] / ARENA) * w;
+    const cy = (LEGACY_CENTER[1] / ARENA) * h;
+    const r = (LEGACY_RADIUS / ARENA) * Math.min(w, h);
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.strokeStyle = "#22aa22";
@@ -163,60 +259,99 @@ function Canvas({ drones }) {
     ctx.stroke();
     ctx.fillStyle = "rgba(34, 170, 34, 0.04)";
     ctx.fill();
-
     ctx.font = "10px monospace";
     ctx.fillStyle = "#22aa22";
     ctx.textAlign = "center";
     ctx.fillText("LEGACY DEFENSE ZONE", cx, cy - 8);
     ctx.fillText("(Patriot / NASAMS)", cx, cy + 8);
 
-    // Animate drones
-    const current = dronesRef.current;
-    current.forEach((d) => {
-      // Drift movement
-      if (d.status === "active") {
-        const speed = d.type === "interceptor" ? 0.4 : 0.25;
-        d.x += Math.cos(d.heading) * speed;
-        d.y += Math.sin(d.heading) * speed;
-        d.heading += (Math.random() - 0.5) * 0.05;
-        // Bounce off walls
-        if (d.x < 0 || d.x > 10000) d.heading = Math.PI - d.heading;
-        if (d.y < 0 || d.y > 10000) d.heading = -d.heading;
-        d.x = Math.max(0, Math.min(10000, d.x));
-        d.y = Math.max(0, Math.min(10000, d.y));
+    // Theater label
+    ctx.font = "bold 12px monospace";
+    ctx.fillStyle = "#333";
+    ctx.textAlign = "left";
+    ctx.fillText(th.name.toUpperCase(), 10, 20);
+
+    if (!simState) {
+      // Idle state message
+      ctx.font = "16px sans-serif";
+      ctx.fillStyle = "#444";
+      ctx.textAlign = "center";
+      ctx.fillText("Select a scenario and press Start", w / 2, h / 2);
+      return;
+    }
+
+    // Kill flashes
+    const now = Date.now();
+    for (const flash of killFlashes) {
+      const age = now - flash.time;
+      if (age > 500) continue;
+      const progress = age / 500;
+      const fx = (flash.x / ARENA) * w;
+      const fy = (flash.y / ARENA) * h;
+      const fr = 8 + progress * 25;
+      ctx.beginPath();
+      ctx.arc(fx, fy, fr, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255, 136, 0, ${(1 - progress) * 0.6})`;
+      ctx.fill();
+      ctx.strokeStyle = `rgba(255, 200, 0, ${(1 - progress)})`;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // Draw attackers (behind)
+    for (const d of simState.attackers) {
+      const sx = (d.x / ARENA) * w;
+      const sy = (d.y / ARENA) * h;
+      if (d.status !== "active" && d.status !== "breached") {
+        ctx.beginPath(); ctx.arc(sx, sy, 2, 0, Math.PI * 2);
+        ctx.fillStyle = "#333"; ctx.fill();
+        continue;
       }
+      if (d.status === "breached") continue;
+      const colors = { cheap: "#ff6666", medium: "#cc3333", expensive: "#881111" };
+      const sizes = { cheap: 4, medium: 5, expensive: 6 };
+      ctx.beginPath();
+      ctx.arc(sx, sy, sizes[d.threat] || 4, 0, Math.PI * 2);
+      ctx.fillStyle = colors[d.threat] || "#ff6666";
+      ctx.fill();
+      // Direction indicator
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.lineTo(sx + Math.cos(d.heading) * 12, sy + Math.sin(d.heading) * 12);
+      ctx.strokeStyle = colors[d.threat] || "#ff6666";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
 
-      const sx = (d.x / 10000) * w;
-      const sy = (d.y / 10000) * h;
-
-      let color, radius;
-      if (d.type === "interceptor") {
-        color = d.status === "active" ? "#4a9eff" : "#444";
-        radius = d.status === "active" ? 4 : 2;
-      } else {
-        if (d.status !== "active") {
-          color = "#444";
-          radius = 2;
-        } else if (d.threat_level === "expensive") {
-          color = "#881111";
-          radius = 5;
-        } else if (d.threat_level === "medium") {
-          color = "#cc3333";
-          radius = 4;
-        } else {
-          color = "#ff6666";
-          radius = 3;
+    // Draw interceptors (on top)
+    for (const d of simState.interceptors) {
+      const sx = (d.x / ARENA) * w;
+      const sy = (d.y / ARENA) * h;
+      if (d.status !== "active") {
+        ctx.beginPath(); ctx.arc(sx, sy, 2, 0, Math.PI * 2);
+        ctx.fillStyle = "#333"; ctx.fill();
+        continue;
+      }
+      ctx.beginPath();
+      ctx.arc(sx, sy, 5, 0, Math.PI * 2);
+      ctx.fillStyle = "#4a9eff";
+      ctx.fill();
+      // Pursuit line to target
+      if (d.targetId != null) {
+        const target = simState.attackers.find((a) => a.id === d.targetId && a.status === "active");
+        if (target) {
+          const tx = (target.x / ARENA) * w;
+          const ty = (target.y / ARENA) * h;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(tx, ty);
+          ctx.strokeStyle = "rgba(74, 158, 255, 0.15)";
+          ctx.lineWidth = 1;
+          ctx.stroke();
         }
       }
-
-      ctx.beginPath();
-      ctx.arc(sx, sy, radius, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-    });
-
-    animRef.current = requestAnimationFrame(draw);
-  }, []);
+    }
+  }, [simState, theater, killFlashes, th]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -226,26 +361,161 @@ function Canvas({ drones }) {
       canvas.width = parent.clientWidth;
       canvas.height = parent.clientHeight;
     };
-    resize();
     window.addEventListener("resize", resize);
-    animRef.current = requestAnimationFrame(draw);
-    return () => {
-      window.removeEventListener("resize", resize);
-      if (animRef.current) cancelAnimationFrame(animRef.current);
-    };
-  }, [draw]);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
 
   return <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block" }} />;
 }
 
+// ── Main page ──
 export default function SwarmInterception() {
+  const [theater, setTheater] = useState("default");
+  const [scenario, setScenario] = useState("default_30v20");
+  const [simState, setSimState] = useState(null);
+  const [running, setRunning] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [speed, setSpeed] = useState(10);
   const [dbTab, setDbTab] = useState("attack");
-  const profiles = dbTab === "attack" ? DRONE_DB.attack : DRONE_DB.interceptor;
-  const totalInt = 20;
-  const lost = totalInt - MOCK_METRICS.active_interceptors;
-  const totalResolved = MOCK_METRICS.kills + MOCK_METRICS.misses;
-  const killRate = totalResolved > 0 ? ((MOCK_METRICS.kills / totalResolved) * 100).toFixed(1) : "0";
-  const attrition = ((lost / totalInt) * 100).toFixed(1);
+  const [killFlashes, setKillFlashes] = useState([]);
+  const [statusText, setStatusText] = useState("READY");
+
+  const simRef = useRef(null);
+  const runRef = useRef(false);
+  const pausedRef = useRef(false);
+  const speedRef = useRef(10);
+  const killsRef = useRef(0);
+  const flashesRef = useRef([]);
+  const frameRef = useRef(null);
+
+  useEffect(() => { speedRef.current = speed; }, [speed]);
+  useEffect(() => { pausedRef.current = paused; }, [paused]);
+
+  const startSim = useCallback(() => {
+    const sc = SCENARIOS[scenario];
+    if (!sc) return;
+    const { interceptors, attackers } = createDrones(sc, theater);
+    const initial = {
+      interceptors,
+      attackers,
+      metrics: { kills: 0, misses: 0, legacy_breaches: 0, defense_cost: 0, threat_value_destroyed: 0, active_interceptors: interceptors.length, active_threats: attackers.length },
+      step: 0,
+      done: false,
+    };
+    simRef.current = initial;
+    killsRef.current = 0;
+    flashesRef.current = [];
+    setKillFlashes([]);
+    setSimState({ ...initial });
+    setRunning(true);
+    setPaused(false);
+    runRef.current = true;
+    pausedRef.current = false;
+    setStatusText("RUNNING");
+    runLoop();
+  }, [scenario, theater]);
+
+  const runLoop = useCallback(() => {
+    if (!runRef.current) return;
+    if (pausedRef.current) {
+      frameRef.current = requestAnimationFrame(runLoop);
+      return;
+    }
+
+    let s = simRef.current;
+    if (!s || s.done) {
+      runRef.current = false;
+      setRunning(false);
+      setStatusText("COMPLETE");
+      return;
+    }
+
+    const steps = speedRef.current;
+    for (let i = 0; i < steps; i++) {
+      if (s.done) break;
+      const prevKills = s.metrics.kills;
+      s = simStep(s);
+      // Track kill flashes
+      if (s.metrics.kills > prevKills) {
+        const newKilled = s.attackers.filter((a) => a.status === "destroyed");
+        for (const k of newKilled.slice(-( s.metrics.kills - prevKills))) {
+          flashesRef.current.push({ x: k.x, y: k.y, time: Date.now() });
+        }
+      }
+    }
+
+    simRef.current = s;
+    // Prune old flashes
+    const now = Date.now();
+    flashesRef.current = flashesRef.current.filter((f) => now - f.time < 600);
+
+    setSimState({ ...s });
+    setKillFlashes([...flashesRef.current]);
+
+    if (s.done) {
+      runRef.current = false;
+      setRunning(false);
+      setStatusText("COMPLETE");
+    } else {
+      frameRef.current = requestAnimationFrame(runLoop);
+    }
+  }, []);
+
+  const stopSim = useCallback(() => {
+    runRef.current = false;
+    if (frameRef.current) cancelAnimationFrame(frameRef.current);
+    setRunning(false);
+    setPaused(false);
+    setSimState(null);
+    setStatusText("READY");
+  }, []);
+
+  const togglePause = useCallback(() => {
+    setPaused((p) => {
+      const next = !p;
+      pausedRef.current = next;
+      setStatusText(next ? "PAUSED" : "RUNNING");
+      return next;
+    });
+  }, []);
+
+  const stepOnce = useCallback(() => {
+    if (!simRef.current || simRef.current.done) return;
+    pausedRef.current = true;
+    setPaused(true);
+    setStatusText("PAUSED");
+    const prevKills = simRef.current.metrics.kills;
+    simRef.current = simStep(simRef.current);
+    if (simRef.current.metrics.kills > prevKills) {
+      const newKilled = simRef.current.attackers.filter((a) => a.status === "destroyed");
+      for (const k of newKilled.slice(-(simRef.current.metrics.kills - prevKills))) {
+        flashesRef.current.push({ x: k.x, y: k.y, time: Date.now() });
+      }
+    }
+    setSimState({ ...simRef.current });
+    setKillFlashes([...flashesRef.current]);
+    if (simRef.current.done) {
+      runRef.current = false;
+      setRunning(false);
+      setStatusText("COMPLETE");
+    }
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => () => { if (frameRef.current) cancelAnimationFrame(frameRef.current); }, []);
+
+  const m = simState?.metrics || {};
+  const totalInt = simState ? simState.interceptors.length : 0;
+  const lost = totalInt - (m.active_interceptors || 0);
+  const totalResolved = (m.kills || 0) + (m.misses || 0);
+  const killRate = totalResolved > 0 ? ((m.kills / totalResolved) * 100).toFixed(1) : "0";
+  const attrition = totalInt > 0 ? ((lost / totalInt) * 100).toFixed(1) : "0";
+  const eff = m.defense_cost > 0 && m.threat_value_destroyed > 0 ? (m.threat_value_destroyed / m.defense_cost).toFixed(2) : "-";
+
+  const profiles = DRONE_DB[dbTab] || [];
+  const statusColor = statusText === "RUNNING" ? "#4caf50" : statusText === "COMPLETE" ? "#ff9800" : statusText === "PAUSED" ? "#4a9eff" : "#888";
+
+  const btnBase = { padding: "8px 12px", borderRadius: 4, fontSize: 13, fontWeight: 500, cursor: "pointer", border: "1px solid", width: "100%" };
 
   return (
     <>
@@ -253,63 +523,70 @@ export default function SwarmInterception() {
         <title>Swarm Interception Simulator - Shiv Gupta</title>
       </Head>
 
-      {/* Full-screen dashboard */}
       <div style={{ background: "#0a0a0f", color: "#e0e0e0", fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif", height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
         {/* Header */}
         <div style={{ background: "#111118", borderBottom: "1px solid #2a2a35", padding: "8px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 48, flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <Link href="/#projects" style={{ color: "#4a9eff", fontSize: 13, textDecoration: "none", display: "flex", alignItems: "center", gap: 6 }}>
+            <Link href="/#projects" style={{ color: "#4a9eff", fontSize: 13, textDecoration: "none" }}>
               &larr; Back to Projects
             </Link>
             <h1 style={{ fontSize: 16, fontWeight: 600, color: "#4a9eff", letterSpacing: 0.5, margin: 0 }}>
               SWARM INTERCEPTION SIMULATOR
             </h1>
           </div>
-          <span style={{ fontSize: 12, color: "#4caf50" }}>DEMO MODE</span>
+          <span style={{ fontSize: 12, color: statusColor }}>{statusText}</span>
         </div>
 
-        {/* Main layout */}
+        {/* Main */}
         <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-          {/* Left panel - controls */}
+          {/* Left panel */}
           <div style={{ width: 280, background: "#111118", borderRight: "1px solid #2a2a35", padding: 16, overflowY: "auto", flexShrink: 0 }}>
             <PanelTitle>Scenario</PanelTitle>
-            <select style={{ width: "100%", padding: "8px 12px", background: "#1a1a24", border: "1px solid #2a2a35", color: "#e0e0e0", borderRadius: 4, fontSize: 13, marginBottom: 8 }}>
-              <option>default_30v20</option>
-              <option>massive_100v50</option>
-              <option>cruise_missile_strike</option>
-              <option>mixed_wave</option>
+            <select
+              value={scenario}
+              onChange={(e) => setScenario(e.target.value)}
+              disabled={running}
+              style={{ width: "100%", padding: "8px 12px", background: "#1a1a24", border: "1px solid #2a2a35", color: "#e0e0e0", borderRadius: 4, fontSize: 13, marginBottom: 8, cursor: running ? "not-allowed" : "pointer", opacity: running ? 0.5 : 1 }}
+            >
+              {Object.entries(SCENARIOS).map(([k, v]) => (
+                <option key={k} value={k}>{v.name}</option>
+              ))}
             </select>
 
             <PanelTitle>Theater</PanelTitle>
-            <select style={{ width: "100%", padding: "8px 12px", background: "#1a1a24", border: "1px solid #2a2a35", color: "#e0e0e0", borderRadius: 4, fontSize: 13, marginBottom: 8 }}>
-              <option>Default (abstract arena)</option>
-              {THEATERS.map((t) => (
-                <option key={t}>{t}</option>
+            <select
+              value={theater}
+              onChange={(e) => setTheater(e.target.value)}
+              disabled={running}
+              style={{ width: "100%", padding: "8px 12px", background: "#1a1a24", border: "1px solid #2a2a35", color: "#e0e0e0", borderRadius: 4, fontSize: 13, marginBottom: 8, cursor: running ? "not-allowed" : "pointer", opacity: running ? 0.5 : 1 }}
+            >
+              {Object.entries(THEATERS).map(([k, v]) => (
+                <option key={k} value={k}>{v.name}</option>
               ))}
             </select>
 
             <PanelTitle>Simulation</PanelTitle>
             <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-              <button style={{ flex: 1, padding: "8px 12px", background: "#1a4a2a", border: "1px solid #2a6a3a", color: "#4caf50", borderRadius: 4, fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+              <button onClick={startSim} disabled={running && !simState?.done} style={{ ...btnBase, background: "#1a4a2a", borderColor: "#2a6a3a", color: "#4caf50", opacity: running && !simState?.done ? 0.4 : 1, cursor: running && !simState?.done ? "not-allowed" : "pointer" }}>
                 Start
               </button>
-              <button disabled style={{ flex: 1, padding: "8px 12px", background: "#4a1a1a", border: "1px solid #6a2a2a", color: "#ff5555", borderRadius: 4, fontSize: 13, fontWeight: 500, opacity: 0.4, cursor: "not-allowed" }}>
+              <button onClick={stopSim} disabled={!running && !simState} style={{ ...btnBase, background: "#4a1a1a", borderColor: "#6a2a2a", color: "#ff5555", opacity: !running && !simState ? 0.4 : 1, cursor: !running && !simState ? "not-allowed" : "pointer" }}>
                 Stop
               </button>
             </div>
             <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-              <button disabled style={{ flex: 1, padding: "8px 12px", background: "#1a2a40", border: "1px solid #2a4a6a", color: "#e0e0e0", borderRadius: 4, fontSize: 13, fontWeight: 500, opacity: 0.4, cursor: "not-allowed" }}>
-                Pause
+              <button onClick={togglePause} disabled={!running} style={{ ...btnBase, background: "#1a2a40", borderColor: "#2a4a6a", color: "#e0e0e0", opacity: !running ? 0.4 : 1, cursor: !running ? "not-allowed" : "pointer" }}>
+                {paused ? "Resume" : "Pause"}
               </button>
-              <button disabled style={{ flex: 1, padding: "8px 12px", background: "#1a2a40", border: "1px solid #2a4a6a", color: "#e0e0e0", borderRadius: 4, fontSize: 13, fontWeight: 500, opacity: 0.4, cursor: "not-allowed" }}>
+              <button onClick={stepOnce} disabled={!simState || simState.done} style={{ ...btnBase, background: "#1a2a40", borderColor: "#2a4a6a", color: "#e0e0e0", opacity: !simState || simState.done ? 0.4 : 1, cursor: !simState || simState.done ? "not-allowed" : "pointer" }}>
                 Step
               </button>
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <label style={{ fontSize: 12, color: "#888", whiteSpace: "nowrap" }}>Speed:</label>
-              <input type="range" min="1" max="50" defaultValue="10" style={{ flex: 1, padding: 0, margin: 0, height: 20 }} />
-              <span style={{ fontSize: 12, color: "#4a9eff", minWidth: 30, textAlign: "right" }}>10x</span>
+              <input type="range" min="1" max="50" value={speed} onChange={(e) => setSpeed(parseInt(e.target.value))} style={{ flex: 1, padding: 0, margin: 0, height: 20 }} />
+              <span style={{ fontSize: 12, color: "#4a9eff", minWidth: 30, textAlign: "right" }}>{speed}x</span>
             </div>
 
             <PanelTitle>Legend</PanelTitle>
@@ -323,68 +600,48 @@ export default function SwarmInterception() {
 
             <PanelTitle>Drone Database</PanelTitle>
             <div style={{ display: "flex", gap: 2, marginBottom: 12 }}>
-              {["attack", "defense"].map((tab) => (
+              {["attack", "interceptor"].map((tab) => (
                 <button
                   key={tab}
-                  onClick={() => setDbTab(tab === "defense" ? "interceptor" : "attack")}
-                  style={{
-                    flex: 1,
-                    padding: 6,
-                    textAlign: "center",
-                    fontSize: 11,
-                    background: (tab === "attack" ? "attack" : "interceptor") === dbTab ? "#1a2a40" : "#1a1a24",
-                    border: `1px solid ${(tab === "attack" ? "attack" : "interceptor") === dbTab ? "#4a9eff" : "#2a2a35"}`,
-                    color: (tab === "attack" ? "attack" : "interceptor") === dbTab ? "#4a9eff" : "#e0e0e0",
-                    cursor: "pointer",
-                    borderRadius: 3,
-                  }}
+                  onClick={() => setDbTab(tab)}
+                  style={{ flex: 1, padding: 6, textAlign: "center", fontSize: 11, background: dbTab === tab ? "#1a2a40" : "#1a1a24", border: `1px solid ${dbTab === tab ? "#4a9eff" : "#2a2a35"}`, color: dbTab === tab ? "#4a9eff" : "#e0e0e0", cursor: "pointer", borderRadius: 3 }}
                 >
-                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  {tab === "attack" ? "Attack" : "Defense"}
                 </button>
               ))}
             </div>
             {profiles.map((p) => (
-              <ProfileCard key={p.name} name={p.name} country={p.country} speed={p.max_speed_kmh} cost={p.unit_cost_usd} rcs={p.rcs_m2} />
+              <ProfileCard key={p.key} name={p.name} country={p.country} speed={p.speed} cost={p.cost} rcs={p.rcs} />
             ))}
           </div>
 
-          {/* Map / Canvas area */}
+          {/* Canvas */}
           <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
-            <Canvas drones={MOCK_DRONES} />
-            {/* Demo overlay badge */}
-            <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", background: "rgba(17,17,24,0.9)", border: "1px solid #2a2a35", borderRadius: 8, padding: "10px 20px", textAlign: "center" }}>
-              <div style={{ fontSize: 12, color: "#888", marginBottom: 4 }}>
-                Live demo with animated mock data
-              </div>
-              <div style={{ fontSize: 11, color: "#666" }}>
-                Full simulation requires local Python backend (ROS2 + Gazebo)
-              </div>
-            </div>
+            <SimCanvas simState={simState} theater={theater} killFlashes={killFlashes} />
           </div>
 
           {/* Right panel - metrics */}
           <div style={{ width: 260, background: "#111118", borderLeft: "1px solid #2a2a35", padding: 16, overflowY: "auto", flexShrink: 0 }}>
             <PanelTitle>Status</PanelTitle>
-            <Metric label="Time Elapsed" value="42.3s" />
-            <Metric label="Step" value="423" />
+            <Metric label="Time Elapsed" value={simState ? `${(simState.step * 0.1).toFixed(1)}s` : "0.0s"} />
+            <Metric label="Step" value={simState?.step || 0} />
 
             <PanelTitle>Forces</PanelTitle>
-            <Metric label="Interceptors" value={`${MOCK_METRICS.active_interceptors} / ${totalInt}`} color="blue" />
-            <Metric label="Active Threats" value={MOCK_METRICS.active_threats} color="red" />
+            <Metric label="Interceptors" value={simState ? `${m.active_interceptors} / ${totalInt}` : "0 / 0"} color="blue" />
+            <Metric label="Active Threats" value={m.active_threats || 0} color="red" />
 
             <PanelTitle>Combat</PanelTitle>
-            <Metric label="Kills" value={MOCK_METRICS.kills} color="green" />
-            <Metric label="Misses" value={MOCK_METRICS.misses} color="red" />
+            <Metric label="Kills" value={m.kills || 0} color="green" />
+            <Metric label="Misses" value={m.misses || 0} color="red" />
             <Metric label="Kill Rate" value={`${killRate}%`} />
 
             <PanelTitle>Economics</PanelTitle>
-            <Metric label="Defense Cost" value={`$${formatUSD(MOCK_METRICS.total_defense_cost)}`} color="orange" />
-            <Metric label="Threat Value Destroyed" value={`$${formatUSD(MOCK_METRICS.threat_value_destroyed)}`} color="green" />
-            <Metric label="Cost Efficiency" value={`${MOCK_METRICS.cost_efficiency.toFixed(2)}x`} />
+            <Metric label="Defense Cost" value={`$${formatUSD(m.defense_cost || 0)}`} color="orange" />
+            <Metric label="Threat Value Destroyed" value={`$${formatUSD(m.threat_value_destroyed || 0)}`} color="green" />
+            <Metric label="Cost Efficiency" value={eff === "-" ? "-" : `${eff}x`} />
 
             <PanelTitle>Legacy Zone</PanelTitle>
-            <Metric label="Threats in Zone" value="0" />
-            <Metric label="Breaches" value={MOCK_METRICS.legacy_breaches} color="red" />
+            <Metric label="Breaches" value={m.legacy_breaches || 0} color="red" />
 
             <PanelTitle>Interceptor Attrition</PanelTitle>
             <Metric label="Lost" value={lost} color="red" />
