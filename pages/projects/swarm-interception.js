@@ -160,10 +160,12 @@ function createDrones(scenario, theater, customAttackSpawns, customDefenseSpawns
     for (const sp of customDefenseSpawns) {
       const profile = DRONE_DB.interceptor.find((d) => d.key === sp.droneKey) || DRONE_DB.interceptor[0];
       for (let i = 0; i < sp.count; i++) {
+        const sx = sp.x + (Math.random() - 0.5) * 1000;
+        const sy = sp.y + (Math.random() - 0.5) * 1000;
         interceptors.push({
           id: iid++,
-          x: sp.x + (Math.random() - 0.5) * 1000,
-          y: sp.y + (Math.random() - 0.5) * 1000,
+          x: sx, y: sy,
+          spawnX: sx, spawnY: sy,
           speed: profile.speed / 200,
           cost: profile.cost,
           status: "active",
@@ -176,10 +178,12 @@ function createDrones(scenario, theater, customAttackSpawns, customDefenseSpawns
   } else {
     for (let i = 0; i < scenario.interceptors; i++) {
       const dp = th.defensePos[Math.floor(Math.random() * th.defensePos.length)];
+      const sx = dp[0] + (Math.random() - 0.5) * 1000;
+      const sy = dp[1] + (Math.random() - 0.5) * 1000;
       interceptors.push({
         id: i,
-        x: dp[0] + (Math.random() - 0.5) * 1000,
-        y: dp[1] + (Math.random() - 0.5) * 1000,
+        x: sx, y: sy,
+        spawnX: sx, spawnY: sy,
         speed: 2.0,
         cost: 200000,
         status: "active",
@@ -277,11 +281,39 @@ function simStep(state, zoneCenter, assetRadius, adUnitsState) {
 
   const activeInt = interceptors.filter((i) => i.status === "active").length;
   const activeThreats = attackers.filter((a) => a.status === "active").length;
+
+  // RTB: when no threats remain, interceptors fly back to spawn
+  if (activeThreats === 0) {
+    let allLanded = true;
+    for (const int of interceptors) {
+      if (int.status !== "active") continue;
+      const dx = int.spawnX - int.x;
+      const dy = int.spawnY - int.y;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < 30) {
+        int.status = "landed";
+      } else {
+        allLanded = false;
+        int.heading = Math.atan2(dy, dx);
+        int.x += Math.cos(int.heading) * int.speed;
+        int.y += Math.sin(int.heading) * int.speed;
+        int.targetId = null;
+      }
+    }
+    const landedOrExpended = interceptors.every((i) => i.status !== "active");
+    return {
+      interceptors, attackers,
+      metrics: { ...metrics, active_interceptors: activeInt, active_threats: 0 },
+      step: step + 1,
+      done: landedOrExpended,
+    };
+  }
+
   return {
     interceptors, attackers,
     metrics: { ...metrics, active_interceptors: activeInt, active_threats: activeThreats },
     step: step + 1,
-    done: activeThreats === 0,
+    done: false,
   };
 }
 
@@ -569,11 +601,11 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
       }).addTo(droneLayer);
     }
 
-    // Interceptors + pursuit lines
+    // Interceptors + pursuit lines + RTB lines
     for (const d of simState.interceptors) {
       const ll = simToLL(d.x, d.y);
-      const color = d.status === "active" ? "#4a9eff" : "#444";
-      const radius = d.status === "active" ? 5 : 2;
+      const color = d.status === "active" ? "#4a9eff" : d.status === "landed" ? "#2266aa" : "#444";
+      const radius = d.status === "active" ? 5 : d.status === "landed" ? 4 : 2;
       L.circleMarker(ll, {
         radius, color, fillColor: color, fillOpacity: 0.9, weight: 1, opacity: 1,
       }).addTo(droneLayer);
@@ -585,6 +617,16 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
           const tll = simToLL(target.x, target.y);
           L.polyline([ll, tll], {
             color: "#4a9eff", weight: 1, opacity: 0.4, dashArray: "4 4", interactive: false,
+          }).addTo(droneLayer);
+        }
+      }
+      // RTB line when returning to spawn
+      if (d.status === "active" && d.targetId == null && d.spawnX != null) {
+        const activeThreats = simState.attackers.filter((a) => a.status === "active").length;
+        if (activeThreats === 0) {
+          const sll = simToLL(d.spawnX, d.spawnY);
+          L.polyline([ll, sll], {
+            color: "#2266aa", weight: 1, opacity: 0.3, dashArray: "6 4", interactive: false,
           }).addTo(droneLayer);
         }
       }
@@ -748,9 +790,11 @@ export default function SwarmInterception() {
       const now = Date.now();
       // Kill impact flashes
       if (s.metrics.kills > prevKills) {
-        const newKilled = s.attackers.filter((a) => a.status === "destroyed");
-        for (const k of newKilled.slice(-(s.metrics.kills - prevKills))) {
-          flashesRef.current.push({ x: k.x, y: k.y, time: now, type: "kill" });
+        for (const k of s.attackers) {
+          if (k.status === "destroyed" && !k.flashed) {
+            flashesRef.current.push({ x: k.x, y: k.y, time: now, type: "kill" });
+            k.flashed = true;
+          }
         }
       }
       // Breach flashes
@@ -812,12 +856,14 @@ export default function SwarmInterception() {
     pausedRef.current = true; setPaused(true); setStatusText("PAUSED");
     const prevKills = simRef.current.metrics.kills;
     const prevBreaches = simRef.current.metrics.breaches;
-    simRef.current = simStep(simRef.current);
+    simRef.current = simStep(simRef.current, zoneCenterRef.current, assetRadiusRef.current, adUnitsRef.current);
     const now = Date.now();
     if (simRef.current.metrics.kills > prevKills) {
-      const newKilled = simRef.current.attackers.filter((a) => a.status === "destroyed");
-      for (const k of newKilled.slice(-(simRef.current.metrics.kills - prevKills))) {
-        flashesRef.current.push({ x: k.x, y: k.y, time: now, type: "kill" });
+      for (const k of simRef.current.attackers) {
+        if (k.status === "destroyed" && !k.flashed) {
+          flashesRef.current.push({ x: k.x, y: k.y, time: now, type: "kill" });
+          k.flashed = true;
+        }
       }
     }
     if (simRef.current.metrics.breaches > prevBreaches) {
