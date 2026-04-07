@@ -76,20 +76,20 @@ const THEATERS = {
 };
 
 const SCENARIOS = {
-  sandbox: { name: "Sandbox", interceptors: 20, budget: null, waves: [
+  sandbox: { name: "Sandbox", interceptors: 20, maxInterceptors: 100, maxAD: 10, budget: null, waves: [
     { attackers: { fpv_kamikaze: 10, shahed_136: 5 }, bonus: 0 },
   ]},
-  medium: { name: "Medium", interceptors: 6, budget: 100, waves: [
+  medium: { name: "Medium", interceptors: 6, maxInterceptors: 15, maxAD: 3, budget: 100, waves: [
     { attackers: { fpv_kamikaze: 30, shahed_136: 15 }, bonus: 10 },
     { attackers: { fpv_kamikaze: 40, shahed_136: 20, lancet_3: 10 }, bonus: 15 },
     { attackers: { fpv_kamikaze: 50, shahed_136: 25, lancet_3: 15 }, bonus: 0 },
   ]},
-  hard: { name: "Hard", interceptors: 5, budget: 150, waves: [
+  hard: { name: "Hard", interceptors: 5, maxInterceptors: 12, maxAD: 3, budget: 150, waves: [
     { attackers: { fpv_kamikaze: 40, shahed_136: 20, lancet_3: 10 }, bonus: 15 },
     { attackers: { fpv_kamikaze: 60, shahed_136: 30, lancet_3: 20, mohajer_6: 5 }, bonus: 20 },
     { attackers: { fpv_kamikaze: 80, shahed_136: 40, lancet_3: 25, mohajer_6: 10 }, bonus: 0 },
   ]},
-  nightmare: { name: "Nightmare", interceptors: 4, budget: 200, waves: [
+  nightmare: { name: "Nightmare", interceptors: 4, maxInterceptors: 10, maxAD: 2, budget: 200, waves: [
     { attackers: { fpv_kamikaze: 60, shahed_136: 30, lancet_3: 15 }, bonus: 20 },
     { attackers: { fpv_kamikaze: 80, shahed_136: 40, lancet_3: 25, mohajer_6: 8 }, bonus: 25 },
     { attackers: { fpv_kamikaze: 100, shahed_136: 50, lancet_3: 30, mohajer_6: 15, orion: 5 }, bonus: 30 },
@@ -853,7 +853,12 @@ export default function SwarmInterception() {
       const dx = x - zoneCenter[0];
       const dy = y - zoneCenter[1];
       if (Math.sqrt(dx * dx + dy * dy) > zoneRadius) return;
-      setDefenseSpawns((prev) => [...prev, { x, y, droneKey: spawnDefKey, count: spawnCount }]);
+      const sc = SCENARIOS[scenario];
+      const maxInt = sc?.maxInterceptors || 100;
+      const currentTotal = defenseSpawns.reduce((s, sp) => s + sp.count, 0);
+      const allowed = Math.min(spawnCount, maxInt - currentTotal);
+      if (allowed <= 0) return;
+      setDefenseSpawns((prev) => [...prev, { x, y, droneKey: spawnDefKey, count: allowed }]);
     } else if (placementMode === "zone_center") {
       setZoneCenter([Math.round(x), Math.round(y)]);
       setPlacementMode(null);
@@ -868,6 +873,10 @@ export default function SwarmInterception() {
       setAssetRadius(Math.max(100, Math.round(Math.sqrt(dx * dx + dy * dy))));
       setPlacementMode(null);
     } else if (placementMode === "place_ad") {
+      const sc = SCENARIOS[scenario];
+      const maxAD = sc?.maxAD || 10;
+      const currentPaid = adUnits.filter((ad) => !ad.free).length;
+      if (currentPaid >= maxAD) return;
       const sys = AD_SYSTEMS.find((s) => s.key === adPlaceKey);
       if (sys) {
         setAdUnits((prev) => [...prev, { id: Date.now(), key: adPlaceKey, x: Math.round(x), y: Math.round(y), health: 1, ammo: sys.missiles }]);
@@ -1210,7 +1219,7 @@ export default function SwarmInterception() {
               </select>
               <button onClick={() => setPlacementMode(placementMode === "place_ad" ? null : "place_ad")} disabled={running}
                 style={{ ...btnBase, width: "auto", padding: "5px 10px", fontSize: 10, background: placementMode === "place_ad" ? "#1a3a1a" : "#1a1a24", borderColor: placementMode === "place_ad" ? "#22aa22" : "#2a2a35", color: placementMode === "place_ad" ? "#22aa22" : "#888" }}>
-                {placementMode === "place_ad" ? "Click map..." : "Place"}
+                {placementMode === "place_ad" ? "Click map..." : `Place (${adUnits.filter((a) => !a.free).length}/${SCENARIOS[scenario]?.maxAD || 10})`}
               </button>
             </div>
             {(() => {
@@ -1262,7 +1271,7 @@ export default function SwarmInterception() {
               </button>
               <button onClick={() => setPlacementMode(placementMode === "defense" ? null : "defense")} disabled={running}
                 style={{ ...btnBase, background: placementMode === "defense" ? "#1a3a4a" : "#1a2a40", borderColor: placementMode === "defense" ? "#4a9eff" : "#2a4a6a", color: placementMode === "defense" ? "#4a9eff" : "#e0e0e0", opacity: running ? 0.4 : 1, cursor: running ? "not-allowed" : "pointer", fontSize: 11 }}>
-                {placementMode === "defense" ? "Placing DEF..." : `DEF (${defenseSpawns.length})`}
+                {placementMode === "defense" ? "Placing DEF..." : `DEF (${defenseSpawns.reduce((s, sp) => s + sp.count, 0)}/${SCENARIOS[scenario]?.maxInterceptors || 100})`}
               </button>
             </div>
 
