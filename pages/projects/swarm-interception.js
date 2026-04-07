@@ -13,9 +13,10 @@ const DRONE_DB = {
     { key: "wing_loong", name: "Wing Loong II", country: "China", speed: 370, cost: 2000000, rcs: 1.5, threat: "expensive" },
   ],
   interceptor: [
-    { key: "custom", name: "Custom Interceptor", country: "Generic", speed: 400, cost: 200000, rcs: 0.05 },
-    { key: "anduril", name: "Anduril Anvil", country: "USA", speed: 320, cost: 100000, rcs: 0.03 },
-    { key: "fortem", name: "Fortem DroneHunter", country: "USA", speed: 160, cost: 150000, rcs: 0.08 },
+    { key: "kamikaze_int", name: "Kamikaze Interceptor", country: "Generic", speed: 350, cost: 15000, rcs: 0.02, destroyOnKill: true },
+    { key: "armed_int", name: "Armed Interceptor", country: "Generic", speed: 300, cost: 180000, rcs: 0.05, destroyOnKill: false, survivalRate: 0.73 },
+    { key: "anduril", name: "Anduril Anvil", country: "USA", speed: 320, cost: 100000, rcs: 0.03, destroyOnKill: true },
+    { key: "fortem", name: "Fortem DroneHunter", country: "USA", speed: 160, cost: 150000, rcs: 0.08, destroyOnKill: false, survivalRate: 0.65 },
   ],
 };
 
@@ -76,24 +77,50 @@ const THEATERS = {
 };
 
 const SCENARIOS = {
-  sandbox: { name: "Sandbox", interceptors: 20, maxInterceptors: 100, maxAD: 10, budget: null, waves: [
+  sandbox: { name: "Sandbox", interceptors: 20, budget: null, waves: [
     { attackers: { fpv_kamikaze: 10, shahed_136: 5 }, bonus: 0 },
   ]},
-  medium: { name: "Medium", interceptors: 6, maxInterceptors: 15, maxAD: 3, budget: 100, waves: [
-    { attackers: { fpv_kamikaze: 30, shahed_136: 15 }, bonus: 10 },
-    { attackers: { fpv_kamikaze: 40, shahed_136: 20, lancet_3: 10 }, bonus: 15 },
-    { attackers: { fpv_kamikaze: 50, shahed_136: 25, lancet_3: 15 }, bonus: 0 },
+  medium: { name: "Medium", interceptors: 8, budget: 5, waves: [
+    { attackers: { fpv_kamikaze: 8 }, bonus: 1 },
+    { attackers: { fpv_kamikaze: 12, shahed_136: 4 }, bonus: 1 },
+    { attackers: { fpv_kamikaze: 15, shahed_136: 6 }, bonus: 2 },
+    { attackers: { fpv_kamikaze: 18, shahed_136: 8, lancet_3: 3 }, bonus: 2 },
+    { attackers: { fpv_kamikaze: 22, shahed_136: 10, lancet_3: 5 }, bonus: 2 },
+    { attackers: { fpv_kamikaze: 25, shahed_136: 12, lancet_3: 6 }, bonus: 3 },
+    { attackers: { fpv_kamikaze: 30, shahed_136: 15, lancet_3: 8 }, bonus: 3 },
+    { attackers: { fpv_kamikaze: 35, shahed_136: 18, lancet_3: 10 }, bonus: 3 },
+    { attackers: { fpv_kamikaze: 40, shahed_136: 20, lancet_3: 12, mohajer_6: 2 }, bonus: 4 },
+    { attackers: { fpv_kamikaze: 45, shahed_136: 22, lancet_3: 14, mohajer_6: 3 }, bonus: 4 },
+    { attackers: { fpv_kamikaze: 50, shahed_136: 25, lancet_3: 16, mohajer_6: 4 }, bonus: 5 },
+    { attackers: { fpv_kamikaze: 60, shahed_136: 30, lancet_3: 20, mohajer_6: 5 }, bonus: 0 },
   ]},
-  hard: { name: "Hard", interceptors: 5, maxInterceptors: 12, maxAD: 3, budget: 150, waves: [
-    { attackers: { fpv_kamikaze: 40, shahed_136: 20, lancet_3: 10 }, bonus: 15 },
-    { attackers: { fpv_kamikaze: 60, shahed_136: 30, lancet_3: 20, mohajer_6: 5 }, bonus: 20 },
-    { attackers: { fpv_kamikaze: 80, shahed_136: 40, lancet_3: 25, mohajer_6: 10 }, bonus: 0 },
+  hard: { name: "Hard", interceptors: 6, budget: 5, waves: [
+    { attackers: { fpv_kamikaze: 15, shahed_136: 5 }, bonus: 1 },
+    { attackers: { fpv_kamikaze: 20, shahed_136: 8, lancet_3: 3 }, bonus: 1 },
+    { attackers: { fpv_kamikaze: 25, shahed_136: 12, lancet_3: 5 }, bonus: 2 },
+    { attackers: { fpv_kamikaze: 30, shahed_136: 15, lancet_3: 8, mohajer_6: 2 }, bonus: 2 },
+    { attackers: { fpv_kamikaze: 35, shahed_136: 18, lancet_3: 10, mohajer_6: 3 }, bonus: 2 },
+    { attackers: { fpv_kamikaze: 40, shahed_136: 22, lancet_3: 12, mohajer_6: 5 }, bonus: 3 },
+    { attackers: { fpv_kamikaze: 50, shahed_136: 25, lancet_3: 15, mohajer_6: 6 }, bonus: 3 },
+    { attackers: { fpv_kamikaze: 55, shahed_136: 30, lancet_3: 18, mohajer_6: 8, orion: 2 }, bonus: 3 },
+    { attackers: { fpv_kamikaze: 60, shahed_136: 35, lancet_3: 20, mohajer_6: 10, orion: 3 }, bonus: 4 },
+    { attackers: { fpv_kamikaze: 70, shahed_136: 40, lancet_3: 25, mohajer_6: 12, orion: 4 }, bonus: 4 },
+    { attackers: { fpv_kamikaze: 80, shahed_136: 45, lancet_3: 28, mohajer_6: 15, orion: 5 }, bonus: 5 },
+    { attackers: { fpv_kamikaze: 100, shahed_136: 50, lancet_3: 30, mohajer_6: 18, orion: 6, wing_loong: 2 }, bonus: 0 },
   ]},
-  nightmare: { name: "Nightmare", interceptors: 4, maxInterceptors: 10, maxAD: 2, budget: 200, waves: [
-    { attackers: { fpv_kamikaze: 60, shahed_136: 30, lancet_3: 15 }, bonus: 20 },
-    { attackers: { fpv_kamikaze: 80, shahed_136: 40, lancet_3: 25, mohajer_6: 8 }, bonus: 25 },
-    { attackers: { fpv_kamikaze: 100, shahed_136: 50, lancet_3: 30, mohajer_6: 15, orion: 5 }, bonus: 30 },
-    { attackers: { fpv_kamikaze: 120, shahed_136: 60, lancet_3: 40, mohajer_6: 20, orion: 8, wing_loong: 5 }, bonus: 0 },
+  nightmare: { name: "Nightmare", interceptors: 4, budget: 4, waves: [
+    { attackers: { fpv_kamikaze: 20, shahed_136: 8, lancet_3: 3 }, bonus: 1 },
+    { attackers: { fpv_kamikaze: 30, shahed_136: 12, lancet_3: 6, mohajer_6: 2 }, bonus: 1 },
+    { attackers: { fpv_kamikaze: 40, shahed_136: 18, lancet_3: 10, mohajer_6: 4 }, bonus: 2 },
+    { attackers: { fpv_kamikaze: 50, shahed_136: 25, lancet_3: 14, mohajer_6: 6, orion: 2 }, bonus: 2 },
+    { attackers: { fpv_kamikaze: 60, shahed_136: 30, lancet_3: 18, mohajer_6: 8, orion: 3 }, bonus: 2 },
+    { attackers: { fpv_kamikaze: 70, shahed_136: 35, lancet_3: 22, mohajer_6: 10, orion: 4, wing_loong: 1 }, bonus: 3 },
+    { attackers: { fpv_kamikaze: 80, shahed_136: 40, lancet_3: 25, mohajer_6: 12, orion: 5, wing_loong: 2 }, bonus: 3 },
+    { attackers: { fpv_kamikaze: 90, shahed_136: 45, lancet_3: 28, mohajer_6: 15, orion: 6, wing_loong: 3 }, bonus: 3 },
+    { attackers: { fpv_kamikaze: 100, shahed_136: 50, lancet_3: 32, mohajer_6: 18, orion: 8, wing_loong: 4 }, bonus: 4 },
+    { attackers: { fpv_kamikaze: 120, shahed_136: 55, lancet_3: 35, mohajer_6: 20, orion: 10, wing_loong: 5 }, bonus: 4 },
+    { attackers: { fpv_kamikaze: 140, shahed_136: 60, lancet_3: 40, mohajer_6: 22, orion: 12, wing_loong: 6 }, bonus: 5 },
+    { attackers: { fpv_kamikaze: 160, shahed_136: 70, lancet_3: 45, mohajer_6: 25, orion: 15, wing_loong: 8 }, bonus: 0 },
   ]},
 };
 
@@ -194,6 +221,8 @@ function createDrones(scenario, theater, customAttackSpawns, customDefenseSpawns
           spawnX: sx, spawnY: sy,
           speed: profile.speed / 200,
           cost: profile.cost,
+          destroyOnKill: profile.destroyOnKill !== false,
+          survivalRate: profile.survivalRate || 0,
           status: "active",
           heading: 0,
           type: "interceptor",
@@ -210,8 +239,10 @@ function createDrones(scenario, theater, customAttackSpawns, customDefenseSpawns
         id: i,
         x: sx, y: sy,
         spawnX: sx, spawnY: sy,
-        speed: 2.0,
-        cost: 200000,
+        speed: 1.75,
+        cost: 15000,
+        destroyOnKill: true,
+        survivalRate: 0,
         status: "active",
         heading: 0,
         type: "interceptor",
@@ -307,7 +338,13 @@ function simStep(state, zoneCenter, assetRadius, adUnitsState, zoneRadius) {
         metrics.kills++;
         metrics.threat_value_destroyed += target.cost;
         int.targetId = null;
-        if (Math.random() < 0.3) int.status = "expended";
+        // Kamikaze interceptors always die, armed ones survive based on rate
+        if (int.destroyOnKill) {
+          int.status = "expended";
+        } else {
+          const survival = int.survivalRate || 0.73;
+          if (Math.random() > survival) int.status = "expended";
+        }
       }
     }
   }
@@ -814,7 +851,8 @@ export default function SwarmInterception() {
   const [assetRadius, setAssetRadius] = useState(DEFAULT_ASSET_RADIUS);
   const [defenseBudget, setDefenseBudget] = useState(100); // in millions USD
   const [currentWave, setCurrentWave] = useState(0);
-  const [waveBonus, setWaveBonus] = useState(0); // accumulated bonus in millions
+  const [waveBonus, setWaveBonus] = useState(0);
+  const [verdictPopup, setVerdictPopup] = useState(null); // null | { won: bool, msg: string }
   const [adPlaceKey, setAdPlaceKey] = useState("iron_dome");
   const [adUnits, setAdUnits] = useState(() => {
     const th = THEATERS.ukraine_kyiv;
@@ -853,12 +891,7 @@ export default function SwarmInterception() {
       const dx = x - zoneCenter[0];
       const dy = y - zoneCenter[1];
       if (Math.sqrt(dx * dx + dy * dy) > zoneRadius) return;
-      const sc = SCENARIOS[scenario];
-      const maxInt = sc?.maxInterceptors || 100;
-      const currentTotal = defenseSpawns.reduce((s, sp) => s + sp.count, 0);
-      const allowed = Math.min(spawnCount, maxInt - currentTotal);
-      if (allowed <= 0) return;
-      setDefenseSpawns((prev) => [...prev, { x, y, droneKey: spawnDefKey, count: allowed }]);
+      setDefenseSpawns((prev) => [...prev, { x, y, droneKey: spawnDefKey, count: spawnCount }]);
     } else if (placementMode === "zone_center") {
       setZoneCenter([Math.round(x), Math.round(y)]);
       setPlacementMode(null);
@@ -873,10 +906,6 @@ export default function SwarmInterception() {
       setAssetRadius(Math.max(100, Math.round(Math.sqrt(dx * dx + dy * dy))));
       setPlacementMode(null);
     } else if (placementMode === "place_ad") {
-      const sc = SCENARIOS[scenario];
-      const maxAD = sc?.maxAD || 10;
-      const currentPaid = adUnits.filter((ad) => !ad.free).length;
-      if (currentPaid >= maxAD) return;
       const sys = AD_SYSTEMS.find((s) => s.key === adPlaceKey);
       if (sys) {
         setAdUnits((prev) => [...prev, { id: Date.now(), key: adPlaceKey, x: Math.round(x), y: Math.round(y), health: 1, ammo: sys.missiles }]);
@@ -1020,6 +1049,21 @@ export default function SwarmInterception() {
         runRef.current = false;
         setRunning(false);
         setStatusText("COMPLETE");
+        // Show verdict popup for non-sandbox modes
+        if (scenarioRef.current !== "sandbox") {
+          setTimeout(() => {
+            const metrics = simRef.current?.metrics || {};
+            const sc2 = SCENARIOS[scenarioRef.current];
+            const bonus = waveRef.current > 0 ? sc2?.waves?.slice(0, waveRef.current).reduce((s2, w) => s2 + (w.bonus || 0), 0) : 0;
+            const bUSD = (sc2?.budget || 0) * 1e6 + bonus * 1e6;
+            const spent = (metrics.defense_cost || 0) + (metrics.breach_damage || 0);
+            // fleet + AD costs computed in budget section, approx here
+            const overB = spent > bUSD * 0.8; // loose check
+            const breaches = metrics.breaches || 0;
+            const won = breaches === 0 && !overB;
+            setVerdictPopup({ won, waves: (waveRef.current || 0) + 1, kills: metrics.kills || 0, breaches });
+          }, 500);
+        }
       }
     } else {
       frameRef.current = requestAnimationFrame(runLoop);
@@ -1039,7 +1083,7 @@ export default function SwarmInterception() {
     flashesRef.current = [];
     setRunning(false); setPaused(false); setSimState(null); setStatusText("READY");
     setKillFlashes([]); setBreachPoints([]);
-    setCurrentWave(0); setWaveBonus(0);
+    setCurrentWave(0); setWaveBonus(0); setVerdictPopup(null);
     setAttackSpawns([]); setDefenseSpawns([]);
     setPlacementMode(null);
     setScenario("medium");
@@ -1219,7 +1263,7 @@ export default function SwarmInterception() {
               </select>
               <button onClick={() => setPlacementMode(placementMode === "place_ad" ? null : "place_ad")} disabled={running}
                 style={{ ...btnBase, width: "auto", padding: "5px 10px", fontSize: 10, background: placementMode === "place_ad" ? "#1a3a1a" : "#1a1a24", borderColor: placementMode === "place_ad" ? "#22aa22" : "#2a2a35", color: placementMode === "place_ad" ? "#22aa22" : "#888" }}>
-                {placementMode === "place_ad" ? "Click map..." : `Place (${adUnits.filter((a) => !a.free).length}/${SCENARIOS[scenario]?.maxAD || 10})`}
+                {placementMode === "place_ad" ? "Click map..." : "Place"}
               </button>
             </div>
             {(() => {
@@ -1271,7 +1315,7 @@ export default function SwarmInterception() {
               </button>
               <button onClick={() => setPlacementMode(placementMode === "defense" ? null : "defense")} disabled={running}
                 style={{ ...btnBase, background: placementMode === "defense" ? "#1a3a4a" : "#1a2a40", borderColor: placementMode === "defense" ? "#4a9eff" : "#2a4a6a", color: placementMode === "defense" ? "#4a9eff" : "#e0e0e0", opacity: running ? 0.4 : 1, cursor: running ? "not-allowed" : "pointer", fontSize: 11 }}>
-                {placementMode === "defense" ? "Placing DEF..." : `DEF (${defenseSpawns.reduce((s, sp) => s + sp.count, 0)}/${SCENARIOS[scenario]?.maxInterceptors || 100})`}
+                {placementMode === "defense" ? "Placing DEF..." : `DEF (${defenseSpawns.reduce((s, sp) => s + sp.count, 0)})`}
               </button>
             </div>
 
@@ -1345,6 +1389,24 @@ export default function SwarmInterception() {
           {/* Map */}
           <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
             <SimMap simState={simState} theater={theater} killFlashes={killFlashes} breachPoints={breachPoints} attackSpawns={attackSpawns} defenseSpawns={defenseSpawns} placementMode={placementMode} onPlaceSpawn={placementMode ? handlePlaceSpawn : null} zoneCenter={zoneCenter} zoneRadius={zoneRadius} assetRadius={assetRadius} adUnits={adUnits} />
+            {verdictPopup && (
+              <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+                onClick={() => setVerdictPopup(null)}>
+                <div style={{ background: "#111118", border: `2px solid ${verdictPopup.won ? "#22aa22" : "#ff3333"}`, borderRadius: 12, padding: "32px 40px", textAlign: "center", maxWidth: 360 }}
+                  onClick={(e) => e.stopPropagation()}>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: verdictPopup.won ? "#4caf50" : "#ff5555", marginBottom: 8 }}>
+                    {verdictPopup.won ? "DEFENSE SUCCESSFUL" : "DEFENSE FAILED"}
+                  </div>
+                  <div style={{ fontSize: 12, color: "#888", marginBottom: 16 }}>
+                    {verdictPopup.waves} waves completed - {verdictPopup.kills} kills - {verdictPopup.breaches} breaches
+                  </div>
+                  <button onClick={() => setVerdictPopup(null)}
+                    style={{ padding: "8px 24px", background: "#1a2a40", border: "1px solid #2a4a6a", color: "#e0e0e0", borderRadius: 6, fontSize: 13, cursor: "pointer" }}>
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Right panel */}
@@ -1444,17 +1506,6 @@ export default function SwarmInterception() {
                   </div>
                   <div style={{ fontSize: 10, color: "#666", textAlign: "right" }}>{pctUsed.toFixed(0)}% of ${formatUSD(budgetUSD)} budget</div>
 
-                  {allWavesDone && !isSandbox && (
-                    <div style={{
-                      marginTop: 8, padding: "8px 12px", borderRadius: 6, textAlign: "center",
-                      fontSize: 11, fontWeight: 600, letterSpacing: 0.5,
-                      background: failed ? "rgba(255, 85, 85, 0.1)" : "rgba(76, 175, 80, 0.1)",
-                      border: `1px solid ${failed ? "#6a2a2a" : "#2a6a3a"}`,
-                      color: failed ? "#ff5555" : "#4caf50",
-                    }}>
-                      {failed ? "DEFENSE FAILED - OVER BUDGET" : "DEFENSE SUCCESSFUL"}
-                    </div>
-                  )}
                 </div>
               );
             })()}
