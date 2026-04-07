@@ -34,13 +34,14 @@ export const siteData = {
   },
   projects: [
     {
-      name: "IPL Arbitrage Bot",
+      name: "AI Trading Tool",
       description:
-        "Automated cross-platform arbitrage bot exploiting pricing inefficiencies between Stake (sportsbook) and Kalshi (prediction market) for IPL cricket. Devigging, 12-step execution protocol, and risk-managed shadow/live modes.",
+        "Full AI-native trading pipeline for prediction platforms like Kalshi and Polymarket. Currently exploring strategies including arbitrage and others - strategies are kept private as the project is proprietary.",
       stack: ["Python", "httpx", "GraphQL", "REST API", "Arbitrage"],
       link: "/projects/trading-bot",
       year: "2026",
       locked: true,
+      type: "tool",
     },
     {
       name: "People Grouper",
@@ -49,6 +50,7 @@ export const siteData = {
       stack: ["Next.js", "React", "Tailwind CSS"],
       link: "/projects/people-grouper",
       year: "2026",
+      type: "tool",
     },
     {
       name: "AI Poker Bot – Jump Trading Poker Competition",
@@ -57,6 +59,7 @@ export const siteData = {
       stack: ["Python", "Game Theory", "Bayesian Inference", "Monte Carlo"],
       link: "/projects/poker-bot",
       year: "2026",
+      type: "tool",
     },
     {
       name: "Closed-Thought LLM",
@@ -65,6 +68,7 @@ export const siteData = {
       stack: ["Python", "PyTorch", "LLMs", "CUDA"],
       link: "/projects/latent-reasoning",
       year: "2026",
+      type: "report",
     },
     {
       name: "Who is Harry Potter",
@@ -73,6 +77,7 @@ export const siteData = {
       stack: ["Python", "PyTorch", "LLMs"],
       link: "https://github.com/PatrickJaiin/who-is-harry-potter",
       year: "2026",
+      type: "ext-report",
     },
     {
       name: "Diffusion Based Generative Modelling for Architectural Visualization",
@@ -82,6 +87,7 @@ export const siteData = {
       link: "/projects/architectural-diffusion",
       paper: "https://drive.google.com/file/d/1gkgJtMgf-TnsmlfBQtnrR7EouxR8SxQM/view?usp=sharing",
       year: "2024",
+      type: "paper",
     },
     {
       name: "Local Note Taker",
@@ -90,6 +96,7 @@ export const siteData = {
       stack: ["Python", "Ollama", "Whisper"],
       link: "https://github.com/PatrickJaiin/local-notes-taker",
       year: "2026",
+      type: "ext-app",
     },
     {
       name: "LLM Features for Zulip",
@@ -107,6 +114,7 @@ export const siteData = {
       link: "/terminal",
       year: "2022",
       featured: true,
+      type: "interactive",
     },
     {
       name: "Reverse Engineering the YouTube Algorithm",
@@ -117,6 +125,8 @@ export const siteData = {
       paper: "https://drive.google.com/file/d/1SeZ7qM6QHVxB5Ont9-CsWYe0b_WXiWwh/view?usp=sharing",
       researchgate: "https://www.researchgate.net/publication/385962242_Parametric_algorithmic_transformer_based_weighted_YouTube_video_analysis",
       year: "2023",
+      type: "tool",
+
     },
     {
       name: "EV Swapping Solution",
@@ -125,6 +135,7 @@ export const siteData = {
       stack: ["AI/ML", "Full Stack", "Maps API"],
       link: "https://docs.google.com/presentation/d/1csFBi9NKNH_Dcqv7blx_Cv5EriCX948fu5dgH2iBWWs/edit?usp=sharing",
       year: "2022",
+      type: "ext-report",
     },
     {
       name: "Fire and Smoke Detection",
@@ -133,6 +144,7 @@ export const siteData = {
       stack: ["Python", "CNNs", "ResNet152", "VGG19", "Streamlit"],
       link: "https://docs.google.com/presentation/d/1S0-LzMXlxHPZLGEfMLYnLyMC7e6Jzkn0_DqLKtq-x3g/edit?usp=sharing",
       year: "2023",
+      type: "ext-report",
     },
     {
       name: "Autonomous FPV Drone",
@@ -142,6 +154,7 @@ export const siteData = {
       link: "/projects/autonomous-drone",
       video: "https://drive.google.com/file/d/1q6t1lj6cP6v9freTHnrVP7j_K1OAIBSC/preview",
       year: "2024",
+      type: "demo",
     },
   ],
   contacts: [

@@ -135,6 +135,7 @@ export default function Home() {
                     link={project.link}
                     year={project.year}
                     locked={project.locked}
+                    type={project.type}
                   />
                 ))}
             </div>
