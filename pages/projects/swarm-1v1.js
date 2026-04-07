@@ -553,34 +553,36 @@ export default function Swarm1v1() {
         }
       }
 
-      // AD units fire
-      if (b.step % 10 === 0) {
-        for (const ad of b.pAD) {
-          if (ad.health <= 0 || ad.ammo <= 0) continue;
-          const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
-          if (!sys) continue;
-          for (const a of b.aAttackers) {
-            if (a.status !== "active") continue;
-            if (dist(ad, a) < sys.range) {
-              ad.ammo--;
-              b.flashes.push({ x: ad.x, y: ad.y, x2: a.x, y2: a.y, time: b.step, type: "adshot", color: sys.color });
-              if (Math.random() < sys.pk) { a.status = "destroyed"; b.aKills++; b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" }); }
-              break;
-            }
+      // AD units fire with reload cooldown
+      for (const ad of b.pAD) {
+        if (ad.health <= 0 || ad.ammo <= 0) continue;
+        const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
+        if (!sys) continue;
+        const cooldown = Math.max(3, Math.round(sys.engageRate * 5));
+        if (ad.lastFired && b.step - ad.lastFired < cooldown) continue;
+        for (const a of b.aAttackers) {
+          if (a.status !== "active") continue;
+          if (dist(ad, a) < sys.range) {
+            ad.ammo--; ad.lastFired = b.step;
+            b.flashes.push({ x: ad.x, y: ad.y, x2: a.x, y2: a.y, time: b.step, type: "adshot", color: sys.color });
+            if (Math.random() < sys.pk) { a.status = "destroyed"; b.aKills++; b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" }); }
+            break;
           }
         }
-        for (const ad of b.aAD) {
-          if (ad.health <= 0 || ad.ammo <= 0) continue;
-          const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
-          if (!sys) continue;
-          for (const a of b.pAttackers) {
-            if (a.status !== "active") continue;
-            if (dist(ad, a) < sys.range) {
-              ad.ammo--;
-              b.flashes.push({ x: ad.x, y: ad.y, x2: a.x, y2: a.y, time: b.step, type: "adshot", color: sys.color });
-              if (Math.random() < sys.pk) { a.status = "destroyed"; b.pKills++; b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" }); }
-              break;
-            }
+      }
+      for (const ad of b.aAD) {
+        if (ad.health <= 0 || ad.ammo <= 0) continue;
+        const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
+        if (!sys) continue;
+        const cooldown = Math.max(3, Math.round(sys.engageRate * 5));
+        if (ad.lastFired && b.step - ad.lastFired < cooldown) continue;
+        for (const a of b.pAttackers) {
+          if (a.status !== "active") continue;
+          if (dist(ad, a) < sys.range) {
+            ad.ammo--; ad.lastFired = b.step;
+            b.flashes.push({ x: ad.x, y: ad.y, x2: a.x, y2: a.y, time: b.step, type: "adshot", color: sys.color });
+            if (Math.random() < sys.pk) { a.status = "destroyed"; b.pKills++; b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" }); }
+            break;
           }
         }
       }
@@ -605,16 +607,18 @@ export default function Swarm1v1() {
           else if (i.status === "landed") L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#663333", fillColor: "#663333", fillOpacity: 0.5, weight: 1 }).addTo(bl);
         }
         // Kill, breach, and AD shot flashes
-        b.flashes = b.flashes.filter((f) => b.step - f.time < 20);
+        b.flashes = b.flashes.filter((f) => b.step - f.time < 30);
         for (const f of b.flashes) {
           const age = b.step - f.time;
-          const p = age / 20;
+          const p = age / 30;
           const ll = toLL(f.x, f.y);
           if (f.type === "adshot") {
-            // Line from AD to target
-            if (age < 8) {
+            // Line from AD to target - thick and visible
+            if (age < 15) {
               const ll2 = toLL(f.x2, f.y2);
-              L.polyline([ll, ll2], { color: f.color || "#ffaa00", weight: 1.5, opacity: (1 - age / 8) * 0.7, interactive: false }).addTo(bl);
+              L.polyline([ll, ll2], { color: f.color || "#ffaa00", weight: 2.5, opacity: (1 - age / 15) * 0.9, interactive: false }).addTo(bl);
+              // Hit marker at target end
+              L.circleMarker(ll2, { radius: 3, color: f.color || "#ffaa00", fillColor: f.color || "#ffaa00", fillOpacity: (1 - age / 15) * 0.8, weight: 0 }).addTo(bl);
             }
           } else if (f.type === "dmgtext") {
             // Floating damage text that drifts up
@@ -665,7 +669,7 @@ export default function Swarm1v1() {
       const pIntsActive = b.pInts.filter((i) => i.status === "active").length;
       const aIntsActive = b.aInts.filter((i) => i.status === "active").length;
       const allDone = aAtk === 0 && pAtk === 0 && pIntsActive === 0 && aIntsActive === 0;
-      if (allDone || b.step > 3000) {
+      if ((allDone && b.step > 50) || b.step > 5000) {
         // Battle ended
         const endLog = [];
         endLog.push(`Battle ${round + 1} done: You killed ${b.aKills}, lost ${b.pBreaches} breaches | AI killed ${b.pKills}, lost ${b.aBreaches} breaches`);
