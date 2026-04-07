@@ -137,6 +137,8 @@ export default function Swarm1v1() {
   const mapInstanceRef = useRef(null);
   const layerRef = useRef(null);
   const LRef = useRef(null);
+  const handleMapClickRef = useRef(null);
+  const theaterRef = useRef(theater);
   const [mapReady, setMapReady] = useState(false);
 
   // ── Matchmaking ──
@@ -144,8 +146,6 @@ export default function Swarm1v1() {
     if (!username.trim()) return;
     setPhase(PHASE.MATCHMAKING);
     setOpponentName(AI_NAMES[Math.floor(Math.random() * AI_NAMES.length)]);
-    const theaterKeys = Object.keys(THEATERS);
-    setTheater(theaterKeys[Math.floor(Math.random() * theaterKeys.length)]);
     let t = 0;
     const iv = setInterval(() => {
       t++;
@@ -209,6 +209,10 @@ export default function Swarm1v1() {
     }
   }, [phase, placingWhat, playerHQ, playerAirspace]);
 
+  // Keep refs in sync
+  handleMapClickRef.current = handleMapClick;
+  theaterRef.current = theater;
+
   // ── Init Leaflet ──
   useEffect(() => {
     if (typeof window === "undefined" || phase === PHASE.LOBBY || phase === PHASE.MATCHMAKING) return;
@@ -231,11 +235,13 @@ export default function Swarm1v1() {
       layerRef.current = Leaf.layerGroup().addTo(map);
 
       map.on("click", (e) => {
-        const th2 = THEATERS[theater];
+        const fn = handleMapClickRef.current;
+        if (!fn) return;
+        const th2 = THEATERS[theaterRef.current];
         let [cx, cy] = latLngToSim(e.latlng.lat, e.latlng.lng, th2.bounds);
         cx = Math.max(0, Math.min(ARENA, cx));
         cy = Math.max(0, Math.min(ARENA, cy));
-        handleMapClick(cx, cy);
+        fn(cx, cy);
       });
       setMapReady(true);
     })();
@@ -437,13 +443,18 @@ export default function Swarm1v1() {
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <div style={{ textAlign: "center", maxWidth: 400 }}>
               <div style={{ fontSize: 48, fontWeight: 800, color: "#ff6688", marginBottom: 8 }}>SWARM 1v1</div>
-              <div style={{ fontSize: 14, color: "#666", marginBottom: 32 }}>Defend your base. Destroy theirs.</div>
+              <div style={{ fontSize: 14, color: "#666", marginBottom: 4 }}>Defend your base. Destroy theirs.</div>
+              <div style={{ fontSize: 11, color: "#444", marginBottom: 24 }}>vs AI opponent</div>
               <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Enter callsign..."
-                style={{ ...inputStyle, width: "100%", fontSize: 16, textAlign: "center", marginBottom: 16 }}
+                style={{ ...inputStyle, width: "100%", fontSize: 16, textAlign: "center", marginBottom: 12 }}
                 onKeyDown={(e) => e.key === "Enter" && findMatch()} />
+              <select value={theater} onChange={(e) => setTheater(e.target.value)}
+                style={{ ...inputStyle, width: "100%", marginBottom: 16, textAlign: "center" }}>
+                {Object.entries(THEATERS).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
+              </select>
               <button onClick={findMatch} disabled={!username.trim()}
                 style={{ ...btnStyle, width: "100%", background: username.trim() ? "#4a1a2a" : "#1a1a24", borderColor: username.trim() ? "#ff6688" : "#333", color: username.trim() ? "#ff6688" : "#555" }}>
-                FIND MATCH
+                START vs AI
               </button>
             </div>
           </div>
