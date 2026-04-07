@@ -76,10 +76,25 @@ const THEATERS = {
 };
 
 const SCENARIOS = {
-  sandbox: { name: "Sandbox", attackers: { fpv_kamikaze: 10, shahed_136: 5 }, interceptors: 20, budget: null },
-  medium: { name: "Medium", attackers: { fpv_kamikaze: 80, shahed_136: 40, lancet_3: 20 }, interceptors: 6, budget: 100 },
-  hard: { name: "Hard", attackers: { fpv_kamikaze: 150, shahed_136: 70, lancet_3: 40, mohajer_6: 15 }, interceptors: 5, budget: 150 },
-  nightmare: { name: "Nightmare", attackers: { fpv_kamikaze: 250, shahed_136: 100, lancet_3: 60, mohajer_6: 25, orion: 10, wing_loong: 5 }, interceptors: 4, budget: 200 },
+  sandbox: { name: "Sandbox", interceptors: 20, budget: null, waves: [
+    { attackers: { fpv_kamikaze: 10, shahed_136: 5 }, bonus: 0 },
+  ]},
+  medium: { name: "Medium", interceptors: 6, budget: 100, waves: [
+    { attackers: { fpv_kamikaze: 30, shahed_136: 15 }, bonus: 10 },
+    { attackers: { fpv_kamikaze: 40, shahed_136: 20, lancet_3: 10 }, bonus: 15 },
+    { attackers: { fpv_kamikaze: 50, shahed_136: 25, lancet_3: 15 }, bonus: 0 },
+  ]},
+  hard: { name: "Hard", interceptors: 5, budget: 150, waves: [
+    { attackers: { fpv_kamikaze: 40, shahed_136: 20, lancet_3: 10 }, bonus: 15 },
+    { attackers: { fpv_kamikaze: 60, shahed_136: 30, lancet_3: 20, mohajer_6: 5 }, bonus: 20 },
+    { attackers: { fpv_kamikaze: 80, shahed_136: 40, lancet_3: 25, mohajer_6: 10 }, bonus: 0 },
+  ]},
+  nightmare: { name: "Nightmare", interceptors: 4, budget: 200, waves: [
+    { attackers: { fpv_kamikaze: 60, shahed_136: 30, lancet_3: 15 }, bonus: 20 },
+    { attackers: { fpv_kamikaze: 80, shahed_136: 40, lancet_3: 25, mohajer_6: 8 }, bonus: 25 },
+    { attackers: { fpv_kamikaze: 100, shahed_136: 50, lancet_3: 30, mohajer_6: 15, orion: 5 }, bonus: 30 },
+    { attackers: { fpv_kamikaze: 120, shahed_136: 60, lancet_3: 40, mohajer_6: 20, orion: 8, wing_loong: 5 }, bonus: 0 },
+  ]},
 };
 
 const KILL_RADIUS = 120;
@@ -111,8 +126,9 @@ function latLngToSim(lat, lng, bounds) {
   return [x, y];
 }
 
-// ── Create drones for a scenario ──
-function createDrones(scenario, theater, customAttackSpawns, customDefenseSpawns) {
+// ── Create drones for a scenario/wave ──
+function createDrones(scenario, theater, customAttackSpawns, customDefenseSpawns, waveAttackers) {
+  const attackerConfig = waveAttackers || scenario.waves[0].attackers;
   const th = THEATERS[theater] || THEATERS.kashmir;
   const center = [5000, 5000];
   const hasCustomAtk = customAttackSpawns.length > 0;
@@ -143,7 +159,7 @@ function createDrones(scenario, theater, customAttackSpawns, customDefenseSpawns
     }
   } else {
     // Use scenario defaults with theater origins
-    for (const [key, count] of Object.entries(scenario.attackers)) {
+    for (const [key, count] of Object.entries(attackerConfig)) {
       const profile = DRONE_DB.attack.find((d) => d.key === key);
       if (!profile) continue;
       for (let i = 0; i < count; i++) {
@@ -290,7 +306,6 @@ function simStep(state, zoneCenter, assetRadius, adUnitsState, zoneRadius) {
         target.status = "destroyed";
         metrics.kills++;
         metrics.threat_value_destroyed += target.cost;
-        metrics.defense_cost += int.cost * 0.1;
         int.targetId = null;
         if (Math.random() < 0.3) int.status = "expended";
       }
@@ -798,6 +813,8 @@ export default function SwarmInterception() {
   const [zoneRadius, setZoneRadius] = useState(DEFAULT_ZONE_RADIUS);
   const [assetRadius, setAssetRadius] = useState(DEFAULT_ASSET_RADIUS);
   const [defenseBudget, setDefenseBudget] = useState(100); // in millions USD
+  const [currentWave, setCurrentWave] = useState(0);
+  const [waveBonus, setWaveBonus] = useState(0); // accumulated bonus in millions
   const [adPlaceKey, setAdPlaceKey] = useState("iron_dome");
   const [adUnits, setAdUnits] = useState(() => {
     const th = THEATERS.ukraine_kyiv;
@@ -812,6 +829,8 @@ export default function SwarmInterception() {
   const flashesRef = useRef([]);
   const frameRef = useRef(null);
   const theaterRef = useRef(theater);
+  const scenarioRef = useRef(scenario);
+  const waveRef = useRef(0);
   const zoneCenterRef = useRef(zoneCenter);
   const zoneRadiusRef = useRef(zoneRadius);
   const assetRadiusRef = useRef(assetRadius);
@@ -820,6 +839,8 @@ export default function SwarmInterception() {
   useEffect(() => { speedRef.current = speed; }, [speed]);
   useEffect(() => { pausedRef.current = paused; }, [paused]);
   useEffect(() => { theaterRef.current = theater; }, [theater]);
+  useEffect(() => { scenarioRef.current = scenario; }, [scenario]);
+  useEffect(() => { waveRef.current = currentWave; }, [currentWave]);
   useEffect(() => { zoneCenterRef.current = zoneCenter; }, [zoneCenter]);
   useEffect(() => { zoneRadiusRef.current = zoneRadius; }, [zoneRadius]);
   useEffect(() => { assetRadiusRef.current = assetRadius; }, [assetRadius]);
@@ -856,9 +877,11 @@ export default function SwarmInterception() {
 
   const startSim = useCallback(() => {
     const sc = SCENARIOS[scenario];
-    if (!sc) return;
+    if (!sc || !sc.waves || sc.waves.length === 0) return;
     setPlacementMode(null);
-    const { interceptors, attackers } = createDrones(sc, theater, attackSpawns, defenseSpawns);
+    setCurrentWave(0);
+    setWaveBonus(0);
+    const { interceptors, attackers } = createDrones(sc, theater, attackSpawns, defenseSpawns, sc.waves[0].attackers);
     const initial = {
       interceptors, attackers,
       metrics: { kills: 0, misses: 0, breaches: 0, breach_damage: 0, defense_cost: 0, threat_value_destroyed: 0, active_interceptors: interceptors.length, active_threats: attackers.length },
@@ -873,7 +896,7 @@ export default function SwarmInterception() {
     setPaused(false);
     runRef.current = true;
     pausedRef.current = false;
-    setStatusText("RUNNING");
+    setStatusText("WAVE 1");
     runLoop();
   }, [scenario, theater, attackSpawns, defenseSpawns]);
 
@@ -927,8 +950,71 @@ export default function SwarmInterception() {
     setKillFlashes([...flashesRef.current]);
     setAdUnits([...adUnitsRef.current]);
 
-    if (s.done) { runRef.current = false; setRunning(false); setStatusText("COMPLETE"); }
-    else { frameRef.current = requestAnimationFrame(runLoop); }
+    if (s.done) {
+      // Check for next wave
+      const sc = SCENARIOS[scenarioRef.current];
+      const wave = waveRef.current;
+      if (sc && sc.waves && wave < sc.waves.length - 1) {
+        // Award bonus from completed wave
+        const completedWave = sc.waves[wave];
+        if (completedWave.bonus > 0) {
+          setWaveBonus((prev) => prev + completedWave.bonus);
+        }
+        // Next wave: keep surviving interceptors, spawn new attackers
+        const nextWave = wave + 1;
+        waveRef.current = nextWave;
+        setCurrentWave(nextWave);
+        const th = THEATERS[theaterRef.current] || THEATERS.kashmir;
+        const nextAttackers = sc.waves[nextWave].attackers;
+
+        // Reuse surviving interceptors, reset their targets
+        const survivors = s.interceptors.filter((i) => i.status === "active" || i.status === "landed");
+        for (const i of survivors) { i.status = "active"; i.targetId = null; }
+
+        // Create new attackers
+        const newAttackerList = [];
+        let id = 1000 + nextWave * 1000;
+        for (const [key, count] of Object.entries(nextAttackers)) {
+          const profile = DRONE_DB.attack.find((d) => d.key === key);
+          if (!profile) continue;
+          for (let j = 0; j < count; j++) {
+            const origin = th.attackOrigins[Math.floor(Math.random() * th.attackOrigins.length)];
+            newAttackerList.push({
+              id: id++,
+              x: origin[0] + (Math.random() - 0.5) * 1500,
+              y: origin[1] + (Math.random() - 0.5) * 1500,
+              speed: profile.speed / 200, cost: profile.cost, threat: profile.threat,
+              status: "active", heading: Math.atan2(5000 - origin[1], 5000 - origin[0]) + (Math.random() - 0.5) * 0.8,
+              type: "attacker", profileName: profile.name,
+            });
+          }
+        }
+
+        // Reset AD unit ammo for next wave
+        for (const ad of adUnitsRef.current) {
+          if (ad.health > 0) {
+            const sys = AD_SYSTEMS.find((s2) => s2.key === ad.key);
+            if (sys) ad.ammo = sys.missiles;
+          }
+        }
+
+        const nextState = {
+          interceptors: survivors, attackers: newAttackerList,
+          metrics: { ...s.metrics, active_interceptors: survivors.length, active_threats: newAttackerList.length },
+          step: s.step, done: false,
+        };
+        simRef.current = nextState;
+        setSimState({ ...nextState });
+        setStatusText(`WAVE ${nextWave + 1}`);
+        frameRef.current = requestAnimationFrame(runLoop);
+      } else {
+        runRef.current = false;
+        setRunning(false);
+        setStatusText("COMPLETE");
+      }
+    } else {
+      frameRef.current = requestAnimationFrame(runLoop);
+    }
   }, []);
 
   const stopSim = useCallback(() => {
@@ -944,6 +1030,7 @@ export default function SwarmInterception() {
     flashesRef.current = [];
     setRunning(false); setPaused(false); setSimState(null); setStatusText("READY");
     setKillFlashes([]); setBreachPoints([]);
+    setCurrentWave(0); setWaveBonus(0);
     setAttackSpawns([]); setDefenseSpawns([]);
     setPlacementMode(null);
     setScenario("medium");
@@ -1040,7 +1127,7 @@ export default function SwarmInterception() {
             <PanelTitle>Difficulty (Attack Wave)</PanelTitle>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginBottom: 6 }}>
               {Object.entries(SCENARIOS).map(([k, v]) => {
-                const total = Object.values(v.attackers).reduce((s, n) => s + n, 0);
+                const total = v.waves.reduce((s, w) => s + Object.values(w.attackers).reduce((s2, n) => s2 + n, 0), 0);
                 const colorMap = { sandbox: "#4a9eff", medium: "#ff9800", hard: "#ff5555", nightmare: "#cc00cc" };
                 const c = colorMap[k] || "#888";
                 const active = scenario === k;
@@ -1053,7 +1140,7 @@ export default function SwarmInterception() {
                       background: active ? "rgba(255,255,255,0.05)" : "#1a1a24",
                       color: active ? c : "#888", textAlign: "center", lineHeight: 1.4,
                     }}>
-                    {v.name}<br/><span style={{ fontSize: 9, opacity: 0.7 }}>{total} drones</span>
+                    {v.name}<br/><span style={{ fontSize: 9, opacity: 0.7 }}>{v.waves.length} wave{v.waves.length > 1 ? "s" : ""} / {total}</span>
                   </button>
                 );
               })}
@@ -1063,10 +1150,16 @@ export default function SwarmInterception() {
               if (!sc) return null;
               return (
                 <div style={{ fontSize: 9, color: "#555", marginBottom: 6 }}>
-                  {Object.entries(sc.attackers).map(([k, n]) => {
-                    const p = DRONE_DB.attack.find((d) => d.key === k);
-                    return <span key={k} style={{ marginRight: 6 }}>{p ? p.name.split(" ")[0] : k} x{n}</span>;
-                  })}
+                  {sc.waves.map((w, wi) => (
+                    <div key={wi} style={{ marginBottom: 2 }}>
+                      <span style={{ color: "#666" }}>W{wi + 1}: </span>
+                      {Object.entries(w.attackers).map(([k, n]) => {
+                        const p = DRONE_DB.attack.find((d) => d.key === k);
+                        return <span key={k} style={{ marginRight: 4 }}>{p ? p.name.split(" ")[0] : k} x{n}</span>;
+                      })}
+                      {w.bonus > 0 && <span style={{ color: "#4caf50" }}> +${w.bonus}M</span>}
+                    </div>
+                  ))}
                 </div>
               );
             })()}
@@ -1273,8 +1366,9 @@ export default function SwarmInterception() {
               <span style={{ fontSize: 12, color: "#4a9eff", minWidth: 45, textAlign: "right", fontWeight: 600 }}>${defenseBudget}M</span>
             </div>
             {(() => {
-              const budgetUSD = defenseBudget * 1e6;
-              // Drone fleet cost: from sim state if running, from spawns/scenario if pre-sim
+              const bonusUSD = waveBonus * 1e6;
+              const budgetUSD = defenseBudget * 1e6 + bonusUSD;
+              // Costs: buying drones + buying AD + AD ammo spent + breach damage
               let droneFleetCost = 0;
               if (simState) {
                 droneFleetCost = simState.interceptors.reduce((s, i) => s + i.cost, 0);
@@ -1287,21 +1381,37 @@ export default function SwarmInterception() {
                 const sc = SCENARIOS[scenario];
                 if (sc) droneFleetCost = sc.interceptors * 200000;
               }
-              const lostDroneCost = simState ? simState.interceptors.filter((i) => i.status === "expended").reduce((s, i) => s + i.cost, 0) : 0;
-              const flightCost = m.defense_cost || 0;
               const adDeployCost = adUnits.reduce((s, ad) => { if (ad.free) return s; const sys = AD_SYSTEMS.find((s2) => s2.key === ad.key); return s + (sys ? sys.cost : 0); }, 0);
-              const adDamageCost = adUnits.reduce((s, ad) => { if (ad.health <= 0) { const sys = AD_SYSTEMS.find((s2) => s2.key === ad.key); return s + (sys ? sys.cost * 0.5 : 0); } return s; }, 0);
+              const ammoSpent = m.defense_cost || 0; // AD missile costs
               const breachDmg = m.breach_damage || 0;
-              const totalSpent = droneFleetCost + lostDroneCost + flightCost + adDeployCost + adDamageCost + breachDmg;
+              const totalSpent = droneFleetCost + adDeployCost + ammoSpent + breachDmg;
               const remaining = budgetUSD - totalSpent;
               const pctUsed = budgetUSD > 0 ? Math.min(100, (totalSpent / budgetUSD) * 100) : 0;
               const overBudget = remaining < 0;
-              const isDone = simState?.done;
+              const sc = SCENARIOS[scenario];
+              const allWavesDone = simState?.done && sc?.waves && currentWave >= sc.waves.length - 1;
               const isSandbox = scenario === "sandbox";
-              const failed = isDone && !isSandbox && overBudget;
+              const failed = allWavesDone && !isSandbox && overBudget;
 
               return (
                 <div style={{ fontSize: 11 }}>
+                  {/* Wave indicator */}
+                  {sc?.waves && sc.waves.length > 1 && (
+                    <div style={{ display: "flex", gap: 3, marginBottom: 8 }}>
+                      {sc.waves.map((_, wi) => (
+                        <div key={wi} style={{
+                          flex: 1, height: 4, borderRadius: 2,
+                          background: wi < currentWave ? "#4caf50" : wi === currentWave && simState ? "#ff9800" : "#2a2a35",
+                        }} />
+                      ))}
+                    </div>
+                  )}
+                  {sc?.waves && sc.waves.length > 1 && (
+                    <div style={{ fontSize: 10, color: "#888", marginBottom: 6 }}>
+                      Wave {currentWave + 1} / {sc.waves.length}
+                      {waveBonus > 0 && <span style={{ color: "#4caf50" }}> (+${waveBonus}M bonus)</span>}
+                    </div>
+                  )}
                   {/* Budget bar */}
                   <div style={{ background: "#1a1a24", borderRadius: 4, height: 8, marginBottom: 8, overflow: "hidden" }}>
                     <div style={{ height: "100%", width: `${Math.min(pctUsed, 100)}%`, background: pctUsed > 90 ? "#ff5555" : pctUsed > 70 ? "#ff9800" : "#4caf50", borderRadius: 4, transition: "width 0.3s" }} />
@@ -1309,17 +1419,11 @@ export default function SwarmInterception() {
                   <div style={{ borderBottom: "1px solid #1a1a24", padding: "4px 0", display: "flex", justifyContent: "space-between", color: "#4a9eff" }}>
                     <span>Drone Fleet</span><span>${formatUSD(droneFleetCost)}</span>
                   </div>
-                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "4px 0", display: "flex", justifyContent: "space-between", color: "#ff5555" }}>
-                    <span>Drones Lost</span><span>${formatUSD(lostDroneCost)}</span>
-                  </div>
-                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "4px 0", display: "flex", justifyContent: "space-between", color: "#ff9800" }}>
-                    <span>Flight/Ops</span><span>${formatUSD(flightCost)}</span>
-                  </div>
                   <div style={{ borderBottom: "1px solid #1a1a24", padding: "4px 0", display: "flex", justifyContent: "space-between", color: "#cc8800" }}>
                     <span>Ground AD Deploy</span><span>${formatUSD(adDeployCost)}</span>
                   </div>
-                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "4px 0", display: "flex", justifyContent: "space-between", color: "#884400" }}>
-                    <span>Ground AD Damage</span><span>${formatUSD(adDamageCost)}</span>
+                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "4px 0", display: "flex", justifyContent: "space-between", color: "#ff9800" }}>
+                    <span>AD Ammo Spent</span><span>${formatUSD(ammoSpent)}</span>
                   </div>
                   {breachDmg > 0 && (
                     <div style={{ borderBottom: "1px solid #1a1a24", padding: "4px 0", display: "flex", justifyContent: "space-between", color: "#ff3333" }}>
@@ -1329,9 +1433,9 @@ export default function SwarmInterception() {
                   <div style={{ padding: "6px 0", borderTop: "2px solid #2a2a35", marginTop: 4, display: "flex", justifyContent: "space-between", fontWeight: 600, fontSize: 12, color: overBudget ? "#ff5555" : "#4caf50" }}>
                     <span>Remaining</span><span>{overBudget ? "-" : ""}${formatUSD(Math.abs(remaining))}</span>
                   </div>
-                  <div style={{ fontSize: 10, color: "#666", textAlign: "right" }}>{pctUsed.toFixed(0)}% of budget used</div>
+                  <div style={{ fontSize: 10, color: "#666", textAlign: "right" }}>{pctUsed.toFixed(0)}% of ${formatUSD(budgetUSD)} budget</div>
 
-                  {isDone && !isSandbox && (
+                  {allWavesDone && !isSandbox && (
                     <div style={{
                       marginTop: 8, padding: "8px 12px", borderRadius: 6, textAlign: "center",
                       fontSize: 11, fontWeight: 600, letterSpacing: 0.5,
