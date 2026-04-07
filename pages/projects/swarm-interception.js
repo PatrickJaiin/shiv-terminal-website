@@ -61,8 +61,9 @@ const SCENARIOS = {
 };
 
 const KILL_RADIUS = 120;
-const LEGACY_RADIUS = 2000;
-const LEGACY_CENTER = [5000, 5000];
+const DEFAULT_ZONE_RADIUS = 2500;
+const DEFAULT_ASSET_RADIUS = 600;
+const DEFAULT_ZONE_CENTER = [5000, 5000];
 const ARENA = 10000;
 
 function formatUSD(n) {
@@ -180,22 +181,22 @@ function createDrones(scenario, theater, customAttackSpawns, customDefenseSpawns
 }
 
 // ── Simulation step ──
-function simStep(state) {
+function simStep(state, zoneCenter, assetRadius) {
   const { interceptors, attackers, metrics, step } = state;
 
   for (const a of attackers) {
     if (a.status !== "active") continue;
-    const dx = LEGACY_CENTER[0] - a.x;
-    const dy = LEGACY_CENTER[1] - a.y;
+    const dx = zoneCenter[0] - a.x;
+    const dy = zoneCenter[1] - a.y;
     const angle = Math.atan2(dy, dx);
     a.heading = a.heading * 0.95 + angle * 0.05 + (Math.random() - 0.5) * 0.03;
     a.x += Math.cos(a.heading) * a.speed;
     a.y += Math.sin(a.heading) * a.speed;
-    if (dist(a, { x: LEGACY_CENTER[0], y: LEGACY_CENTER[1] }) < LEGACY_RADIUS * 0.3) {
+    if (dist(a, { x: zoneCenter[0], y: zoneCenter[1] }) < assetRadius) {
       a.status = "breached";
       a.breachX = a.x;
       a.breachY = a.y;
-      metrics.legacy_breaches++;
+      metrics.breaches++;
       metrics.misses++;
     }
   }
@@ -235,7 +236,7 @@ function simStep(state) {
     interceptors, attackers,
     metrics: { ...metrics, active_interceptors: activeInt, active_threats: activeThreats },
     step: step + 1,
-    done: activeThreats === 0 || activeInt === 0,
+    done: activeThreats === 0,
   };
 }
 
@@ -272,7 +273,7 @@ function LegendItem({ color, label, hollow }) {
 }
 
 // ── Leaflet Map component ──
-function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, defenseSpawns, placementMode, onPlaceSpawn }) {
+function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, defenseSpawns, placementMode, onPlaceSpawn, zoneCenter, zoneRadius, assetRadius }) {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const droneLayerRef = useRef(null);
@@ -413,7 +414,7 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
     }
   }, [theater, attackSpawns, defenseSpawns, simToLL, mapReady]);
 
-  // Draw legacy zone with breach gaps
+  // Draw defense zones with breach gaps
   useEffect(() => {
     const L = LRef.current;
     const layer = legacyLayerRef.current;
@@ -423,28 +424,39 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
     const th = THEATERS[theater] || THEATERS.kashmir;
     const latSpan = th.bounds.north - th.bounds.south;
     const metersPerUnit = (latSpan * 111000) / ARENA;
-    const geoRadius = LEGACY_RADIUS * metersPerUnit;
 
-    // Use permanent breach points for gaps
+    // ── Inner: Defended Asset Zone (red dashed) ──
+    const assetGeoRadius = assetRadius * metersPerUnit;
+    const assetCenter = simToLL(zoneCenter[0], zoneCenter[1]);
+    L.circle(assetCenter, {
+      radius: assetGeoRadius, color: "#ff4444", fillColor: "#ff2222",
+      fillOpacity: 0.06, weight: 2, opacity: 0.6, dashArray: "8 6",
+    }).addTo(layer);
+    L.marker(assetCenter, {
+      icon: L.divIcon({
+        className: "", iconSize: [120, 16], iconAnchor: [60, 8],
+        html: '<div style="color:#ff4444;font-size:9px;font-family:monospace;text-align:center;text-shadow:0 0 4px #000">DEFENDED ASSET</div>',
+      }),
+      interactive: false,
+    }).addTo(layer);
+
+    // ── Outer: Ground Air Defense Zone (green) with breach gaps ──
+    const geoRadius = zoneRadius * metersPerUnit;
     const breachAngles = breachPoints.map((bp) => bp.angle);
-
-    const GAP_SIZE = 0.15; // radians (~8.5 degrees)
+    const GAP_SIZE = 0.15;
 
     if (breachAngles.length === 0) {
-      // No breaches - draw full circle
-      const center = simToLL(LEGACY_CENTER[0], LEGACY_CENTER[1]);
+      const center = simToLL(zoneCenter[0], zoneCenter[1]);
       L.circle(center, {
         radius: geoRadius, color: "#22aa22", fillColor: "#22aa22",
-        fillOpacity: 0.04, weight: 2, opacity: 0.8,
+        fillOpacity: 0.03, weight: 2, opacity: 0.8,
       }).addTo(layer);
     } else {
-      // Draw arc segments with gaps at breach points
       const SEGMENTS = 72;
       const segAngle = (Math.PI * 2) / SEGMENTS;
       for (let i = 0; i < SEGMENTS; i++) {
         const startAngle = (i / SEGMENTS) * Math.PI * 2 - Math.PI;
         const midAngle = startAngle + segAngle / 2;
-        // Check if this segment overlaps any breach gap
         const inGap = breachAngles.some((ba) => {
           let diff = midAngle - ba;
           while (diff > Math.PI) diff -= Math.PI * 2;
@@ -452,50 +464,37 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
           return Math.abs(diff) < GAP_SIZE;
         });
         if (inGap) continue;
-
         const points = [];
         for (let j = 0; j <= 4; j++) {
           const a = startAngle + (j / 4) * segAngle;
-          const sx = LEGACY_CENTER[0] + Math.cos(a) * LEGACY_RADIUS;
-          const sy = LEGACY_CENTER[1] + Math.sin(a) * LEGACY_RADIUS;
-          points.push(simToLL(sx, sy));
+          points.push(simToLL(zoneCenter[0] + Math.cos(a) * zoneRadius, zoneCenter[1] + Math.sin(a) * zoneRadius));
         }
         L.polyline(points, { color: "#22aa22", weight: 2, opacity: 0.8, interactive: false }).addTo(layer);
       }
 
-      // Draw grey impact marks at breach points on the circle
       for (const ba of breachAngles) {
-        const bx = LEGACY_CENTER[0] + Math.cos(ba) * LEGACY_RADIUS;
-        const by = LEGACY_CENTER[1] + Math.sin(ba) * LEGACY_RADIUS;
-        const bll = simToLL(bx, by);
-        L.circleMarker(bll, {
-          radius: 6, color: "#666", fillColor: "#444",
-          fillOpacity: 0.8, weight: 2, opacity: 0.9,
-        }).addTo(layer);
-        // Crack lines radiating from breach point
+        const bll = simToLL(zoneCenter[0] + Math.cos(ba) * zoneRadius, zoneCenter[1] + Math.sin(ba) * zoneRadius);
+        L.circleMarker(bll, { radius: 6, color: "#666", fillColor: "#444", fillOpacity: 0.8, weight: 2, opacity: 0.9 }).addTo(layer);
         for (let ci = -1; ci <= 1; ci++) {
-          const crackAngle = ba + ci * 0.08;
-          const cx1 = LEGACY_CENTER[0] + Math.cos(crackAngle) * (LEGACY_RADIUS - 80);
-          const cy1 = LEGACY_CENTER[1] + Math.sin(crackAngle) * (LEGACY_RADIUS - 80);
-          const cx2 = LEGACY_CENTER[0] + Math.cos(crackAngle) * (LEGACY_RADIUS + 80);
-          const cy2 = LEGACY_CENTER[1] + Math.sin(crackAngle) * (LEGACY_RADIUS + 80);
-          L.polyline([simToLL(cx1, cy1), simToLL(cx2, cy2)], {
-            color: "#555", weight: 1, opacity: 0.6, interactive: false,
-          }).addTo(layer);
+          const ca = ba + ci * 0.08;
+          L.polyline([
+            simToLL(zoneCenter[0] + Math.cos(ca) * (zoneRadius - 80), zoneCenter[1] + Math.sin(ca) * (zoneRadius - 80)),
+            simToLL(zoneCenter[0] + Math.cos(ca) * (zoneRadius + 80), zoneCenter[1] + Math.sin(ca) * (zoneRadius + 80)),
+          ], { color: "#555", weight: 1, opacity: 0.6, interactive: false }).addTo(layer);
         }
       }
     }
 
-    // Label
-    const center = simToLL(LEGACY_CENTER[0], LEGACY_CENTER[1]);
-    L.marker(center, {
+    // Outer zone label
+    const labelLL = simToLL(zoneCenter[0], zoneCenter[1] + zoneRadius + 200);
+    L.marker(labelLL, {
       icon: L.divIcon({
-        className: "", iconSize: [150, 30], iconAnchor: [75, 15],
-        html: '<div style="color:#22aa22;font-size:10px;font-family:monospace;text-align:center;white-space:nowrap;text-shadow:0 0 4px #000">LEGACY DEFENSE ZONE<br>(Patriot / NASAMS)</div>',
+        className: "", iconSize: [180, 16], iconAnchor: [90, 8],
+        html: '<div style="color:#22aa22;font-size:9px;font-family:monospace;text-align:center;text-shadow:0 0 4px #000">GROUND AIR DEFENSE ZONE</div>',
       }),
       interactive: false,
     }).addTo(layer);
-  }, [theater, simToLL, breachPoints, mapReady]);
+  }, [theater, simToLL, breachPoints, mapReady, zoneCenter, zoneRadius, assetRadius]);
 
   // Draw drones, pursuit lines, and kill flashes
   useEffect(() => {
@@ -554,9 +553,9 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
           if (age > 3000) continue;
           const progress = age / 3000;
           // Red warning pulse at breach point on line
-          const ba = Math.atan2(flash.y - LEGACY_CENTER[1], flash.x - LEGACY_CENTER[0]);
-          const bx = LEGACY_CENTER[0] + Math.cos(ba) * LEGACY_RADIUS;
-          const by = LEGACY_CENTER[1] + Math.sin(ba) * LEGACY_RADIUS;
+          const ba = Math.atan2(flash.y - zoneCenter[1], flash.x - zoneCenter[0]);
+          const bx = zoneCenter[0] + Math.cos(ba) * zoneRadius;
+          const by = zoneCenter[1] + Math.sin(ba) * zoneRadius;
           const bll = simToLL(bx, by);
           if (progress < 0.5) {
             const pulse = Math.sin(age / 100 * Math.PI) * 0.5 + 0.5;
@@ -632,6 +631,9 @@ export default function SwarmInterception() {
   const [spawnDroneKey, setSpawnDroneKey] = useState("fpv_kamikaze");
   const [spawnDefKey, setSpawnDefKey] = useState("custom");
   const [spawnCount, setSpawnCount] = useState(10);
+  const [zoneCenter, setZoneCenter] = useState(DEFAULT_ZONE_CENTER);
+  const [zoneRadius, setZoneRadius] = useState(DEFAULT_ZONE_RADIUS);
+  const [assetRadius, setAssetRadius] = useState(DEFAULT_ASSET_RADIUS);
 
   const simRef = useRef(null);
   const runRef = useRef(false);
@@ -640,21 +642,25 @@ export default function SwarmInterception() {
   const flashesRef = useRef([]);
   const frameRef = useRef(null);
   const theaterRef = useRef(theater);
+  const zoneCenterRef = useRef(zoneCenter);
+  const assetRadiusRef = useRef(assetRadius);
 
   useEffect(() => { speedRef.current = speed; }, [speed]);
   useEffect(() => { pausedRef.current = paused; }, [paused]);
   useEffect(() => { theaterRef.current = theater; }, [theater]);
+  useEffect(() => { zoneCenterRef.current = zoneCenter; }, [zoneCenter]);
+  useEffect(() => { assetRadiusRef.current = assetRadius; }, [assetRadius]);
 
   const handlePlaceSpawn = useCallback((x, y) => {
     if (placementMode === "attack") {
       setAttackSpawns((prev) => [...prev, { x, y, droneKey: spawnDroneKey, count: spawnCount }]);
     } else if (placementMode === "defense") {
-      const dx = x - LEGACY_CENTER[0];
-      const dy = y - LEGACY_CENTER[1];
-      if (Math.sqrt(dx * dx + dy * dy) > LEGACY_RADIUS) return;
+      const dx = x - zoneCenter[0];
+      const dy = y - zoneCenter[1];
+      if (Math.sqrt(dx * dx + dy * dy) > zoneRadius) return;
       setDefenseSpawns((prev) => [...prev, { x, y, droneKey: spawnDefKey, count: spawnCount }]);
     }
-  }, [placementMode, spawnDroneKey, spawnDefKey, spawnCount]);
+  }, [placementMode, spawnDroneKey, spawnDefKey, spawnCount, zoneCenter, zoneRadius]);
 
   const startSim = useCallback(() => {
     const sc = SCENARIOS[scenario];
@@ -663,7 +669,7 @@ export default function SwarmInterception() {
     const { interceptors, attackers } = createDrones(sc, theater, attackSpawns, defenseSpawns);
     const initial = {
       interceptors, attackers,
-      metrics: { kills: 0, misses: 0, legacy_breaches: 0, defense_cost: 0, threat_value_destroyed: 0, active_interceptors: interceptors.length, active_threats: attackers.length },
+      metrics: { kills: 0, misses: 0, breaches: 0, defense_cost: 0, threat_value_destroyed: 0, active_interceptors: interceptors.length, active_threats: attackers.length },
       step: 0, done: false,
     };
     simRef.current = initial;
@@ -690,8 +696,8 @@ export default function SwarmInterception() {
     for (let i = 0; i < steps; i++) {
       if (s.done) break;
       const prevKills = s.metrics.kills;
-      const prevBreaches = s.metrics.legacy_breaches;
-      s = simStep(s);
+      const prevBreaches = s.metrics.breaches;
+      s = simStep(s, zoneCenterRef.current, assetRadiusRef.current);
       const now = Date.now();
       // Kill impact flashes
       if (s.metrics.kills > prevKills) {
@@ -701,12 +707,12 @@ export default function SwarmInterception() {
         }
       }
       // Breach flashes
-      if (s.metrics.legacy_breaches > prevBreaches) {
+      if (s.metrics.breaches > prevBreaches) {
         const newBreached = s.attackers.filter((a) => a.status === "breached" && a.breachX != null);
         const newBPs = [];
-        for (const b of newBreached.slice(-(s.metrics.legacy_breaches - prevBreaches))) {
+        for (const b of newBreached.slice(-(s.metrics.breaches - prevBreaches))) {
           flashesRef.current.push({ x: b.breachX, y: b.breachY, time: now, type: "breach" });
-          newBPs.push({ x: b.breachX, y: b.breachY, angle: Math.atan2(b.breachY - LEGACY_CENTER[1], b.breachX - LEGACY_CENTER[0]) });
+          newBPs.push({ x: b.breachX, y: b.breachY, angle: Math.atan2(b.breachY - zoneCenterRef.current[1], b.breachX - zoneCenterRef.current[0]) });
           b.breachX = null;
         }
         if (newBPs.length > 0) setBreachPoints((prev) => [...prev, ...newBPs]);
@@ -739,6 +745,9 @@ export default function SwarmInterception() {
     setAttackSpawns([]); setDefenseSpawns([]);
     setPlacementMode(null);
     setScenario("default_30v20");
+    setZoneCenter(DEFAULT_ZONE_CENTER);
+    setZoneRadius(DEFAULT_ZONE_RADIUS);
+    setAssetRadius(DEFAULT_ASSET_RADIUS);
   }, []);
 
   const togglePause = useCallback(() => {
@@ -749,7 +758,7 @@ export default function SwarmInterception() {
     if (!simRef.current || simRef.current.done) return;
     pausedRef.current = true; setPaused(true); setStatusText("PAUSED");
     const prevKills = simRef.current.metrics.kills;
-    const prevBreaches = simRef.current.metrics.legacy_breaches;
+    const prevBreaches = simRef.current.metrics.breaches;
     simRef.current = simStep(simRef.current);
     const now = Date.now();
     if (simRef.current.metrics.kills > prevKills) {
@@ -758,12 +767,12 @@ export default function SwarmInterception() {
         flashesRef.current.push({ x: k.x, y: k.y, time: now, type: "kill" });
       }
     }
-    if (simRef.current.metrics.legacy_breaches > prevBreaches) {
+    if (simRef.current.metrics.breaches > prevBreaches) {
       const newBreached = simRef.current.attackers.filter((a) => a.status === "breached" && a.breachX != null);
       const newBPs = [];
-      for (const b of newBreached.slice(-(simRef.current.metrics.legacy_breaches - prevBreaches))) {
+      for (const b of newBreached.slice(-(simRef.current.metrics.breaches - prevBreaches))) {
         flashesRef.current.push({ x: b.breachX, y: b.breachY, time: now, type: "breach" });
-        newBPs.push({ x: b.breachX, y: b.breachY, angle: Math.atan2(b.breachY - LEGACY_CENTER[1], b.breachX - LEGACY_CENTER[0]) });
+        newBPs.push({ x: b.breachX, y: b.breachY, angle: Math.atan2(b.breachY - zoneCenterRef.current[1], b.breachX - zoneCenterRef.current[0]) });
         b.breachX = null;
       }
       if (newBPs.length > 0) setBreachPoints((prev) => [...prev, ...newBPs]);
@@ -823,6 +832,31 @@ export default function SwarmInterception() {
               style={{ width: "100%", padding: "8px 12px", background: "#1a1a24", border: "1px solid #2a2a35", color: "#e0e0e0", borderRadius: 4, fontSize: 13, marginBottom: 8, cursor: running ? "not-allowed" : "pointer", opacity: running ? 0.5 : 1 }}>
               {Object.entries(THEATERS).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
             </select>
+
+            <PanelTitle>Defense Zones</PanelTitle>
+            <div style={{ display: "flex", gap: 4, marginBottom: 4, alignItems: "center" }}>
+              <span style={{ fontSize: 10, color: "#22aa22", width: 55, flexShrink: 0 }}>AD Zone</span>
+              <input type="number" value={zoneRadius} onChange={(e) => setZoneRadius(Math.max(500, parseInt(e.target.value) || 2500))}
+                min="500" max="5000" step="100" disabled={running}
+                style={{ flex: 1, padding: "4px 6px", background: "#1a1a24", border: "1px solid #2a2a35", color: "#e0e0e0", borderRadius: 4, fontSize: 10, textAlign: "center" }} />
+              <span style={{ fontSize: 9, color: "#666" }}>r</span>
+            </div>
+            <div style={{ display: "flex", gap: 4, marginBottom: 4, alignItems: "center" }}>
+              <span style={{ fontSize: 10, color: "#ff4444", width: 55, flexShrink: 0 }}>Asset</span>
+              <input type="number" value={assetRadius} onChange={(e) => setAssetRadius(Math.max(100, parseInt(e.target.value) || 600))}
+                min="100" max="2000" step="50" disabled={running}
+                style={{ flex: 1, padding: "4px 6px", background: "#1a1a24", border: "1px solid #2a2a35", color: "#e0e0e0", borderRadius: 4, fontSize: 10, textAlign: "center" }} />
+              <span style={{ fontSize: 9, color: "#666" }}>r</span>
+            </div>
+            <div style={{ display: "flex", gap: 4, marginBottom: 6, alignItems: "center" }}>
+              <span style={{ fontSize: 10, color: "#888", width: 55, flexShrink: 0 }}>Center</span>
+              <input type="number" value={zoneCenter[0]} onChange={(e) => setZoneCenter([parseInt(e.target.value) || 5000, zoneCenter[1]])}
+                min="0" max="10000" step="500" disabled={running}
+                style={{ flex: 1, padding: "4px 6px", background: "#1a1a24", border: "1px solid #2a2a35", color: "#e0e0e0", borderRadius: 4, fontSize: 10, textAlign: "center" }} />
+              <input type="number" value={zoneCenter[1]} onChange={(e) => setZoneCenter([zoneCenter[0], parseInt(e.target.value) || 5000])}
+                min="0" max="10000" step="500" disabled={running}
+                style={{ flex: 1, padding: "4px 6px", background: "#1a1a24", border: "1px solid #2a2a35", color: "#e0e0e0", borderRadius: 4, fontSize: 10, textAlign: "center" }} />
+            </div>
 
             <PanelTitle>Spawn Points</PanelTitle>
             <div style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Select type/count, click map to place.</div>
@@ -908,7 +942,8 @@ export default function SwarmInterception() {
             <LegendItem color="#ff6666" label="FPV / Cheap threat" />
             <LegendItem color="#cc3333" label="Loitering / Medium" />
             <LegendItem color="#881111" label="Cruise missile / Expensive" />
-            <LegendItem color="#22aa22" label="Legacy defense zone" hollow />
+            <LegendItem color="#22aa22" label="Ground air defense zone" hollow />
+            <LegendItem color="#ff4444" label="Defended asset zone" hollow />
             <LegendItem color="#ff8800" label="Kill flash" />
 
             <PanelTitle>Drone Database</PanelTitle>
@@ -925,7 +960,7 @@ export default function SwarmInterception() {
 
           {/* Map */}
           <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
-            <SimMap simState={simState} theater={theater} killFlashes={killFlashes} breachPoints={breachPoints} attackSpawns={attackSpawns} defenseSpawns={defenseSpawns} placementMode={placementMode} onPlaceSpawn={placementMode ? handlePlaceSpawn : null} />
+            <SimMap simState={simState} theater={theater} killFlashes={killFlashes} breachPoints={breachPoints} attackSpawns={attackSpawns} defenseSpawns={defenseSpawns} placementMode={placementMode} onPlaceSpawn={placementMode ? handlePlaceSpawn : null} zoneCenter={zoneCenter} zoneRadius={zoneRadius} assetRadius={assetRadius} />
           </div>
 
           {/* Right panel */}
@@ -944,8 +979,8 @@ export default function SwarmInterception() {
             <Metric label="Defense Cost" value={`$${formatUSD(m.defense_cost || 0)}`} color="orange" />
             <Metric label="Threat Value Destroyed" value={`$${formatUSD(m.threat_value_destroyed || 0)}`} color="green" />
             <Metric label="Cost Efficiency" value={eff === "-" ? "-" : `${eff}x`} />
-            <PanelTitle>Legacy Zone</PanelTitle>
-            <Metric label="Breaches" value={m.legacy_breaches || 0} color="red" />
+            <PanelTitle>Defense Zones</PanelTitle>
+            <Metric label="Breaches" value={m.breaches || 0} color="red" />
             <PanelTitle>Interceptor Attrition</PanelTitle>
             <Metric label="Lost" value={lost} color="red" />
             <Metric label="Attrition Rate" value={`${attrition}%`} />
