@@ -714,11 +714,11 @@ function BotVsBotTab({ handTable, preflopScores }) {
       <div className="flex items-center gap-2 flex-wrap">
         {!game && !playing ? (
           <button
-            onClick={dealFirst}
+            onClick={() => { dealFirst(); setTimeout(runLoop, 50); }}
             disabled={!handTable || !preflopScores || done}
-            className="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-semibold hover:bg-gray-800 disabled:opacity-40 transition-colors"
+            className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40 transition-colors"
           >
-            Deal Hand
+            Start
           </button>
         ) : !playing ? (
           <>
@@ -782,7 +782,7 @@ function BotVsBotTab({ handTable, preflopScores }) {
 
       {/* Hand viewer */}
       {!game && (
-        <p className="text-sm text-gray-400 text-center py-8">Click "Deal Hand" to start watching the bots play</p>
+        <p className="text-sm text-gray-400 text-center py-8">Click "Start" to watch the bots play</p>
       )}
 
       {game && (
