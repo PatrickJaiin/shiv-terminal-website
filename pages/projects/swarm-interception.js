@@ -57,14 +57,14 @@ const THEATERS = {
     bounds: { south: 12.0, north: 15.0, west: 42.0, east: 45.0 },
     mapCenter: [13.5, 43.5], mapZoom: 7,
     defensePos: [[5000, 5000]], attackOrigins: [[9000, 2000], [9000, 8000]],
-    freeAD: { key: "nasams", x: 5000, y: 5200 },
+    freeAD: { key: "patriot", x: 5000, y: 5200 },
   },
   ukraine_kyiv: {
     name: "Ukraine Kyiv",
     bounds: { south: 49.0, north: 51.0, west: 30.0, east: 33.0 },
     mapCenter: [50.0, 31.5], mapZoom: 8,
     defensePos: [[5000, 5000]], attackOrigins: [[9500, 1000], [9500, 5000], [9500, 9000], [7000, 200]],
-    freeAD: { key: "nasams", x: 5000, y: 5200 },
+    freeAD: { key: "iris_t", x: 5000, y: 5200 },
   },
   taiwan_strait: {
     name: "Taiwan Strait",
@@ -799,11 +799,11 @@ export default function SwarmInterception() {
   const [assetRadius, setAssetRadius] = useState(DEFAULT_ASSET_RADIUS);
   const [defenseBudget, setDefenseBudget] = useState(100); // in millions USD
   const [adPlaceKey, setAdPlaceKey] = useState("iron_dome");
-  const [adUnits, setAdUnits] = useState([
-    { id: 0, key: "nasams", x: 4500, y: 5500, health: 1, ammo: 6, free: true },
-    { id: 1, key: "iron_dome", x: 5500, y: 5500, health: 1, ammo: 20, free: true },
-    { id: 2, key: "gepard", x: 5000, y: 4500, health: 1, ammo: 680, free: true },
-  ]);
+  const [adUnits, setAdUnits] = useState(() => {
+    const th = THEATERS.ukraine_kyiv;
+    const sys = AD_SYSTEMS.find((s) => s.key === th.freeAD.key);
+    return [{ id: 0, key: th.freeAD.key, x: th.freeAD.x, y: th.freeAD.y, health: 1, ammo: sys?.missiles || 6, free: true }];
+  });
 
   const simRef = useRef(null);
   const runRef = useRef(false);
@@ -951,11 +951,9 @@ export default function SwarmInterception() {
     setZoneRadius(DEFAULT_ZONE_RADIUS);
     setAssetRadius(DEFAULT_ASSET_RADIUS);
     setDefenseBudget(100);
-    setAdUnits([
-      { id: 0, key: "nasams", x: 4500, y: 5500, health: 1, ammo: 6, free: true },
-      { id: 1, key: "iron_dome", x: 5500, y: 5500, health: 1, ammo: 20, free: true },
-      { id: 2, key: "gepard", x: 5000, y: 4500, health: 1, ammo: 680, free: true },
-    ]);
+    const th = THEATERS.ukraine_kyiv;
+    const sys = AD_SYSTEMS.find((s2) => s2.key === th.freeAD.key);
+    setAdUnits([{ id: 0, key: th.freeAD.key, x: th.freeAD.x, y: th.freeAD.y, health: 1, ammo: sys?.missiles || 6, free: true }]);
   }, []);
 
   const togglePause = useCallback(() => {
@@ -1074,7 +1072,18 @@ export default function SwarmInterception() {
             })()}
 
             <PanelTitle>Theater</PanelTitle>
-            <select value={theater} onChange={(e) => setTheater(e.target.value)} disabled={running}
+            <select value={theater} onChange={(e) => {
+              const newTh = e.target.value;
+              setTheater(newTh);
+              const th = THEATERS[newTh];
+              if (th?.freeAD) {
+                const sys = AD_SYSTEMS.find((s) => s.key === th.freeAD.key);
+                setAdUnits((prev) => {
+                  const userPlaced = prev.filter((ad) => !ad.free);
+                  return [{ id: Date.now(), key: th.freeAD.key, x: th.freeAD.x, y: th.freeAD.y, health: 1, ammo: sys?.missiles || 6, free: true }, ...userPlaced];
+                });
+              }
+            }} disabled={running}
               style={{ width: "100%", padding: "8px 12px", background: "#1a1a24", border: "1px solid #2a2a35", color: "#e0e0e0", borderRadius: 4, fontSize: 13, marginBottom: 8, cursor: running ? "not-allowed" : "pointer", opacity: running ? 0.5 : 1 }}>
               {Object.entries(THEATERS).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
             </select>
