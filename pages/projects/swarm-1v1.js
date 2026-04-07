@@ -262,7 +262,7 @@ export default function Swarm1v1() {
       const Leaf = LRef.current;
       if (mapInstanceRef.current) { mapInstanceRef.current.setView(THEATERS[theater].mapCenter, THEATERS[theater].mapZoom); return; }
       const th = THEATERS[theater];
-      const map = Leaf.map(mapRef.current, { center: th.mapCenter, zoom: th.mapZoom, zoomControl: true, preferCanvas: true });
+      const map = Leaf.map(mapRef.current, { center: th.mapCenter, zoom: th.mapZoom, zoomControl: true });
       mapInstanceRef.current = map;
       Leaf.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 18 }).addTo(map);
       Leaf.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, opacity: 0.3 }).addTo(map);
@@ -271,29 +271,26 @@ export default function Swarm1v1() {
       map.on("click", (e) => {
         const fn = handleMapClickRef.current;
         if (!fn) return;
-        const t2 = THEATERS[theaterRef.current];
-        let [cx, cy] = latLngToSim(e.latlng.lat, e.latlng.lng, t2.bounds);
-        fn(Math.max(0, Math.min(ARENA, cx)), Math.max(0, Math.min(ARENA, cy)));
+        const th2 = THEATERS[theaterRef.current];
+        if (!th2) return;
+        const b = th2.bounds;
+        // Direct conversion - avoid function call overhead
+        const simX = ((e.latlng.lng - b.west) / (b.east - b.west)) * ARENA;
+        const simY = ((e.latlng.lat - b.south) / (b.north - b.south)) * ARENA;
+        fn(Math.max(0, Math.min(ARENA, simX)), Math.max(0, Math.min(ARENA, simY)));
       });
-      // Right click for unit info
+      // Right click for unit info (uses refs for fresh state)
+      const infoRef = { setInfoPopup };
       map.on("contextmenu", (e) => {
         e.originalEvent.preventDefault();
         const t2 = THEATERS[theaterRef.current];
         let [cx, cy] = latLngToSim(e.latlng.lat, e.latlng.lng, t2.bounds);
-        // Find closest unit
-        const units = [];
-        if (playerHQ) units.push({ type: "Your HQ", x: playerHQ.x, y: playerHQ.y, info: `Position: ${Math.round(playerHQ.x)}, ${Math.round(playerHQ.y)}` });
-        for (const r of playerResources) { const res = RESOURCES.find((rr) => rr.key === r.key); if (res) units.push({ type: res.name, x: r.x, y: r.y, info: `Income: $${formatUSD(res.income)}/rnd | ${r.alive ? "Active" : "Destroyed"}` }); }
-        for (const d of playerInterceptors) { const def = DEFENSE_UNITS.find((dd) => dd.key === d.key); if (def) units.push({ type: def.name, x: d.x, y: d.y, info: `Count: ${d.count} | Cost: $${formatUSD(def.cost * d.count)} | ${def.destroyOnKill ? "Kamikaze" : `${Math.round((def.survivalRate || 0) * 100)}% survive`}` }); }
-        for (const ad of playerAD) { const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key); if (sys) units.push({ type: sys.name, x: ad.x, y: ad.y, info: `Ammo: ${ad.ammo}/${sys.missiles} | Pk: ${Math.round(sys.pk * 100)}% | Range: ${sys.range}m | ${ad.health > 0 ? "Active" : "Destroyed"}` }); }
-        let best = null, bd = 500;
-        for (const u of units) { const d2 = dist({ x: cx, y: cy }, u); if (d2 < bd) { bd = d2; best = u; } }
-        if (best) {
-          setInfoPopup({ text: `${best.type}: ${best.info}` });
-          setTimeout(() => setInfoPopup(null), 3000);
-        }
+        infoRef.setInfoPopup({ text: `Coordinates: (${Math.round(cx)}, ${Math.round(cy)})` });
+        setTimeout(() => infoRef.setInfoPopup(null), 3000);
       });
       setMapReady(true);
+      // Fix map sizing after render
+      setTimeout(() => map.invalidateSize(), 100);
     })();
     return () => { cancelled = true; };
   }, [phase, theater]);
