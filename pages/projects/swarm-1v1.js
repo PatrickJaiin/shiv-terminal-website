@@ -119,7 +119,8 @@ export default function Swarm1v1() {
   const [attackPriority, setAttackPriority] = useState("hq");
   const [defPosture, setDefPosture] = useState("pursuing"); // "insane" | "pursuing" | "defensive"
   const [budgetShake, setBudgetShake] = useState(false);
-  const [infoPopup, setInfoPopup] = useState(null); // {x, y, text}
+  const [infoPopup, setInfoPopup] = useState(null);
+  const [totalIncome, setTotalIncome] = useState(0);
   const [playerBudget, setPlayerBudget] = useState(STARTING_BUDGET);
   const [placingWhat, setPlacingWhat] = useState(null);
 
@@ -160,23 +161,19 @@ export default function Swarm1v1() {
         setPhase(PHASE.SETUP);
         setPlayerHQ(null); setPlayerResources([]); setPlayerInterceptors([]); setPlayerAD([]);
         setPlayerBudget(STARTING_BUDGET); setAiBudget(STARTING_BUDGET);
-        setCurrentRound(0); setCombatLog([]); setGameOver(null);
+        setCurrentRound(0); setCombatLog([]); setGameOver(null); setTotalIncome(0);
         setBattleActive(false); setBattleDrones({ playerAttackers: [], aiAttackers: [], playerInts: [], aiInts: [] });
         setAiSetup(generateAISetup());
       }
     }, 1000);
   }, [username]);
 
-  // Budget spent
-  const spent = (() => {
-    let s = 0;
-    for (const r of playerResources) { const res = RESOURCES.find((rr) => rr.key === r.key); if (res) s += res.cost; }
-    for (const d of playerInterceptors) { const def = DEFENSE_UNITS.find((dd) => dd.key === d.key); if (def) s += def.cost * d.count; }
-    for (const ad of playerAD) { const sys = AD_SYSTEMS_1V1.find((ss) => ss.key === ad.key); if (sys) s += sys.cost; }
-    for (const [k, n] of Object.entries(playerAttack)) { const u = ATTACK_UNITS.find((a) => a.key === k); if (u) s += u.cost * n; }
-    return s;
-  })();
-  const remaining = playerBudget - spent;
+  // Attack wave cost (computed live for display, deducted on launch)
+  const attackWaveCost = Object.entries(playerAttack).reduce((s, [k, n]) => {
+    const u = ATTACK_UNITS.find((a) => a.key === k);
+    return s + (u ? u.cost * n : 0);
+  }, 0);
+  const remaining = playerBudget; // budget is already deducted at purchase time
 
   // Budget shake animation
   const triggerShake = useCallback(() => {
@@ -186,12 +183,14 @@ export default function Swarm1v1() {
 
   // Check if cost would exceed budget
   const canAfford = useCallback((cost) => {
-    return (playerBudget - spent - cost) >= 0;
-  }, [playerBudget, spent]);
+    return (playerBudget - cost) >= 0;
+  }, [playerBudget]);
 
   // Map click - multi-place (stays in mode), budget checked
   const handleMapClick = useCallback((x, y) => {
-    if ((phase !== PHASE.SETUP && phase !== PHASE.COMBAT) || !placingWhat || battleActive) return;
+    if ((phase !== PHASE.SETUP && phase !== PHASE.COMBAT) || !placingWhat) return;
+    if (battleActive && placingWhat !== "hq") return; // block all placement during battle
+    if (battleActive && (placingWhat === "sell" || placingWhat === "delete")) return;
 
     if (placingWhat === "hq") {
       if (y < 5500) return;
@@ -228,21 +227,22 @@ export default function Swarm1v1() {
       const defKey = placingWhat.replace("def_", "");
       if (!playerHQ || dist({ x, y }, playerHQ) > playerAirspace + 500) return;
       const def = DEFENSE_UNITS.find((dd) => dd.key === defKey);
-      if (!canAfford((def?.cost || 0) * 4)) { triggerShake(); return; }
+      const defCost = (def?.cost || 0) * 4;
+      if (!canAfford(defCost)) { triggerShake(); return; }
+      setPlayerBudget((p) => p - defCost);
       setPlayerInterceptors((prev) => [...prev, { key: defKey, x, y, count: 4 }]);
-      // Stay in placement mode (multi-place)
     } else if (placingWhat.startsWith("ad_")) {
       const adKey = placingWhat.replace("ad_", "");
       if (!playerHQ || dist({ x, y }, playerHQ) > playerAirspace + 300) return;
       const sys = AD_SYSTEMS_1V1.find((s) => s.key === adKey);
       if (!sys || !canAfford(sys.cost)) { triggerShake(); return; }
+      setPlayerBudget((p) => p - sys.cost);
       setPlayerAD((prev) => [...prev, { key: adKey, x, y, health: 1, ammo: sys.missiles }]);
-      // Stay in placement mode
     } else {
-      // Resource
       if (!playerHQ || dist({ x, y }, playerHQ) > playerAirspace) return;
       const res = RESOURCES.find((rr) => rr.key === placingWhat);
       if (!res || !canAfford(res.cost)) { triggerShake(); return; }
+      setPlayerBudget((p) => p - res.cost);
       setPlayerResources((prev) => [...prev, { key: placingWhat, x, y, alive: true }]);
       // Stay in placement mode
     }
@@ -335,7 +335,13 @@ export default function Swarm1v1() {
   // ── Launch round with animated battle ──
   const launchRound = useCallback(() => {
     if (!playerHQ || !aiSetup || gameOver || battleActive) return;
+    // Deduct attack wave cost
+    const waveCost = Object.entries(playerAttack).reduce((s, [k, n]) => { const u = ATTACK_UNITS.find((a) => a.key === k); return s + (u ? u.cost * n : 0); }, 0);
+    if (waveCost > playerBudget) { triggerShake(); return; }
+    setPlayerBudget((p) => p - waveCost);
+
     setBattleActive(true);
+    setPlacingWhat(null);
     const round = currentRound;
     const log = [];
 
@@ -347,6 +353,7 @@ export default function Swarm1v1() {
     for (const r of aiSetup.resources) { if (r.alive) { const res = RESOURCES.find((rr) => rr.key === r.key); if (res) aIncome += res.income; } }
     setPlayerBudget((p) => p + pIncome);
     setAiBudget((p) => p + aIncome);
+    setTotalIncome((p) => p + pIncome);
     log.push(`Round ${round + 1}: You +$${formatUSD(pIncome)} | ${opponentName} +$${formatUSD(aIncome)}`);
 
     // Spawn player's attack drones flying toward AI HQ
@@ -467,21 +474,29 @@ export default function Swarm1v1() {
           // Only engage targets inside player airspace
           activeA = activeA.filter((a) => playerHQ && dist(a, playerHQ) < playerAirspace);
         } else if (defPosture === "pursuing") {
-          // Don't enter enemy airspace (y > 5000 is player side for north HQ, so enemy is y < 5000)
-          activeA = activeA.filter((a) => a.y > 500);
+          // Chase but don't enter enemy airspace circle
+          activeA = activeA.filter((a) => dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) > aiSetup.airspace);
         }
         // "insane" = no filter, chase anywhere
         let tgt = activeA.find((a) => a.id === int.targetId);
         if (!tgt) { let best = null, bd = Infinity; for (const a of activeA) { const d2 = dist(int, a); if (d2 < bd) { bd = d2; best = a; } } if (best) { int.targetId = best.id; tgt = best; } }
         if (tgt) {
           int.heading = Math.atan2(tgt.y - int.y, tgt.x - int.x);
-          int.x += Math.cos(int.heading) * int.speed;
-          int.y += Math.sin(int.heading) * int.speed;
-          if (dist(int, tgt) < KILL_RADIUS) {
-            tgt.status = "destroyed"; b.aKills++; int.targetId = null;
-            b.flashes.push({ x: tgt.x, y: tgt.y, time: b.step, type: "kill" });
-            if (int.destroyOnKill) int.status = "expended";
-            else if (Math.random() > (int.survivalRate || 0.73)) int.status = "expended";
+          const nx = int.x + Math.cos(int.heading) * int.speed;
+          const ny = int.y + Math.sin(int.heading) * int.speed;
+          // Posture boundary check before moving
+          if (defPosture === "pursuing" && dist({ x: nx, y: ny }, { x: aiSetup.hqX, y: aiSetup.hqY }) < aiSetup.airspace) {
+            int.targetId = null; // give up this target
+          } else if (defPosture === "defensive" && playerHQ && dist({ x: nx, y: ny }, playerHQ) > playerAirspace) {
+            int.targetId = null;
+          } else {
+            int.x = nx; int.y = ny;
+            if (dist(int, tgt) < KILL_RADIUS) {
+              tgt.status = "destroyed"; b.aKills++; int.targetId = null;
+              b.flashes.push({ x: tgt.x, y: tgt.y, time: b.step, type: "kill" });
+              if (int.destroyOnKill) int.status = "expended";
+              else if (Math.random() > (int.survivalRate || 0.73)) int.status = "expended";
+            }
           }
         }
       }
@@ -816,11 +831,13 @@ export default function Swarm1v1() {
 
                       <div style={{ fontSize: 10, textTransform: "uppercase", color: "#ff5555", margin: "8px 0 4px" }}>Your Attack Wave</div>
                       {ATTACK_UNITS.map((a) => (
-                        <div key={a.key} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 3 }}>
-                          <span style={{ flex: 1, fontSize: 10, color: "#ff6666" }}>{a.name} ${formatUSD(a.cost)}</span>
-                          <input type="number" value={playerAttack[a.key] || 0} min="0" max="200"
-                            onChange={(e) => { const v = Math.max(0, parseInt(e.target.value) || 0); setPlayerAttack((p) => ({ ...p, [a.key]: v })); }}
-                            style={{ width: 45, ...inputStyle, fontSize: 10, textAlign: "center", padding: "2px 4px" }} />
+                        <div key={a.key} style={{ marginBottom: 4 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#ff6666", marginBottom: 1 }}>
+                            <span>{a.name}</span><span>{playerAttack[a.key] || 0} (${formatUSD((playerAttack[a.key] || 0) * a.cost)})</span>
+                          </div>
+                          <input type="range" value={playerAttack[a.key] || 0} min="0" max="100" step="1"
+                            onChange={(e) => setPlayerAttack((p) => ({ ...p, [a.key]: parseInt(e.target.value) }))}
+                            style={{ width: "100%", height: 14, margin: 0, padding: 0 }} />
                         </div>
                       ))}
                       <div style={{ fontSize: 10, textTransform: "uppercase", color: "#ff9800", margin: "8px 0 4px" }}>Attack Priority</div>
@@ -876,7 +893,11 @@ export default function Swarm1v1() {
 
                   <div style={{ fontSize: 10, color: "#888", marginBottom: 2 }}>Interceptors: {playerInterceptors.reduce((s, d) => s + d.count, 0)} | AD: {playerAD.filter((a) => a.health > 0).length}</div>
                   <div style={{ fontSize: 10, color: "#888", marginBottom: 2 }}>Resources: {playerResources.filter((r) => r.alive).length} alive</div>
-                  <div style={{ fontSize: 10, color: remaining >= 0 ? "#4caf50" : "#ff5555", marginBottom: 4, transition: "transform 0.1s", transform: budgetShake ? `translateX(${Math.random() > 0.5 ? 4 : -4}px)` : "none" }}>Available: ${formatUSD(Math.max(0, playerBudget - spent))}</div>
+                  <div style={{ fontSize: 10, color: playerBudget >= attackWaveCost ? "#4caf50" : "#ff5555", marginBottom: 2, transition: "transform 0.1s", transform: budgetShake ? `translateX(${Math.random() > 0.5 ? 4 : -4}px)` : "none" }}>
+                    Available: ${formatUSD(Math.max(0, playerBudget))}
+                    {attackWaveCost > 0 && <span style={{ color: "#ff9800", fontSize: 9 }}> (wave: -${formatUSD(attackWaveCost)})</span>}
+                  </div>
+                  <div style={{ fontSize: 9, color: "#666", marginBottom: 4 }}>Total earned: ${formatUSD(totalIncome + STARTING_BUDGET)}</div>
                   <div style={{ display: "flex", gap: 3, marginBottom: 6 }}>
                     <button onClick={() => setPlacingWhat(placingWhat === "sell" ? null : "sell")}
                       style={{ ...inputStyle, flex: 1, fontSize: 9, padding: "3px", textAlign: "center", cursor: "pointer",
