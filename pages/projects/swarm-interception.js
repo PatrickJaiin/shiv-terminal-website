@@ -638,23 +638,46 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
       interactive: false,
     }).addTo(layer);
 
-    // ── Outer: Ground Air Defense Zone (green dashed) ──
+    // ── Outer: Ground Air Defense Zone (green dashed with gaps at crossings) ──
     const geoRadius = zoneRadius * metersPerUnit;
-    const center = simToLL(zoneCenter[0], zoneCenter[1]);
-    L.circle(center, {
-      radius: geoRadius, color: "#22aa22", fillColor: "#22aa22",
-      fillOpacity: 0.03, weight: 2, opacity: 0.8, dashArray: "10 6",
-    }).addTo(layer);
+    const GAP = 0.12; // radians per breach gap
 
-    // Grey breach markers on the perimeter
-    for (const bp of breachPoints) {
-      const bll = simToLL(
-        zoneCenter[0] + Math.cos(bp.angle) * zoneRadius,
-        zoneCenter[1] + Math.sin(bp.angle) * zoneRadius
-      );
-      L.circleMarker(bll, {
-        radius: 5, color: "#888", fillColor: "#555", fillOpacity: 0.9, weight: 2, opacity: 0.8,
+    if (breachPoints.length === 0) {
+      const center = simToLL(zoneCenter[0], zoneCenter[1]);
+      L.circle(center, {
+        radius: geoRadius, color: "#22aa22", fillColor: "#22aa22",
+        fillOpacity: 0.03, weight: 2, opacity: 0.8, dashArray: "10 6",
       }).addTo(layer);
+    } else {
+      // Draw 36 arc segments, skip those near a breach
+      const SEG = 36;
+      const segArc = (Math.PI * 2) / SEG;
+      for (let i = 0; i < SEG; i++) {
+        const mid = -Math.PI + (i + 0.5) * segArc;
+        const inGap = breachPoints.some((bp) => {
+          let d = mid - bp.angle;
+          while (d > Math.PI) d -= Math.PI * 2;
+          while (d < -Math.PI) d += Math.PI * 2;
+          return Math.abs(d) < GAP;
+        });
+        if (inGap) continue;
+        const pts = [];
+        for (let j = 0; j <= 3; j++) {
+          const a = -Math.PI + i * segArc + (j / 3) * segArc;
+          pts.push(simToLL(zoneCenter[0] + Math.cos(a) * zoneRadius, zoneCenter[1] + Math.sin(a) * zoneRadius));
+        }
+        L.polyline(pts, { color: "#22aa22", weight: 2, opacity: 0.8, dashArray: "10 6", interactive: false }).addTo(layer);
+      }
+      // Grey impact dots at each breach
+      for (const bp of breachPoints) {
+        const bll = simToLL(
+          zoneCenter[0] + Math.cos(bp.angle) * zoneRadius,
+          zoneCenter[1] + Math.sin(bp.angle) * zoneRadius
+        );
+        L.circleMarker(bll, {
+          radius: 5, color: "#888", fillColor: "#555", fillOpacity: 0.9, weight: 2, opacity: 0.8,
+        }).addTo(layer);
+      }
     }
 
     // AD unit range circles (simple shaded fills)
