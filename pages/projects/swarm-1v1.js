@@ -116,7 +116,8 @@ export default function Swarm1v1() {
   const [playerInterceptors, setPlayerInterceptors] = useState([]);
   const [playerAD, setPlayerAD] = useState([]);
   const [playerAttack, setPlayerAttack] = useState({ fpv: 10, shahed: 3 });
-  const [attackPriority, setAttackPriority] = useState("hq"); // "hq" | "ad" | "resources" | "interceptors"
+  const [attackPriority, setAttackPriority] = useState("hq");
+  const [budgetShake, setBudgetShake] = useState(false);
   const [playerBudget, setPlayerBudget] = useState(STARTING_BUDGET);
   const [placingWhat, setPlacingWhat] = useState(null);
 
@@ -175,27 +176,75 @@ export default function Swarm1v1() {
   })();
   const remaining = playerBudget - spent;
 
-  // Map click
+  // Budget shake animation
+  const triggerShake = useCallback(() => {
+    setBudgetShake(true);
+    setTimeout(() => setBudgetShake(false), 500);
+  }, []);
+
+  // Check if cost would exceed budget
+  const canAfford = useCallback((cost) => {
+    return (playerBudget - spent - cost) >= 0;
+  }, [playerBudget, spent]);
+
+  // Map click - multi-place (stays in mode), budget checked
   const handleMapClick = useCallback((x, y) => {
     if ((phase !== PHASE.SETUP && phase !== PHASE.COMBAT) || !placingWhat || battleActive) return;
+
     if (placingWhat === "hq") {
       if (y < 5500) return;
       setPlayerHQ({ x, y }); setPlacingWhat(null);
+    } else if (placingWhat === "sell") {
+      // Sell: find closest unit within 200 and remove with 42% refund
+      let bestD = 200, bestType = null, bestIdx = -1;
+      playerResources.forEach((r, i) => { if (r.alive) { const d2 = dist({ x, y }, r); if (d2 < bestD) { bestD = d2; bestType = "res"; bestIdx = i; } } });
+      playerInterceptors.forEach((d, i) => { const d2 = dist({ x, y }, d); if (d2 < bestD) { bestD = d2; bestType = "int"; bestIdx = i; } });
+      playerAD.forEach((ad, i) => { if (ad.health > 0) { const d2 = dist({ x, y }, ad); if (d2 < bestD) { bestD = d2; bestType = "ad"; bestIdx = i; } } });
+      if (bestType === "res") {
+        const r = playerResources[bestIdx]; const res = RESOURCES.find((rr) => rr.key === r.key);
+        setPlayerBudget((p) => p + Math.floor((res?.cost || 0) * 0.42));
+        setPlayerResources((prev) => prev.filter((_, i) => i !== bestIdx));
+      } else if (bestType === "int") {
+        const d = playerInterceptors[bestIdx]; const def = DEFENSE_UNITS.find((dd) => dd.key === d.key);
+        setPlayerBudget((p) => p + Math.floor((def?.cost || 0) * d.count * 0.42));
+        setPlayerInterceptors((prev) => prev.filter((_, i) => i !== bestIdx));
+      } else if (bestType === "ad") {
+        const ad = playerAD[bestIdx]; const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
+        setPlayerBudget((p) => p + Math.floor((sys?.cost || 0) * 0.42));
+        setPlayerAD((prev) => prev.filter((_, i) => i !== bestIdx));
+      }
+    } else if (placingWhat === "delete") {
+      // Delete during prep: full refund, find closest
+      let bestD = 200, bestType = null, bestIdx = -1;
+      playerResources.forEach((r, i) => { if (r.alive) { const d2 = dist({ x, y }, r); if (d2 < bestD) { bestD = d2; bestType = "res"; bestIdx = i; } } });
+      playerInterceptors.forEach((d, i) => { const d2 = dist({ x, y }, d); if (d2 < bestD) { bestD = d2; bestType = "int"; bestIdx = i; } });
+      playerAD.forEach((ad, i) => { if (ad.health > 0) { const d2 = dist({ x, y }, ad); if (d2 < bestD) { bestD = d2; bestType = "ad"; bestIdx = i; } } });
+      if (bestType === "res") setPlayerResources((prev) => prev.filter((_, i) => i !== bestIdx));
+      else if (bestType === "int") setPlayerInterceptors((prev) => prev.filter((_, i) => i !== bestIdx));
+      else if (bestType === "ad") setPlayerAD((prev) => prev.filter((_, i) => i !== bestIdx));
     } else if (placingWhat.startsWith("def_")) {
       const defKey = placingWhat.replace("def_", "");
       if (!playerHQ || dist({ x, y }, playerHQ) > playerAirspace + 500) return;
-      setPlayerInterceptors((prev) => [...prev, { key: defKey, x, y, count: 4 }]); setPlacingWhat(null);
+      const def = DEFENSE_UNITS.find((dd) => dd.key === defKey);
+      if (!canAfford((def?.cost || 0) * 4)) { triggerShake(); return; }
+      setPlayerInterceptors((prev) => [...prev, { key: defKey, x, y, count: 4 }]);
+      // Stay in placement mode (multi-place)
     } else if (placingWhat.startsWith("ad_")) {
       const adKey = placingWhat.replace("ad_", "");
       if (!playerHQ || dist({ x, y }, playerHQ) > playerAirspace + 300) return;
       const sys = AD_SYSTEMS_1V1.find((s) => s.key === adKey);
-      if (sys) setPlayerAD((prev) => [...prev, { key: adKey, x, y, health: 1, ammo: sys.missiles }]);
-      setPlacingWhat(null);
+      if (!sys || !canAfford(sys.cost)) { triggerShake(); return; }
+      setPlayerAD((prev) => [...prev, { key: adKey, x, y, health: 1, ammo: sys.missiles }]);
+      // Stay in placement mode
     } else {
+      // Resource
       if (!playerHQ || dist({ x, y }, playerHQ) > playerAirspace) return;
-      setPlayerResources((prev) => [...prev, { key: placingWhat, x, y, alive: true }]); setPlacingWhat(null);
+      const res = RESOURCES.find((rr) => rr.key === placingWhat);
+      if (!res || !canAfford(res.cost)) { triggerShake(); return; }
+      setPlayerResources((prev) => [...prev, { key: placingWhat, x, y, alive: true }]);
+      // Stay in placement mode
     }
-  }, [phase, placingWhat, playerHQ, playerAirspace]);
+  }, [phase, placingWhat, playerHQ, playerAirspace, battleActive, playerResources, playerInterceptors, playerAD, canAfford, triggerShake]);
 
   handleMapClickRef.current = handleMapClick;
   theaterRef.current = theater;
@@ -613,7 +662,10 @@ export default function Swarm1v1() {
                 <>
                   <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "#ff6688", marginBottom: 8 }}>Setup Phase</div>
                   <div style={{ fontSize: 10, color: "#666", marginBottom: 8 }}>Place HQ in the north half, add resources, defenses, ground AD, then design your attack wave and launch.</div>
-                  <div style={{ fontSize: 11, color: "#888", marginBottom: 8 }}>Budget: <span style={{ color: remaining >= 0 ? "#4caf50" : "#ff5555", fontWeight: 600 }}>${formatUSD(remaining)}</span></div>
+                  <div style={{ fontSize: 11, color: "#888", marginBottom: 8, transition: "transform 0.1s", transform: budgetShake ? `translateX(${Math.random() > 0.5 ? 4 : -4}px)` : "none" }}>
+                    Budget: <span style={{ color: remaining >= 0 ? "#4caf50" : "#ff5555", fontWeight: 600 }}>${formatUSD(Math.max(0, remaining))}</span>
+                    <span style={{ color: "#555", fontSize: 9 }}> / ${formatUSD(playerBudget)}</span>
+                  </div>
 
                   <button onClick={() => setPlacingWhat("hq")} disabled={!!playerHQ}
                     style={{ ...inputStyle, width: "100%", marginBottom: 6, cursor: playerHQ ? "not-allowed" : "pointer", opacity: playerHQ ? 0.4 : 1, textAlign: "center", fontSize: 11, border: placingWhat === "hq" ? "1px solid #4a9eff" : "1px solid #2a2a35" }}>
@@ -622,13 +674,35 @@ export default function Swarm1v1() {
 
                   {playerHQ && (
                     <>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8, marginTop: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, marginTop: 8 }}>
                         <span style={{ fontSize: 10, color: "#888" }}>Airspace:</span>
                         <input type="range" min="1000" max="4000" step="200" value={playerAirspace} onChange={(e) => setPlayerAirspace(parseInt(e.target.value))} style={{ flex: 1 }} />
                         <span style={{ fontSize: 10, color: "#4a9eff" }}>{playerAirspace}m</span>
                       </div>
+                      <div style={{ fontSize: 9, color: "#666", marginBottom: 8 }}>
+                        Income/round: ${formatUSD(playerResources.filter((r) => r.alive).reduce((s, r) => { const res = RESOURCES.find((rr) => rr.key === r.key); return s + (res?.income || 0); }, 0))}
+                        {playerResources.filter((r) => r.alive && r.key === "arms").length > 0 && ` + ${playerResources.filter((r) => r.alive && r.key === "arms").length * 2} free drones`}
+                      </div>
 
-                      <div style={{ fontSize: 10, textTransform: "uppercase", color: "#cc8800", margin: "8px 0 4px" }}>Resources</div>
+                      {/* Sell / Delete tools */}
+                      <div style={{ display: "flex", gap: 3, marginBottom: 6 }}>
+                        {phase === PHASE.SETUP && (
+                          <button onClick={() => setPlacingWhat(placingWhat === "delete" ? null : "delete")}
+                            style={{ ...inputStyle, flex: 1, fontSize: 9, padding: "4px", textAlign: "center", cursor: "pointer",
+                              border: placingWhat === "delete" ? "1px solid #ff9800" : "1px solid #2a2a35",
+                              color: placingWhat === "delete" ? "#ff9800" : "#666" }}>
+                            Remove (full refund)
+                          </button>
+                        )}
+                        <button onClick={() => setPlacingWhat(placingWhat === "sell" ? null : "sell")}
+                          style={{ ...inputStyle, flex: 1, fontSize: 9, padding: "4px", textAlign: "center", cursor: "pointer",
+                            border: placingWhat === "sell" ? "1px solid #ff5555" : "1px solid #2a2a35",
+                            color: placingWhat === "sell" ? "#ff5555" : "#666" }}>
+                          Sell (42% back)
+                        </button>
+                      </div>
+
+                      <div style={{ fontSize: 10, textTransform: "uppercase", color: "#cc8800", margin: "4px 0 4px" }}>Resources</div>
                       {RESOURCES.map((r) => (
                         <button key={r.key} onClick={() => setPlacingWhat(r.key)}
                           style={{ ...inputStyle, width: "100%", marginBottom: 3, cursor: "pointer", textAlign: "left", fontSize: 10, border: placingWhat === r.key ? `1px solid ${r.color}` : "1px solid #2a2a35" }}>
@@ -657,7 +731,7 @@ export default function Swarm1v1() {
                         <div key={a.key} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 3 }}>
                           <span style={{ flex: 1, fontSize: 10, color: "#ff6666" }}>{a.name} ${formatUSD(a.cost)}</span>
                           <input type="number" value={playerAttack[a.key] || 0} min="0" max="200"
-                            onChange={(e) => setPlayerAttack((p) => ({ ...p, [a.key]: Math.max(0, parseInt(e.target.value) || 0) }))}
+                            onChange={(e) => { const v = Math.max(0, parseInt(e.target.value) || 0); setPlayerAttack((p) => ({ ...p, [a.key]: v })); }}
                             style={{ width: 45, ...inputStyle, fontSize: 10, textAlign: "center", padding: "2px 4px" }} />
                         </div>
                       ))}
@@ -674,8 +748,15 @@ export default function Swarm1v1() {
                         ))}
                       </div>
 
-                      <button onClick={() => { setPhase(PHASE.COMBAT); }} disabled={remaining < 0}
-                        style={{ ...btnStyle, width: "100%", marginTop: 12, background: remaining >= 0 ? "#4a1a2a" : "#1a1a24", borderColor: remaining >= 0 ? "#ff6688" : "#333", color: remaining >= 0 ? "#ff6688" : "#555", fontSize: 12 }}>
+                      {placingWhat && placingWhat !== "hq" && (
+                        <button onClick={() => setPlacingWhat(null)}
+                          style={{ ...inputStyle, width: "100%", marginTop: 6, textAlign: "center", fontSize: 10, cursor: "pointer", border: "1px solid #666", color: "#ff9800" }}>
+                          Stop Placing ({placingWhat.replace("def_", "").replace("ad_", "")})
+                        </button>
+                      )}
+
+                      <button onClick={() => { setPlacingWhat(null); setPhase(PHASE.COMBAT); }} disabled={remaining < 0}
+                        style={{ ...btnStyle, width: "100%", marginTop: 8, background: remaining >= 0 ? "#4a1a2a" : "#1a1a24", borderColor: remaining >= 0 ? "#ff6688" : "#333", color: remaining >= 0 ? "#ff6688" : "#555", fontSize: 12 }}>
                         READY FOR BATTLE
                       </button>
                     </>
@@ -691,7 +772,20 @@ export default function Swarm1v1() {
 
                   <div style={{ fontSize: 10, color: "#888", marginBottom: 2 }}>Interceptors: {playerInterceptors.reduce((s, d) => s + d.count, 0)} | AD: {playerAD.filter((a) => a.health > 0).length}</div>
                   <div style={{ fontSize: 10, color: "#888", marginBottom: 2 }}>Resources: {playerResources.filter((r) => r.alive).length} alive</div>
-                  <div style={{ fontSize: 10, color: remaining >= 0 ? "#4caf50" : "#ff5555", marginBottom: 8 }}>Available: ${formatUSD(Math.max(0, playerBudget - spent))}</div>
+                  <div style={{ fontSize: 10, color: remaining >= 0 ? "#4caf50" : "#ff5555", marginBottom: 4, transition: "transform 0.1s", transform: budgetShake ? `translateX(${Math.random() > 0.5 ? 4 : -4}px)` : "none" }}>Available: ${formatUSD(Math.max(0, playerBudget - spent))}</div>
+                  <div style={{ display: "flex", gap: 3, marginBottom: 6 }}>
+                    <button onClick={() => setPlacingWhat(placingWhat === "sell" ? null : "sell")}
+                      style={{ ...inputStyle, flex: 1, fontSize: 9, padding: "3px", textAlign: "center", cursor: "pointer",
+                        border: placingWhat === "sell" ? "1px solid #ff5555" : "1px solid #2a2a35", color: placingWhat === "sell" ? "#ff5555" : "#666" }}>
+                      Sell (42%)
+                    </button>
+                    {placingWhat && (
+                      <button onClick={() => setPlacingWhat(null)}
+                        style={{ ...inputStyle, flex: 1, fontSize: 9, padding: "3px", textAlign: "center", cursor: "pointer", border: "1px solid #666", color: "#888" }}>
+                        Stop Placing
+                      </button>
+                    )}
+                  </div>
 
                   {/* Between-round buying */}
                   {!gameOver && !battleActive && currentRound < TOTAL_ROUNDS && (
@@ -719,7 +813,7 @@ export default function Swarm1v1() {
                         <div key={a.key} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
                           <span style={{ flex: 1, fontSize: 9, color: "#ff6666" }}>{a.name}</span>
                           <input type="number" value={playerAttack[a.key] || 0} min="0" max="200"
-                            onChange={(e) => setPlayerAttack((p) => ({ ...p, [a.key]: Math.max(0, parseInt(e.target.value) || 0) }))}
+                            onChange={(e) => { const v = Math.max(0, parseInt(e.target.value) || 0); setPlayerAttack((p) => ({ ...p, [a.key]: v })); }}
                             style={{ width: 40, ...inputStyle, fontSize: 9, textAlign: "center", padding: "2px" }} />
                         </div>
                       ))}
