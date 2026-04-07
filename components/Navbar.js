@@ -1,11 +1,11 @@
 import Link from "next/link";
 
 const navLinks = [
-  { label: "About", href: "#about" },
-  { label: "Projects", href: "#projects" },
-  { label: "Blog", href: "#blog" },
-  { label: "BrainAttic", href: "#brainattic" },
-  { label: "Contact", href: "#contact" },
+  { label: "About", href: "/#about" },
+  { label: "Projects", href: "/#projects" },
+  { label: "Blog", href: "/#blog" },
+  { label: "BrainAttic", href: "/#brainattic" },
+  { label: "Contact", href: "/#contact" },
 ];
 
 export default function Navbar() {
@@ -17,13 +17,13 @@ export default function Navbar() {
         </Link>
         <div className="flex items-center gap-6">
           {navLinks.map((link) => (
-            <a
+            <Link
               key={link.href}
               href={link.href}
               className="text-sm text-gray-600 no-underline hover:text-blue-600 transition-colors"
             >
               {link.label}
-            </a>
+            </Link>
           ))}
         </div>
       </div>
