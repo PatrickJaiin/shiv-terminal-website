@@ -1198,15 +1198,89 @@ export default function SwarmInterception() {
             <Metric label="Kills" value={m.kills || 0} color="green" />
             <Metric label="Misses" value={m.misses || 0} color="red" />
             <Metric label="Kill Rate" value={`${killRate}%`} />
-            <PanelTitle>Economics</PanelTitle>
-            <Metric label="Defense Cost" value={`$${formatUSD(m.defense_cost || 0)}`} color="orange" />
-            <Metric label="Threat Value Destroyed" value={`$${formatUSD(m.threat_value_destroyed || 0)}`} color="green" />
-            <Metric label="Cost Efficiency" value={eff === "-" ? "-" : `${eff}x`} />
             <PanelTitle>Defense Zones</PanelTitle>
             <Metric label="Breaches" value={m.breaches || 0} color="red" />
             <PanelTitle>Interceptor Attrition</PanelTitle>
             <Metric label="Lost" value={lost} color="red" />
             <Metric label="Attrition Rate" value={`${attrition}%`} />
+
+            {/* Budget Ledger */}
+            <PanelTitle>Budget Ledger</PanelTitle>
+            {(() => {
+              // Attack budget: total value of all attack drones
+              const atkTotal = simState ? simState.attackers.reduce((s, a) => s + Math.abs(a.cost), 0) : 0;
+              // Defense drone budget
+              const defDroneTotal = simState ? simState.interceptors.reduce((s, i) => s + i.cost, 0) : 0;
+              // Ground AD budget
+              const adTotal = adUnits.reduce((s, ad) => {
+                const sys = AD_SYSTEMS.find((s2) => s2.key === ad.key);
+                return s + (sys ? sys.cost : 0);
+              }, 0);
+              const defTotal = defDroneTotal + adTotal;
+              // Damage inflicted (threat value destroyed)
+              const dmgDealt = m.threat_value_destroyed || 0;
+              // Defense cost spent (interceptor engagement costs)
+              const defSpent = m.defense_cost || 0;
+              // Lost interceptor value
+              const lostIntValue = simState ? simState.interceptors.filter((i) => i.status === "expended").reduce((s, i) => s + i.cost, 0) : 0;
+              // Net: defense wins if threat value destroyed > defense cost spent
+              const netBalance = dmgDealt - defSpent - lostIntValue;
+              const isDone = simState?.done;
+              const defenseWon = isDone && (m.breaches || 0) === 0;
+              const defenseFailed = isDone && (m.breaches || 0) > 0;
+
+              return (
+                <div style={{ fontSize: 11 }}>
+                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "5px 0" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", color: "#ff6666" }}>
+                      <span>Attack Drones</span><span>${formatUSD(atkTotal)}</span>
+                    </div>
+                  </div>
+                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "5px 0" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", color: "#4a9eff" }}>
+                      <span>Interceptor Drones</span><span>${formatUSD(defDroneTotal)}</span>
+                    </div>
+                  </div>
+                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "5px 0" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", color: "#cc8800" }}>
+                      <span>Ground AD Systems</span><span>${formatUSD(adTotal)}</span>
+                    </div>
+                  </div>
+                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "5px 0" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", color: "#4caf50" }}>
+                      <span>Threats Destroyed</span><span>+${formatUSD(dmgDealt)}</span>
+                    </div>
+                  </div>
+                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "5px 0" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", color: "#ff9800" }}>
+                      <span>Defense Spent</span><span>-${formatUSD(defSpent)}</span>
+                    </div>
+                  </div>
+                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "5px 0" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", color: "#ff5555" }}>
+                      <span>Interceptors Lost</span><span>-${formatUSD(lostIntValue)}</span>
+                    </div>
+                  </div>
+                  <div style={{ padding: "8px 0 4px", borderTop: "2px solid #2a2a35", marginTop: 4 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600, fontSize: 12, color: netBalance >= 0 ? "#4caf50" : "#ff5555" }}>
+                      <span>Net Balance</span><span>{netBalance >= 0 ? "+" : ""}{formatUSD(netBalance)}</span>
+                    </div>
+                  </div>
+
+                  {isDone && (
+                    <div style={{
+                      marginTop: 8, padding: "8px 12px", borderRadius: 6, textAlign: "center",
+                      fontSize: 11, fontWeight: 600, letterSpacing: 0.5,
+                      background: defenseWon ? "rgba(76, 175, 80, 0.1)" : "rgba(255, 85, 85, 0.1)",
+                      border: `1px solid ${defenseWon ? "#2a6a3a" : "#6a2a2a"}`,
+                      color: defenseWon ? "#4caf50" : "#ff5555",
+                    }}>
+                      {defenseWon ? "DEFENSE SUCCESSFUL" : "DEFENSE FAILED"}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       </div>
