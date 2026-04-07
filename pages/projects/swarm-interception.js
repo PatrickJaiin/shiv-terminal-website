@@ -816,6 +816,7 @@ export default function SwarmInterception() {
   const [zoneCenter, setZoneCenter] = useState(DEFAULT_ZONE_CENTER);
   const [zoneRadius, setZoneRadius] = useState(DEFAULT_ZONE_RADIUS);
   const [assetRadius, setAssetRadius] = useState(DEFAULT_ASSET_RADIUS);
+  const [defenseBudget, setDefenseBudget] = useState(500); // in millions USD
   const [adUnits, setAdUnits] = useState([
     { id: 0, key: "nasams", x: 4500, y: 5800, health: 1, ammo: 6 },
     { id: 1, key: "iron_dome", x: 5500, y: 5800, health: 1, ammo: 20 },
@@ -962,6 +963,7 @@ export default function SwarmInterception() {
     setZoneCenter(DEFAULT_ZONE_CENTER);
     setZoneRadius(DEFAULT_ZONE_RADIUS);
     setAssetRadius(DEFAULT_ASSET_RADIUS);
+    setDefenseBudget(500);
     setAdUnits([
       { id: 0, key: "nasams", x: 4500, y: 5800, health: 1, ammo: 6 },
       { id: 1, key: "iron_dome", x: 5500, y: 5800, health: 1, ammo: 20 },
@@ -1204,78 +1206,69 @@ export default function SwarmInterception() {
             <Metric label="Lost" value={lost} color="red" />
             <Metric label="Attrition Rate" value={`${attrition}%`} />
 
-            {/* Budget Ledger */}
-            <PanelTitle>Budget Ledger</PanelTitle>
+            {/* Defense Budget */}
+            <PanelTitle>Defense Budget</PanelTitle>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+              <input type="range" min="50" max="5000" step="50" value={defenseBudget}
+                onChange={(e) => setDefenseBudget(parseInt(e.target.value))}
+                style={{ flex: 1, padding: 0, margin: 0, height: 18 }} />
+              <span style={{ fontSize: 12, color: "#4a9eff", minWidth: 45, textAlign: "right", fontWeight: 600 }}>${defenseBudget}M</span>
+            </div>
             {(() => {
-              // Attack budget: total value of all attack drones
-              const atkTotal = simState ? simState.attackers.reduce((s, a) => s + Math.abs(a.cost), 0) : 0;
-              // Defense drone budget
-              const defDroneTotal = simState ? simState.interceptors.reduce((s, i) => s + i.cost, 0) : 0;
-              // Ground AD budget
-              const adTotal = adUnits.reduce((s, ad) => {
-                const sys = AD_SYSTEMS.find((s2) => s2.key === ad.key);
-                return s + (sys ? sys.cost : 0);
-              }, 0);
-              const defTotal = defDroneTotal + adTotal;
-              // Damage inflicted (threat value destroyed)
-              const dmgDealt = m.threat_value_destroyed || 0;
-              // Defense cost spent (interceptor engagement costs)
-              const defSpent = m.defense_cost || 0;
-              // Lost interceptor value
-              const lostIntValue = simState ? simState.interceptors.filter((i) => i.status === "expended").reduce((s, i) => s + i.cost, 0) : 0;
-              // Net: defense wins if threat value destroyed > defense cost spent
-              const netBalance = dmgDealt - defSpent - lostIntValue;
+              const budgetUSD = defenseBudget * 1e6;
+              // Costs
+              const droneFleetCost = simState ? simState.interceptors.reduce((s, i) => s + i.cost, 0) : 0;
+              const lostDroneCost = simState ? simState.interceptors.filter((i) => i.status === "expended").reduce((s, i) => s + i.cost, 0) : 0;
+              const flightCost = m.defense_cost || 0; // engagement/ops costs
+              const adDeployCost = adUnits.reduce((s, ad) => { const sys = AD_SYSTEMS.find((s2) => s2.key === ad.key); return s + (sys ? sys.cost : 0); }, 0);
+              const adDamageCost = adUnits.reduce((s, ad) => { if (ad.health <= 0) { const sys = AD_SYSTEMS.find((s2) => s2.key === ad.key); return s + (sys ? sys.cost * 0.5 : 0); } return s; }, 0);
+              const totalSpent = droneFleetCost + flightCost + adDeployCost + adDamageCost;
+              const remaining = budgetUSD - totalSpent;
+              const pctUsed = budgetUSD > 0 ? Math.min(100, (totalSpent / budgetUSD) * 100) : 0;
+              const overBudget = remaining < 0;
               const isDone = simState?.done;
-              const defenseWon = isDone && (m.breaches || 0) === 0;
-              const defenseFailed = isDone && (m.breaches || 0) > 0;
+              const hasBreach = (m.breaches || 0) > 0;
+              const failed = isDone && (overBudget || hasBreach);
 
               return (
                 <div style={{ fontSize: 11 }}>
-                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "5px 0" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", color: "#ff6666" }}>
-                      <span>Attack Drones</span><span>${formatUSD(atkTotal)}</span>
-                    </div>
+                  {/* Budget bar */}
+                  <div style={{ background: "#1a1a24", borderRadius: 4, height: 8, marginBottom: 8, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${Math.min(pctUsed, 100)}%`, background: pctUsed > 90 ? "#ff5555" : pctUsed > 70 ? "#ff9800" : "#4caf50", borderRadius: 4, transition: "width 0.3s" }} />
                   </div>
-                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "5px 0" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", color: "#4a9eff" }}>
-                      <span>Interceptor Drones</span><span>${formatUSD(defDroneTotal)}</span>
-                    </div>
+                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "4px 0", display: "flex", justifyContent: "space-between", color: "#4a9eff" }}>
+                    <span>Drone Fleet</span><span>${formatUSD(droneFleetCost)}</span>
                   </div>
-                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "5px 0" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", color: "#cc8800" }}>
-                      <span>Ground AD Systems</span><span>${formatUSD(adTotal)}</span>
-                    </div>
+                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "4px 0", display: "flex", justifyContent: "space-between", color: "#ff5555" }}>
+                    <span>Drones Lost</span><span>${formatUSD(lostDroneCost)}</span>
                   </div>
-                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "5px 0" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", color: "#4caf50" }}>
-                      <span>Threats Destroyed</span><span>+${formatUSD(dmgDealt)}</span>
-                    </div>
+                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "4px 0", display: "flex", justifyContent: "space-between", color: "#ff9800" }}>
+                    <span>Flight/Ops</span><span>${formatUSD(flightCost)}</span>
                   </div>
-                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "5px 0" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", color: "#ff9800" }}>
-                      <span>Defense Spent</span><span>-${formatUSD(defSpent)}</span>
-                    </div>
+                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "4px 0", display: "flex", justifyContent: "space-between", color: "#cc8800" }}>
+                    <span>Ground AD Deploy</span><span>${formatUSD(adDeployCost)}</span>
                   </div>
-                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "5px 0" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", color: "#ff5555" }}>
-                      <span>Interceptors Lost</span><span>-${formatUSD(lostIntValue)}</span>
-                    </div>
+                  <div style={{ borderBottom: "1px solid #1a1a24", padding: "4px 0", display: "flex", justifyContent: "space-between", color: "#884400" }}>
+                    <span>Ground AD Damage</span><span>${formatUSD(adDamageCost)}</span>
                   </div>
-                  <div style={{ padding: "8px 0 4px", borderTop: "2px solid #2a2a35", marginTop: 4 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600, fontSize: 12, color: netBalance >= 0 ? "#4caf50" : "#ff5555" }}>
-                      <span>Net Balance</span><span>{netBalance >= 0 ? "+" : ""}{formatUSD(netBalance)}</span>
-                    </div>
+                  <div style={{ padding: "6px 0", borderTop: "2px solid #2a2a35", marginTop: 4, display: "flex", justifyContent: "space-between", fontWeight: 600, fontSize: 12, color: overBudget ? "#ff5555" : "#4caf50" }}>
+                    <span>Remaining</span><span>{overBudget ? "-" : ""}${formatUSD(Math.abs(remaining))}</span>
                   </div>
+                  <div style={{ fontSize: 10, color: "#666", textAlign: "right" }}>{pctUsed.toFixed(0)}% of budget used</div>
 
                   {isDone && (
                     <div style={{
                       marginTop: 8, padding: "8px 12px", borderRadius: 6, textAlign: "center",
                       fontSize: 11, fontWeight: 600, letterSpacing: 0.5,
-                      background: defenseWon ? "rgba(76, 175, 80, 0.1)" : "rgba(255, 85, 85, 0.1)",
-                      border: `1px solid ${defenseWon ? "#2a6a3a" : "#6a2a2a"}`,
-                      color: defenseWon ? "#4caf50" : "#ff5555",
+                      background: failed ? "rgba(255, 85, 85, 0.1)" : "rgba(76, 175, 80, 0.1)",
+                      border: `1px solid ${failed ? "#6a2a2a" : "#2a6a3a"}`,
+                      color: failed ? "#ff5555" : "#4caf50",
                     }}>
-                      {defenseWon ? "DEFENSE SUCCESSFUL" : "DEFENSE FAILED"}
+                      {failed
+                        ? (hasBreach && overBudget ? "DEFENSE FAILED - BREACHED & OVER BUDGET"
+                          : hasBreach ? "DEFENSE FAILED - ASSET BREACHED"
+                          : "DEFENSE FAILED - OVER BUDGET")
+                        : "DEFENSE SUCCESSFUL"}
                     </div>
                   )}
                 </div>
