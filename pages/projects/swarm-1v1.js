@@ -13,15 +13,15 @@ const THEATERS = {
 };
 
 const ATTACK_UNITS = [
-  { key: "fpv", name: "FPV Drone", cost: 500, speed: 8, threat: "cheap" },
-  { key: "shahed", name: "Shahed-136", cost: 20000, speed: 6, threat: "cheap" },
-  { key: "lancet", name: "Lancet-3", cost: 35000, speed: 10, threat: "medium" },
-  { key: "mohajer", name: "Mohajer-6", cost: 500000, speed: 5, threat: "expensive" },
+  { key: "fpv", name: "FPV Drone", cost: 500, speed: 1.5, threat: "cheap" },
+  { key: "shahed", name: "Shahed-136", cost: 20000, speed: 1.0, threat: "cheap" },
+  { key: "lancet", name: "Lancet-3", cost: 35000, speed: 1.8, threat: "medium" },
+  { key: "mohajer", name: "Mohajer-6", cost: 500000, speed: 0.8, threat: "expensive" },
 ];
 
 const DEFENSE_UNITS = [
-  { key: "kamikaze", name: "Kamikaze Interceptor", cost: 15000, speed: 12, destroyOnKill: true },
-  { key: "armed", name: "Armed Interceptor", cost: 180000, speed: 10, destroyOnKill: false, survivalRate: 0.73 },
+  { key: "kamikaze", name: "Kamikaze Interceptor", cost: 15000, speed: 2.2, destroyOnKill: true },
+  { key: "armed", name: "Armed Interceptor", cost: 180000, speed: 1.8, destroyOnKill: false, survivalRate: 0.73 },
 ];
 
 const AD_SYSTEMS_1V1 = [
@@ -64,7 +64,7 @@ function generateAISetup() {
     ],
     interceptors: Array.from({ length: 8 }, (_, i) => ({
       id: 5000 + i, x: hqX + (Math.random() - 0.5) * 800, y: hqY + 1200 + Math.random() * 400,
-      speed: i < 6 ? 12 : 10, status: "active", targetId: null, destroyOnKill: i < 6, survivalRate: 0.73,
+      speed: 2.0, status: "active", targetId: null, destroyOnKill: i < 6, survivalRate: 0.73,
     })),
     adUnits: [
       { key: "gepard", x: hqX, y: hqY + 600, health: 1, ammo: 680 },
@@ -283,7 +283,7 @@ export default function Swarm1v1() {
         const b = th2.bounds;
         const simX = ((latlng.lng - b.west) / (b.east - b.west)) * ARENA;
         const simY = ((latlng.lat - b.south) / (b.north - b.south)) * ARENA;
-        fn(Math.max(0, Math.min(ARENA, simX)), Math.max(0, Math.min(ARENA, simY)));
+        fn(simX, simY); // no clamping - allow placement anywhere visible
       });
       // Right click for unit info (uses refs for fresh state)
       const infoRef = { setInfoPopup };
@@ -316,9 +316,26 @@ export default function Swarm1v1() {
     // Divider
     L.polyline([toLL(0, 5000), toLL(ARENA, 5000)], { color: "#fff", weight: 1, opacity: 0.15, dashArray: "8 8", interactive: false }).addTo(layer);
 
-    // Player
+    // Player airspace with breach gaps
     if (playerHQ) {
-      L.circle(toLL(playerHQ.x, playerHQ.y), { radius: playerAirspace * mpu, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 0.04, weight: 1, opacity: 0.4, dashArray: "10 6" }).addTo(layer);
+      const breachAngles = battleRef.current?.playerAirBreaches || [];
+      if (breachAngles.length === 0) {
+        L.circle(toLL(playerHQ.x, playerHQ.y), { radius: playerAirspace * mpu, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 0.04, weight: 1.5, opacity: 0.5, dashArray: "10 6" }).addTo(layer);
+      } else {
+        const SEG = 24; const segArc = (Math.PI * 2) / SEG; const GAP = 0.15;
+        for (let i = 0; i < SEG; i++) {
+          const mid = -Math.PI + (i + 0.5) * segArc;
+          const inGap = breachAngles.some((ba) => { let d = mid - ba; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return Math.abs(d) < GAP; });
+          if (inGap) continue;
+          const pts = [];
+          for (let j = 0; j <= 3; j++) { const a = -Math.PI + i * segArc + (j / 3) * segArc; pts.push(toLL(playerHQ.x + Math.cos(a) * playerAirspace, playerHQ.y + Math.sin(a) * playerAirspace)); }
+          L.polyline(pts, { color: "#4a9eff", weight: 1.5, opacity: 0.5, dashArray: "10 6", interactive: false }).addTo(layer);
+        }
+        for (const ba of breachAngles) {
+          const bll = toLL(playerHQ.x + Math.cos(ba) * playerAirspace, playerHQ.y + Math.sin(ba) * playerAirspace);
+          L.circleMarker(bll, { radius: 4, color: "#888", fillColor: "#555", fillOpacity: 0.9, weight: 2 }).addTo(layer);
+        }
+      }
       L.circleMarker(toLL(playerHQ.x, playerHQ.y), { radius: 8, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 1, weight: 2 }).addTo(layer);
     }
     for (const r of playerResources) {
@@ -345,7 +362,7 @@ export default function Swarm1v1() {
         if (res) L.circleMarker(toLL(r.x, r.y), { radius: 5, color: r.alive ? res.color : "#444", fillColor: r.alive ? res.color : "#333", fillOpacity: 0.6, weight: 1 }).addTo(layer);
       }
     }
-  }, [mapReady, theater, playerHQ, playerAirspace, playerResources, playerInterceptors, playerAD, aiSetup, phase]);
+  }, [mapReady, theater, playerHQ, playerAirspace, playerResources, playerInterceptors, playerAD, aiSetup, phase, battleDrones]);
 
   // ── Launch round with animated battle ──
   const launchRound = useCallback(() => {
@@ -401,7 +418,7 @@ export default function Swarm1v1() {
     const pAD = playerAD.map((a) => ({ ...a }));
     const aAD = aiSetup.adUnits.map((a) => ({ ...a }));
 
-    battleRef.current = { pAttackers, aAttackers, pInts, aInts, pAD, aAD, step: 0, pKills: 0, aKills: 0, pBreaches: 0, aBreaches: 0, flashes: [] };
+    battleRef.current = { pAttackers, aAttackers, pInts, aInts, pAD, aAD, step: 0, pKills: 0, aKills: 0, pBreaches: 0, aBreaches: 0, flashes: [], playerAirBreaches: [], aiAirBreaches: [] };
 
     // Animate
     function tick() {
@@ -488,12 +505,15 @@ export default function Swarm1v1() {
         }
       }
 
-      // Track airspace breaches (enemy entering player airspace)
+      // Track airspace breaches (enemy entering player airspace) with arc breaks
       for (const a of b.aAttackers) {
         if (a.status !== "active" || a.enteredAirspace) continue;
         if (playerHQ && dist(a, playerHQ) < playerAirspace) {
           a.enteredAirspace = true;
           b.airspaceCost = (b.airspaceCost || 0) + AIRSPACE_BREACH_COST;
+          const angle = Math.atan2(a.y - playerHQ.y, a.x - playerHQ.x);
+          b.playerAirBreaches.push(angle);
+          b.flashes.push({ x: playerHQ.x + Math.cos(angle) * playerAirspace, y: playerHQ.y + Math.sin(angle) * playerAirspace, time: b.step, type: "dmgtext", text: "-$" + AIRSPACE_BREACH_COST, color: "#ff9800" });
         }
       }
       // Track player drones entering AI airspace
@@ -502,6 +522,8 @@ export default function Swarm1v1() {
         if (dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) < aiSetup.airspace) {
           a.enteredAirspace = true;
           b.aiAirspaceCost = (b.aiAirspaceCost || 0) + AIRSPACE_BREACH_COST;
+          const angle = Math.atan2(a.y - aiSetup.hqY, a.x - aiSetup.hqX);
+          b.aiAirBreaches.push(angle);
         }
       }
 
@@ -613,10 +635,11 @@ export default function Swarm1v1() {
           else if (i.status === "landed") L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#663333", fillColor: "#663333", fillOpacity: 0.5, weight: 1 }).addTo(bl);
         }
         // Kill, breach, and AD shot flashes
-        b.flashes = b.flashes.filter((f) => b.step - f.time < 30);
+        b.flashes = b.flashes.filter((f) => b.step - f.time < (f.type === "dmgtext" ? 60 : 30));
         for (const f of b.flashes) {
           const age = b.step - f.time;
-          const p = age / 30;
+          const maxAge = f.type === "dmgtext" ? 60 : 30;
+          const p = age / maxAge;
           const ll = toLL(f.x, f.y);
           if (f.type === "adshot") {
             // Line from AD to target - thick and visible
@@ -627,8 +650,8 @@ export default function Swarm1v1() {
               L.circleMarker(ll2, { radius: 3, color: f.color || "#ffaa00", fillColor: f.color || "#ffaa00", fillOpacity: (1 - age / 15) * 0.8, weight: 0 }).addTo(bl);
             }
           } else if (f.type === "dmgtext") {
-            // Floating damage text that drifts up
-            const drift = age * 8;
+            // Floating damage text that drifts up slowly
+            const drift = age * 3;
             const driftLL = toLL(f.x, f.y + drift);
             L.marker(driftLL, {
               icon: L.divIcon({ className: "", iconSize: [80, 16], iconAnchor: [40, 8],
