@@ -121,7 +121,9 @@ export default function Swarm1v1() {
   const [budgetShake, setBudgetShake] = useState(false);
   const [infoPopup, setInfoPopup] = useState(null);
   const [totalIncome, setTotalIncome] = useState(0);
-  const [damagePopup, setDamagePopup] = useState(null); // { text, color }
+  const [damagePopup, setDamagePopup] = useState(null);
+  const [battleSpeed, setBattleSpeed] = useState(1); // 1x, 2x, 4x
+  const [showADRange, setShowADRange] = useState(true);
   const [playerBudget, setPlayerBudget] = useState(STARTING_BUDGET);
   const [placingWhat, setPlacingWhat] = useState(null);
 
@@ -148,6 +150,8 @@ export default function Swarm1v1() {
 
   // Battle sim refs
   const battleRef = useRef(null);
+  const battleSpeedRef = useRef(1);
+  const showADRangeRef = useRef(true);
   const frameRef = useRef(null);
 
   const findMatch = useCallback(() => {
@@ -250,6 +254,8 @@ export default function Swarm1v1() {
 
   handleMapClickRef.current = handleMapClick;
   theaterRef.current = theater;
+  battleSpeedRef.current = battleSpeed;
+  showADRangeRef.current = showADRange;
 
   // Init map
   useEffect(() => {
@@ -424,6 +430,8 @@ export default function Swarm1v1() {
     function tick() {
       const b = battleRef.current;
       if (!b) return;
+      const spd = battleSpeedRef.current || 1;
+      for (let si = 0; si < spd; si++) {
       b.step++;
 
       // Move AI attackers - medium/expensive target player AD first
@@ -615,12 +623,29 @@ export default function Swarm1v1() {
         }
       }
 
+      } // end speed loop
+
       // Draw battle - distinct visuals per drone type
       const L = LRef.current; const bl = battleLayerRef.current;
       if (L && bl) {
         bl.clearLayers();
         const th = THEATERS[theaterRef.current]; const toLL = (x, y) => simToLatLng(x, y, th.bounds);
-        // Enemy attack drones: red small triangles (heading south->north)
+        const mpu = ((th.bounds.north - th.bounds.south) * 111000) / ARENA;
+        // AD range circles during battle (toggleable)
+        if (showADRangeRef.current) {
+          for (const ad of b.pAD) {
+            if (ad.health <= 0) continue;
+            const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
+            if (sys) L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.03, weight: 1, opacity: 0.2, dashArray: "6 4", interactive: false }).addTo(bl);
+          }
+          for (const ad of b.aAD) {
+            if (ad.health <= 0) continue;
+            const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
+            if (sys) L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.03, weight: 1, opacity: 0.15, dashArray: "6 4", interactive: false }).addTo(bl);
+          }
+        }
+
+        // Enemy attack drones
         for (const a of b.aAttackers) { if (a.status === "active") L.circleMarker(toLL(a.x, a.y), { radius: 3, color: "#ff4444", fillColor: "#ff4444", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
         // Your attack drones: cyan small (heading north->south)
         for (const a of b.pAttackers) { if (a.status === "active") L.circleMarker(toLL(a.x, a.y), { radius: 3, color: "#00ddff", fillColor: "#00ddff", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
@@ -642,12 +667,18 @@ export default function Swarm1v1() {
           const p = age / maxAge;
           const ll = toLL(f.x, f.y);
           if (f.type === "adshot") {
-            // Line from AD to target - thick and visible
-            if (age < 15) {
+            // Bright tracer line from AD to target
+            if (age < 20) {
               const ll2 = toLL(f.x2, f.y2);
-              L.polyline([ll, ll2], { color: f.color || "#ffaa00", weight: 2.5, opacity: (1 - age / 15) * 0.9, interactive: false }).addTo(bl);
-              // Hit marker at target end
-              L.circleMarker(ll2, { radius: 3, color: f.color || "#ffaa00", fillColor: f.color || "#ffaa00", fillOpacity: (1 - age / 15) * 0.8, weight: 0 }).addTo(bl);
+              const fade = 1 - age / 20;
+              // Outer glow
+              L.polyline([ll, ll2], { color: "#ffffff", weight: 4, opacity: fade * 0.3, interactive: false }).addTo(bl);
+              // Core tracer
+              L.polyline([ll, ll2], { color: f.color || "#ffaa00", weight: 2, opacity: fade * 0.9, interactive: false }).addTo(bl);
+              // Muzzle flash at AD
+              L.circleMarker(ll, { radius: 4 * fade, color: "#ffffff", fillColor: "#ffffff", fillOpacity: fade * 0.6, weight: 0 }).addTo(bl);
+              // Impact at target
+              L.circleMarker(ll2, { radius: 4 * fade, color: f.color || "#ffaa00", fillColor: f.color || "#ffaa00", fillOpacity: fade * 0.8, weight: 0 }).addTo(bl);
             }
           } else if (f.type === "dmgtext") {
             // Floating damage text that drifts up slowly
@@ -1101,7 +1132,24 @@ export default function Swarm1v1() {
 
                   {battleActive && (
                     <div style={{ padding: 8, background: "#1a1a24", borderRadius: 6, marginBottom: 8 }}>
-                      <div style={{ fontSize: 11, color: "#ff9800", marginBottom: 4 }}>Battle in progress...</div>
+                      <div style={{ fontSize: 11, color: "#ff9800", marginBottom: 6 }}>Battle in progress...</div>
+                      <div style={{ display: "flex", gap: 3, marginBottom: 6 }}>
+                        {[1, 2, 4].map((s) => (
+                          <button key={s} onClick={() => setBattleSpeed(s)}
+                            style={{ flex: 1, padding: "4px", fontSize: 10, borderRadius: 3, cursor: "pointer",
+                              border: battleSpeed === s ? "1px solid #ff9800" : "1px solid #2a2a35",
+                              background: battleSpeed === s ? "rgba(255,152,0,0.15)" : "#111118",
+                              color: battleSpeed === s ? "#ff9800" : "#666" }}>
+                            {s}x
+                          </button>
+                        ))}
+                      </div>
+                      <button onClick={() => setShowADRange((p) => !p)}
+                        style={{ width: "100%", padding: "3px", fontSize: 9, borderRadius: 3, cursor: "pointer",
+                          border: "1px solid #2a2a35", background: "#111118",
+                          color: showADRange ? "#4a9eff" : "#444" }}>
+                        {showADRange ? "Hide AD Range" : "Show AD Range"}
+                      </button>
                       <div style={{ fontSize: 9, color: "#4a9eff" }}>Your attack: {battleDrones.playerAttackers.filter((a) => a.status === "active").length} active</div>
                       <div style={{ fontSize: 9, color: "#ff5555" }}>Enemy attack: {battleDrones.aiAttackers.filter((a) => a.status === "active").length} active</div>
                       <div style={{ fontSize: 9, color: "#66ccff" }}>Your defense: {battleDrones.playerInts.filter((i) => i.status === "active").length} active</div>
