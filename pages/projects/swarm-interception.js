@@ -98,45 +98,89 @@ function latLngToSim(lat, lng, bounds) {
 function createDrones(scenario, theater, customAttackSpawns, customDefenseSpawns) {
   const th = THEATERS[theater] || THEATERS.default;
   const center = [5000, 5000];
-  const attackOrigins = customAttackSpawns.length > 0 ? customAttackSpawns : th.attackOrigins;
-  const defensePositions = customDefenseSpawns.length > 0 ? customDefenseSpawns : th.defensePos;
+  const hasCustomAtk = customAttackSpawns.length > 0;
+  const hasCustomDef = customDefenseSpawns.length > 0;
 
   const attackerList = [];
   let id = 100;
-  for (const [key, count] of Object.entries(scenario.attackers)) {
-    const profile = DRONE_DB.attack.find((d) => d.key === key);
-    if (!profile) continue;
-    for (let i = 0; i < count; i++) {
-      const origin = attackOrigins[Math.floor(Math.random() * attackOrigins.length)];
-      attackerList.push({
-        id: id++,
-        x: origin[0] + (Math.random() - 0.5) * 1500,
-        y: origin[1] + (Math.random() - 0.5) * 1500,
-        speed: profile.speed / 200,
-        cost: profile.cost,
-        threat: profile.threat,
-        status: "active",
-        heading: Math.atan2(center[1] - origin[1], center[0] - origin[0]) + (Math.random() - 0.5) * 0.8,
-        type: "attacker",
-        profileName: profile.name,
-      });
+
+  if (hasCustomAtk) {
+    // Use custom spawn points with their own drone type and count
+    for (const sp of customAttackSpawns) {
+      const profile = DRONE_DB.attack.find((d) => d.key === sp.droneKey);
+      if (!profile) continue;
+      for (let i = 0; i < sp.count; i++) {
+        attackerList.push({
+          id: id++,
+          x: sp.x + (Math.random() - 0.5) * 1500,
+          y: sp.y + (Math.random() - 0.5) * 1500,
+          speed: profile.speed / 200,
+          cost: profile.cost,
+          threat: profile.threat,
+          status: "active",
+          heading: Math.atan2(center[1] - sp.y, center[0] - sp.x) + (Math.random() - 0.5) * 0.8,
+          type: "attacker",
+          profileName: profile.name,
+        });
+      }
+    }
+  } else {
+    // Use scenario defaults with theater origins
+    for (const [key, count] of Object.entries(scenario.attackers)) {
+      const profile = DRONE_DB.attack.find((d) => d.key === key);
+      if (!profile) continue;
+      for (let i = 0; i < count; i++) {
+        const origin = th.attackOrigins[Math.floor(Math.random() * th.attackOrigins.length)];
+        attackerList.push({
+          id: id++,
+          x: origin[0] + (Math.random() - 0.5) * 1500,
+          y: origin[1] + (Math.random() - 0.5) * 1500,
+          speed: profile.speed / 200,
+          cost: profile.cost,
+          threat: profile.threat,
+          status: "active",
+          heading: Math.atan2(center[1] - origin[1], center[0] - origin[0]) + (Math.random() - 0.5) * 0.8,
+          type: "attacker",
+          profileName: profile.name,
+        });
+      }
     }
   }
 
   const interceptors = [];
-  for (let i = 0; i < scenario.interceptors; i++) {
-    const dp = defensePositions[Math.floor(Math.random() * defensePositions.length)];
-    interceptors.push({
-      id: i,
-      x: dp[0] + (Math.random() - 0.5) * 1000,
-      y: dp[1] + (Math.random() - 0.5) * 1000,
-      speed: 2.0,
-      cost: 200000,
-      status: "active",
-      heading: 0,
-      type: "interceptor",
-      targetId: null,
-    });
+  if (hasCustomDef) {
+    let iid = 0;
+    for (const sp of customDefenseSpawns) {
+      const profile = DRONE_DB.interceptor.find((d) => d.key === sp.droneKey) || DRONE_DB.interceptor[0];
+      for (let i = 0; i < sp.count; i++) {
+        interceptors.push({
+          id: iid++,
+          x: sp.x + (Math.random() - 0.5) * 1000,
+          y: sp.y + (Math.random() - 0.5) * 1000,
+          speed: profile.speed / 200,
+          cost: profile.cost,
+          status: "active",
+          heading: 0,
+          type: "interceptor",
+          targetId: null,
+        });
+      }
+    }
+  } else {
+    for (let i = 0; i < scenario.interceptors; i++) {
+      const dp = th.defensePos[Math.floor(Math.random() * th.defensePos.length)];
+      interceptors.push({
+        id: i,
+        x: dp[0] + (Math.random() - 0.5) * 1000,
+        y: dp[1] + (Math.random() - 0.5) * 1000,
+        speed: 2.0,
+        cost: 200000,
+        status: "active",
+        heading: 0,
+        type: "interceptor",
+        targetId: null,
+      });
+    }
   }
   return { interceptors, attackers: attackerList };
 }
@@ -425,38 +469,57 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
     layer.clearLayers();
 
     const th = THEATERS[theater] || THEATERS.default;
-    const atkPoints = attackSpawns.length > 0 ? attackSpawns : th.attackOrigins;
-    const defPoints = defenseSpawns.length > 0 ? defenseSpawns : th.defensePos;
     const atkCustom = attackSpawns.length > 0;
     const defCustom = defenseSpawns.length > 0;
 
-    for (const sp of atkPoints) {
-      const ll = simToLL(sp[0], sp[1]);
-      L.circleMarker(ll, {
-        radius: 10, color: atkCustom ? "#ff5555" : "#662222", fillColor: atkCustom ? "#ff5555" : "#662222",
-        fillOpacity: 0.3, weight: 2, opacity: 0.8,
-      }).addTo(layer);
-      L.marker(ll, {
-        icon: L.divIcon({
-          className: "", iconSize: [40, 16], iconAnchor: [20, -8],
-          html: `<div style="color:${atkCustom ? "#ff5555" : "#662222"};font-size:9px;font-family:monospace;text-align:center">ATK</div>`,
-        }),
-        interactive: false,
-      }).addTo(layer);
+    // Attack spawns (custom with type/count or theater defaults)
+    if (atkCustom) {
+      for (const sp of attackSpawns) {
+        const ll = simToLL(sp.x, sp.y);
+        const profile = DRONE_DB.attack.find((d) => d.key === sp.droneKey);
+        const label = `${profile ? profile.name.split(" ")[0] : sp.droneKey} x${sp.count}`;
+        L.circleMarker(ll, { radius: 10, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 0.3, weight: 2, opacity: 0.8 }).addTo(layer);
+        L.marker(ll, {
+          icon: L.divIcon({ className: "", iconSize: [80, 16], iconAnchor: [40, -8],
+            html: `<div style="color:#ff5555;font-size:9px;font-family:monospace;text-align:center;text-shadow:0 0 3px #000">${label}</div>` }),
+          interactive: false,
+        }).addTo(layer);
+      }
+    } else {
+      for (const sp of th.attackOrigins) {
+        const ll = simToLL(sp[0], sp[1]);
+        L.circleMarker(ll, { radius: 10, color: "#662222", fillColor: "#662222", fillOpacity: 0.3, weight: 2, opacity: 0.8 }).addTo(layer);
+        L.marker(ll, {
+          icon: L.divIcon({ className: "", iconSize: [40, 16], iconAnchor: [20, -8],
+            html: `<div style="color:#662222;font-size:9px;font-family:monospace;text-align:center">ATK</div>` }),
+          interactive: false,
+        }).addTo(layer);
+      }
     }
-    for (const sp of defPoints) {
-      const ll = simToLL(sp[0], sp[1]);
-      L.circleMarker(ll, {
-        radius: 10, color: defCustom ? "#4a9eff" : "#223366", fillColor: defCustom ? "#4a9eff" : "#223366",
-        fillOpacity: 0.3, weight: 2, opacity: 0.8,
-      }).addTo(layer);
-      L.marker(ll, {
-        icon: L.divIcon({
-          className: "", iconSize: [40, 16], iconAnchor: [20, -8],
-          html: `<div style="color:${defCustom ? "#4a9eff" : "#223366"};font-size:9px;font-family:monospace;text-align:center">DEF</div>`,
-        }),
-        interactive: false,
-      }).addTo(layer);
+
+    // Defense spawns
+    if (defCustom) {
+      for (const sp of defenseSpawns) {
+        const ll = simToLL(sp.x, sp.y);
+        const profile = DRONE_DB.interceptor.find((d) => d.key === sp.droneKey);
+        const label = `${profile ? profile.name.split(" ")[0] : sp.droneKey} x${sp.count}`;
+        L.circleMarker(ll, { radius: 10, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 0.3, weight: 2, opacity: 0.8 }).addTo(layer);
+        L.marker(ll, {
+          icon: L.divIcon({ className: "", iconSize: [80, 16], iconAnchor: [40, -8],
+            html: `<div style="color:#4a9eff;font-size:9px;font-family:monospace;text-align:center;text-shadow:0 0 3px #000">${label}</div>` }),
+          interactive: false,
+        }).addTo(layer);
+      }
+    } else {
+      for (const sp of th.defensePos) {
+        const ll = simToLL(sp[0], sp[1]);
+        L.circleMarker(ll, { radius: 10, color: "#223366", fillColor: "#223366", fillOpacity: 0.3, weight: 2, opacity: 0.8 }).addTo(layer);
+        L.marker(ll, {
+          icon: L.divIcon({ className: "", iconSize: [40, 16], iconAnchor: [20, -8],
+            html: `<div style="color:#223366;font-size:9px;font-family:monospace;text-align:center">DEF</div>` }),
+          interactive: false,
+        }).addTo(layer);
+      }
     }
   }, [theater, attackSpawns, defenseSpawns, simToLL]);
 
@@ -576,9 +639,12 @@ export default function SwarmInterception() {
   const [dbTab, setDbTab] = useState("attack");
   const [killFlashes, setKillFlashes] = useState([]);
   const [statusText, setStatusText] = useState("READY");
-  const [attackSpawns, setAttackSpawns] = useState([]);
-  const [defenseSpawns, setDefenseSpawns] = useState([]);
+  const [attackSpawns, setAttackSpawns] = useState([]); // [{x, y, droneKey, count}]
+  const [defenseSpawns, setDefenseSpawns] = useState([]); // [{x, y, droneKey, count}]
   const [placementMode, setPlacementMode] = useState(null);
+  const [spawnDroneKey, setSpawnDroneKey] = useState("fpv_kamikaze");
+  const [spawnDefKey, setSpawnDefKey] = useState("custom");
+  const [spawnCount, setSpawnCount] = useState(10);
 
   const simRef = useRef(null);
   const runRef = useRef(false);
@@ -594,15 +660,14 @@ export default function SwarmInterception() {
 
   const handlePlaceSpawn = useCallback((x, y) => {
     if (placementMode === "attack") {
-      setAttackSpawns((prev) => [...prev, [x, y]]);
+      setAttackSpawns((prev) => [...prev, { x, y, droneKey: spawnDroneKey, count: spawnCount }]);
     } else if (placementMode === "defense") {
-      // Only allow inside legacy defense zone
       const dx = x - LEGACY_CENTER[0];
       const dy = y - LEGACY_CENTER[1];
       if (Math.sqrt(dx * dx + dy * dy) > LEGACY_RADIUS) return;
-      setDefenseSpawns((prev) => [...prev, [x, y]]);
+      setDefenseSpawns((prev) => [...prev, { x, y, droneKey: spawnDefKey, count: spawnCount }]);
     }
-  }, [placementMode]);
+  }, [placementMode, spawnDroneKey, spawnDefKey, spawnCount]);
 
   const startSim = useCallback(() => {
     const sc = SCENARIOS[scenario];
@@ -734,20 +799,63 @@ export default function SwarmInterception() {
             </select>
 
             <PanelTitle>Spawn Points</PanelTitle>
-            <div style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Click map to place. Empty = theater defaults.</div>
+            <div style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Select type/count, click map to place.</div>
+
+            {/* Drone type selector */}
+            <div style={{ marginBottom: 6 }}>
+              <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
+                <select value={placementMode === "defense" ? spawnDefKey : spawnDroneKey}
+                  onChange={(e) => placementMode === "defense" ? setSpawnDefKey(e.target.value) : setSpawnDroneKey(e.target.value)}
+                  disabled={running}
+                  style={{ flex: 1, padding: "5px 8px", background: "#1a1a24", border: "1px solid #2a2a35", color: "#e0e0e0", borderRadius: 4, fontSize: 11, cursor: running ? "not-allowed" : "pointer" }}>
+                  {placementMode === "defense"
+                    ? DRONE_DB.interceptor.map((d) => <option key={d.key} value={d.key}>{d.name}</option>)
+                    : DRONE_DB.attack.map((d) => <option key={d.key} value={d.key}>{d.name} (${formatUSD(d.cost)})</option>)
+                  }
+                </select>
+                <input type="number" value={spawnCount} onChange={(e) => setSpawnCount(Math.max(1, parseInt(e.target.value) || 1))}
+                  min="1" max="100" disabled={running}
+                  style={{ width: 50, padding: "5px 6px", background: "#1a1a24", border: "1px solid #2a2a35", color: "#e0e0e0", borderRadius: 4, fontSize: 11, textAlign: "center" }} />
+              </div>
+            </div>
+
+            {/* Place buttons */}
             <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
               <button onClick={() => setPlacementMode(placementMode === "attack" ? null : "attack")} disabled={running}
                 style={{ ...btnBase, background: placementMode === "attack" ? "#4a1a1a" : "#1a2a40", borderColor: placementMode === "attack" ? "#ff5555" : "#2a4a6a", color: placementMode === "attack" ? "#ff5555" : "#e0e0e0", opacity: running ? 0.4 : 1, cursor: running ? "not-allowed" : "pointer", fontSize: 11 }}>
-                {placementMode === "attack" ? "Placing ATK..." : `ATK Spawns (${attackSpawns.length})`}
+                {placementMode === "attack" ? "Placing ATK..." : `ATK (${attackSpawns.length})`}
               </button>
               <button onClick={() => setPlacementMode(placementMode === "defense" ? null : "defense")} disabled={running}
                 style={{ ...btnBase, background: placementMode === "defense" ? "#1a3a4a" : "#1a2a40", borderColor: placementMode === "defense" ? "#4a9eff" : "#2a4a6a", color: placementMode === "defense" ? "#4a9eff" : "#e0e0e0", opacity: running ? 0.4 : 1, cursor: running ? "not-allowed" : "pointer", fontSize: 11 }}>
-                {placementMode === "defense" ? "Placing DEF..." : `DEF Spawns (${defenseSpawns.length})`}
+                {placementMode === "defense" ? "Placing DEF..." : `DEF (${defenseSpawns.length})`}
               </button>
             </div>
+
+            {/* Spawn list */}
+            {attackSpawns.map((sp, i) => {
+              const p = DRONE_DB.attack.find((d) => d.key === sp.droneKey);
+              return (
+                <div key={`a${i}`} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 3, fontSize: 10, color: "#ff5555" }}>
+                  <span style={{ flex: 1 }}>{p ? p.name : sp.droneKey} x{sp.count}</span>
+                  <button onClick={() => setAttackSpawns((prev) => prev.filter((_, j) => j !== i))} disabled={running}
+                    style={{ background: "transparent", border: "1px solid #333", color: "#ff5555", width: 18, height: 18, padding: 0, fontSize: 12, lineHeight: "16px", textAlign: "center", cursor: "pointer", borderRadius: 3 }}>&times;</button>
+                </div>
+              );
+            })}
+            {defenseSpawns.map((sp, i) => {
+              const p = DRONE_DB.interceptor.find((d) => d.key === sp.droneKey);
+              return (
+                <div key={`d${i}`} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 3, fontSize: 10, color: "#4a9eff" }}>
+                  <span style={{ flex: 1 }}>{p ? p.name : sp.droneKey} x{sp.count}</span>
+                  <button onClick={() => setDefenseSpawns((prev) => prev.filter((_, j) => j !== i))} disabled={running}
+                    style={{ background: "transparent", border: "1px solid #333", color: "#4a9eff", width: 18, height: 18, padding: 0, fontSize: 12, lineHeight: "16px", textAlign: "center", cursor: "pointer", borderRadius: 3 }}>&times;</button>
+                </div>
+              );
+            })}
+
             {(attackSpawns.length > 0 || defenseSpawns.length > 0) && (
               <button onClick={() => { setAttackSpawns([]); setDefenseSpawns([]); setPlacementMode(null); }} disabled={running}
-                style={{ ...btnBase, background: "#1a1a24", borderColor: "#2a2a35", color: "#888", fontSize: 11, opacity: running ? 0.4 : 1, cursor: running ? "not-allowed" : "pointer" }}>
+                style={{ ...btnBase, background: "#1a1a24", borderColor: "#2a2a35", color: "#888", fontSize: 11, marginTop: 4, opacity: running ? 0.4 : 1, cursor: running ? "not-allowed" : "pointer" }}>
                 Clear All Spawns
               </button>
             )}
