@@ -485,49 +485,23 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
       interactive: false,
     }).addTo(layer);
 
-    // ── Outer: Ground Air Defense Zone (green) with breach gaps ──
+    // ── Outer: Ground Air Defense Zone (green dashed) ──
     const geoRadius = zoneRadius * metersPerUnit;
-    const breachAngles = breachPoints.map((bp) => bp.angle);
-    const GAP_SIZE = 0.15;
+    const center = simToLL(zoneCenter[0], zoneCenter[1]);
+    L.circle(center, {
+      radius: geoRadius, color: "#22aa22", fillColor: "#22aa22",
+      fillOpacity: 0.03, weight: 2, opacity: 0.8, dashArray: "10 6",
+    }).addTo(layer);
 
-    if (breachAngles.length === 0) {
-      const center = simToLL(zoneCenter[0], zoneCenter[1]);
-      L.circle(center, {
-        radius: geoRadius, color: "#22aa22", fillColor: "#22aa22",
-        fillOpacity: 0.03, weight: 2, opacity: 0.8,
+    // Grey breach markers on the perimeter
+    for (const bp of breachPoints) {
+      const bll = simToLL(
+        zoneCenter[0] + Math.cos(bp.angle) * zoneRadius,
+        zoneCenter[1] + Math.sin(bp.angle) * zoneRadius
+      );
+      L.circleMarker(bll, {
+        radius: 5, color: "#888", fillColor: "#555", fillOpacity: 0.9, weight: 2, opacity: 0.8,
       }).addTo(layer);
-    } else {
-      const SEGMENTS = 72;
-      const segAngle = (Math.PI * 2) / SEGMENTS;
-      for (let i = 0; i < SEGMENTS; i++) {
-        const startAngle = (i / SEGMENTS) * Math.PI * 2 - Math.PI;
-        const midAngle = startAngle + segAngle / 2;
-        const inGap = breachAngles.some((ba) => {
-          let diff = midAngle - ba;
-          while (diff > Math.PI) diff -= Math.PI * 2;
-          while (diff < -Math.PI) diff += Math.PI * 2;
-          return Math.abs(diff) < GAP_SIZE;
-        });
-        if (inGap) continue;
-        const points = [];
-        for (let j = 0; j <= 4; j++) {
-          const a = startAngle + (j / 4) * segAngle;
-          points.push(simToLL(zoneCenter[0] + Math.cos(a) * zoneRadius, zoneCenter[1] + Math.sin(a) * zoneRadius));
-        }
-        L.polyline(points, { color: "#22aa22", weight: 2, opacity: 0.8, interactive: false }).addTo(layer);
-      }
-
-      for (const ba of breachAngles) {
-        const bll = simToLL(zoneCenter[0] + Math.cos(ba) * zoneRadius, zoneCenter[1] + Math.sin(ba) * zoneRadius);
-        L.circleMarker(bll, { radius: 6, color: "#666", fillColor: "#444", fillOpacity: 0.8, weight: 2, opacity: 0.9 }).addTo(layer);
-        for (let ci = -1; ci <= 1; ci++) {
-          const ca = ba + ci * 0.08;
-          L.polyline([
-            simToLL(zoneCenter[0] + Math.cos(ca) * (zoneRadius - 80), zoneCenter[1] + Math.sin(ca) * (zoneRadius - 80)),
-            simToLL(zoneCenter[0] + Math.cos(ca) * (zoneRadius + 80), zoneCenter[1] + Math.sin(ca) * (zoneRadius + 80)),
-          ], { color: "#555", weight: 1, opacity: 0.6, interactive: false }).addTo(layer);
-        }
-      }
     }
 
     // Outer zone label
@@ -625,28 +599,18 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
         const ll = simToLL(flash.x, flash.y);
 
         if (flash.type === "breach") {
-          // Breach: grey impact on defense line, fading warning
-          if (age > 3000) continue;
-          const progress = age / 3000;
-          // Red warning pulse at breach point on line
-          const ba = Math.atan2(flash.y - zoneCenter[1], flash.x - zoneCenter[0]);
-          const bx = zoneCenter[0] + Math.cos(ba) * zoneRadius;
-          const by = zoneCenter[1] + Math.sin(ba) * zoneRadius;
-          const bll = simToLL(bx, by);
+          // Brief red flash at breach location
+          if (age > 1000) continue;
+          const progress = age / 1000;
+          L.circleMarker(ll, {
+            radius: 8, color: "#ff3333", fillColor: "#ff0000",
+            fillOpacity: (1 - progress) * 0.6, weight: 2, opacity: 1 - progress,
+          }).addTo(flashLayer);
           if (progress < 0.5) {
-            const pulse = Math.sin(age / 100 * Math.PI) * 0.5 + 0.5;
-            L.circleMarker(bll, {
-              radius: 8 + pulse * 6,
-              color: "#ff3333", fillColor: "#ff0000",
-              fillOpacity: (1 - progress * 2) * 0.5, weight: 2, opacity: (1 - progress * 2) * pulse,
-            }).addTo(flashLayer);
-          }
-          // Breach label
-          if (progress < 0.4) {
-            L.marker(bll, {
+            L.marker(ll, {
               icon: L.divIcon({
-                className: "", iconSize: [60, 16], iconAnchor: [30, -14],
-                html: `<div style="color:#ff0000;font-size:10px;font-family:monospace;font-weight:bold;text-align:center;text-shadow:0 0 4px #000;opacity:${1 - progress * 2.5}">BREACH</div>`,
+                className: "", iconSize: [60, 14], iconAnchor: [30, -10],
+                html: `<div style="color:#ff0000;font-size:9px;font-family:monospace;font-weight:bold;text-align:center;text-shadow:0 0 3px #000;opacity:${1 - progress * 2}">BREACH</div>`,
               }),
               interactive: false,
             }).addTo(flashLayer);
@@ -804,7 +768,7 @@ export default function SwarmInterception() {
 
     simRef.current = s;
     const now = Date.now();
-    flashesRef.current = flashesRef.current.filter((f) => now - f.time < (f.type === "breach" ? 3000 : 800));
+    flashesRef.current = flashesRef.current.filter((f) => now - f.time < (f.type === "breach" ? 1000 : 800));
     setSimState({ ...s });
     setKillFlashes([...flashesRef.current]);
     setAdUnits([...adUnitsRef.current]);
