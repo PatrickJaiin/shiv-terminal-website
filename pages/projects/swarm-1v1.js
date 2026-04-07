@@ -32,7 +32,7 @@ const AD_SYSTEMS_1V1 = [
 ];
 
 const RESOURCES = [
-  { key: "oil", name: "Oil Refinery", cost: 8000000, income: 2000000, breachDmg: 15000000, color: "#cc8800", icon: "O" },
+  { key: "oil", name: "Oil Refinery", cost: 8000000, income: 3000000, breachDmg: 15000000, color: "#cc8800", icon: "O" },
   { key: "solar", name: "Solar Farm", cost: 3000000, income: 500000, breachDmg: 5000000, color: "#44bb44", icon: "S" },
   { key: "arms", name: "Arms Factory", cost: 6000000, income: 1000000, breachDmg: 10000000, color: "#8888cc", icon: "A" },
 ];
@@ -354,7 +354,7 @@ export default function Swarm1v1() {
       if (!sys) continue;
       // Range circle
       if (ad.health > 0) {
-        L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.03, weight: 1, opacity: 0.3, dashArray: "6 4", interactive: false }).addTo(layer);
+        L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.06, weight: 1.5, opacity: 0.4, dashArray: "6 4", interactive: false }).addTo(layer);
       }
       L.circleMarker(toLL(ad.x, ad.y), { radius: 6, color: ad.health > 0 ? sys.color : "#444", fillColor: ad.health > 0 ? sys.color : "#333", fillOpacity: 0.8, weight: 2 }).addTo(layer);
     }
@@ -641,12 +641,12 @@ export default function Swarm1v1() {
           for (const ad of b.pAD) {
             if (ad.health <= 0) continue;
             const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
-            if (sys) L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.03, weight: 1, opacity: 0.2, dashArray: "6 4", interactive: false }).addTo(bl);
+            if (sys) L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.06, weight: 1.5, opacity: 0.4, dashArray: "6 4", interactive: false }).addTo(bl);
           }
           for (const ad of b.aAD) {
             if (ad.health <= 0) continue;
             const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
-            if (sys) L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.03, weight: 1, opacity: 0.15, dashArray: "6 4", interactive: false }).addTo(bl);
+            if (sys) L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.04, weight: 1.5, opacity: 0.3, dashArray: "6 4", interactive: false }).addTo(bl);
           }
         }
 
@@ -665,10 +665,10 @@ export default function Swarm1v1() {
           else if (i.status === "landed") L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#663333", fillColor: "#663333", fillOpacity: 0.5, weight: 1 }).addTo(bl);
         }
         // Kill, breach, and AD shot flashes
-        b.flashes = b.flashes.filter((f) => b.step - f.time < (f.type === "dmgtext" ? 60 : 30));
+        b.flashes = b.flashes.filter((f) => b.step - f.time < (f.type === "dmgtext" ? 120 : 30));
         for (const f of b.flashes) {
           const age = b.step - f.time;
-          const maxAge = f.type === "dmgtext" ? 60 : 30;
+          const maxAge = f.type === "dmgtext" ? 120 : 30;
           const p = age / maxAge;
           const ll = toLL(f.x, f.y);
           if (f.type === "adshot") {
@@ -907,7 +907,7 @@ export default function Swarm1v1() {
                     <>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, marginTop: 8 }}>
                         <span style={{ fontSize: 10, color: "#888" }}>Airspace:</span>
-                        <input type="range" min="1000" max="4000" step="200" value={playerAirspace} onChange={(e) => setPlayerAirspace(parseInt(e.target.value))} style={{ flex: 1 }} />
+                        <input type="range" min="1000" max={playerHQ && aiSetup ? Math.max(1000, Math.floor(dist(playerHQ, { x: aiSetup.hqX, y: aiSetup.hqY }) - aiSetup.airspace - 200)) : 4000} step="200" value={playerAirspace} onChange={(e) => setPlayerAirspace(parseInt(e.target.value))} style={{ flex: 1 }} />
                         <span style={{ fontSize: 10, color: "#4a9eff" }}>{playerAirspace}m</span>
                       </div>
                       {(() => {
@@ -1056,7 +1056,7 @@ export default function Swarm1v1() {
                     <>
                       <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
                         <span style={{ fontSize: 9, color: "#888" }}>Airspace:</span>
-                        <input type="range" min="1000" max="4000" step="200" value={playerAirspace} onChange={(e) => setPlayerAirspace(parseInt(e.target.value))} style={{ flex: 1 }} />
+                        <input type="range" min="1000" max={playerHQ && aiSetup ? Math.max(1000, Math.floor(dist(playerHQ, { x: aiSetup.hqX, y: aiSetup.hqY }) - aiSetup.airspace - 200)) : 4000} step="200" value={playerAirspace} onChange={(e) => setPlayerAirspace(parseInt(e.target.value))} style={{ flex: 1 }} />
                         <span style={{ fontSize: 9, color: "#4a9eff" }}>{playerAirspace}m</span>
                       </div>
                       <div style={{ fontSize: 9, color: "#4caf50", marginBottom: 6 }}>+${formatUSD(Math.floor(playerAirspace * 200))}/rnd from airspace</div>
