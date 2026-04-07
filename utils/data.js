@@ -1,6 +1,6 @@
 export const siteData = {
   name: "Shiv Gupta",
-  tagline: "MS AI Student @ CMU - Building LLM agents, latent reasoning systems & scalable backends",
+  tagline: "MSAII Student @ CMU - Building LLM agents, latent reasoning systems & scalable backends",
   about:
     "Hi, I'm Shiv - a Master's student in Artificial Intelligence and Innovation at Carnegie Mellon University. I build LLM agents, latent reasoning systems, token-efficient reasoning techniques, and scalable backends. Previously I've worked on diffusion-based generative models at NUS and RAG-powered enterprise tools at Evalueserve.",
   education: [
@@ -17,6 +17,7 @@ export const siteData = {
       gpa: "CGPA: 8.75/10",
       date: "May 2024",
       coursework: "Algorithms, AI/ML, Deep Learning, NLP, HPC, OS, Prob & Statistics, Data Structures",
+      activities: "Secretary, Robotics Club | Chairperson, IoT and Robotics Specialization",
     },
     {
       institution: "Modern School, Barakhamba Road",
@@ -33,6 +34,15 @@ export const siteData = {
     other: ["RAG", "Multi-Agent Systems", "Chain-of-Thought", "Context Management", "RESTful APIs", "Microservices", "Embedded Systems"],
   },
   projects: [
+    {
+      name: "Swarm Interception",
+      description:
+        "Autonomous drone swarm system for intercepting attack drones. Currently the testing engine for interception drone is working - now building RL-based coordination for swarm drones to intercept attack drones.",
+      stack: ["Python", "ROS2", "Reinforcement Learning", "PyTorch", "Gazebo"],
+      link: "/projects/swarm-interception",
+      year: "2026",
+      type: "app",
+    },
     {
       name: "AI Trading Tool",
       description:
