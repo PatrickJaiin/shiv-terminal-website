@@ -71,10 +71,10 @@ const THEATERS = {
 };
 
 const SCENARIOS = {
-  easy: { name: "Easy", attackers: { fpv_kamikaze: 10, shahed_136: 5 }, interceptors: 20 },
-  medium: { name: "Medium", attackers: { fpv_kamikaze: 25, shahed_136: 15, lancet_3: 8 }, interceptors: 20 },
-  hard: { name: "Hard", attackers: { fpv_kamikaze: 40, shahed_136: 25, lancet_3: 15, mohajer_6: 5 }, interceptors: 20 },
-  nightmare: { name: "Nightmare", attackers: { fpv_kamikaze: 60, shahed_136: 30, lancet_3: 20, mohajer_6: 8, orion: 3, wing_loong: 2 }, interceptors: 20 },
+  sandbox: { name: "Sandbox", attackers: { fpv_kamikaze: 10, shahed_136: 5 }, interceptors: 20, budget: null },
+  medium: { name: "Medium", attackers: { fpv_kamikaze: 25, shahed_136: 15, lancet_3: 8 }, interceptors: 20, budget: 300 },
+  hard: { name: "Hard", attackers: { fpv_kamikaze: 40, shahed_136: 25, lancet_3: 15, mohajer_6: 5 }, interceptors: 20, budget: 400 },
+  nightmare: { name: "Nightmare", attackers: { fpv_kamikaze: 60, shahed_136: 30, lancet_3: 20, mohajer_6: 8, orion: 3, wing_loong: 2 }, interceptors: 20, budget: 500 },
 };
 
 const KILL_RADIUS = 120;
@@ -849,7 +849,7 @@ export default function SwarmInterception() {
   const [zoneCenter, setZoneCenter] = useState(DEFAULT_ZONE_CENTER);
   const [zoneRadius, setZoneRadius] = useState(DEFAULT_ZONE_RADIUS);
   const [assetRadius, setAssetRadius] = useState(DEFAULT_ASSET_RADIUS);
-  const [defenseBudget, setDefenseBudget] = useState(500); // in millions USD
+  const [defenseBudget, setDefenseBudget] = useState(300); // in millions USD
   const [adPlaceKey, setAdPlaceKey] = useState("iron_dome");
   const [adUnits, setAdUnits] = useState([
     { id: 0, key: "nasams", x: 4500, y: 5800, health: 1, ammo: 6 },
@@ -1002,7 +1002,7 @@ export default function SwarmInterception() {
     setZoneCenter(DEFAULT_ZONE_CENTER);
     setZoneRadius(DEFAULT_ZONE_RADIUS);
     setAssetRadius(DEFAULT_ASSET_RADIUS);
-    setDefenseBudget(500);
+    setDefenseBudget(300);
     setAdUnits([
       { id: 0, key: "nasams", x: 4500, y: 5800, health: 1, ammo: 6 },
       { id: 1, key: "iron_dome", x: 5500, y: 5800, health: 1, ammo: 20 },
@@ -1095,11 +1095,11 @@ export default function SwarmInterception() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginBottom: 6 }}>
               {Object.entries(SCENARIOS).map(([k, v]) => {
                 const total = Object.values(v.attackers).reduce((s, n) => s + n, 0);
-                const colorMap = { easy: "#4caf50", medium: "#ff9800", hard: "#ff5555", nightmare: "#cc00cc" };
+                const colorMap = { sandbox: "#4a9eff", medium: "#ff9800", hard: "#ff5555", nightmare: "#cc00cc" };
                 const c = colorMap[k] || "#888";
                 const active = scenario === k;
                 return (
-                  <button key={k} onClick={() => setScenario(k)} disabled={running}
+                  <button key={k} onClick={() => { setScenario(k); if (v.budget != null) setDefenseBudget(v.budget); }} disabled={running}
                     style={{
                       padding: "8px 6px", fontSize: 11, fontWeight: active ? 700 : 400, borderRadius: 4,
                       cursor: running ? "not-allowed" : "pointer", opacity: running ? 0.5 : 1,
@@ -1307,11 +1307,12 @@ export default function SwarmInterception() {
             <Metric label="Attrition Rate" value={`${attrition}%`} />
 
             {/* Defense Budget */}
-            <PanelTitle>Defense Budget</PanelTitle>
+            <PanelTitle>Defense Budget{scenario !== "sandbox" ? " (fixed)" : ""}</PanelTitle>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
               <input type="range" min="50" max="5000" step="50" value={defenseBudget}
                 onChange={(e) => setDefenseBudget(parseInt(e.target.value))}
-                style={{ flex: 1, padding: 0, margin: 0, height: 18 }} />
+                disabled={scenario !== "sandbox"}
+                style={{ flex: 1, padding: 0, margin: 0, height: 18, opacity: scenario !== "sandbox" ? 0.5 : 1 }} />
               <span style={{ fontSize: 12, color: "#4a9eff", minWidth: 45, textAlign: "right", fontWeight: 600 }}>${defenseBudget}M</span>
             </div>
             {(() => {
@@ -1339,7 +1340,8 @@ export default function SwarmInterception() {
               const pctUsed = budgetUSD > 0 ? Math.min(100, (totalSpent / budgetUSD) * 100) : 0;
               const overBudget = remaining < 0;
               const isDone = simState?.done;
-              const failed = isDone && overBudget;
+              const isSandbox = scenario === "sandbox";
+              const failed = isDone && !isSandbox && overBudget;
 
               return (
                 <div style={{ fontSize: 11 }}>
@@ -1372,7 +1374,7 @@ export default function SwarmInterception() {
                   </div>
                   <div style={{ fontSize: 10, color: "#666", textAlign: "right" }}>{pctUsed.toFixed(0)}% of budget used</div>
 
-                  {isDone && (
+                  {isDone && !isSandbox && (
                     <div style={{
                       marginTop: 8, padding: "8px 12px", borderRadius: 6, textAlign: "center",
                       fontSize: 11, fontWeight: 600, letterSpacing: 0.5,
