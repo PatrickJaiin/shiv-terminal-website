@@ -269,14 +269,20 @@ export default function Swarm1v1() {
       layerRef.current = Leaf.layerGroup().addTo(map);
       battleLayerRef.current = Leaf.layerGroup().addTo(map);
       map.on("click", (e) => {
+        // Force recalculate map size before converting coordinates
+        map.invalidateSize({ animate: false });
         const fn = handleMapClickRef.current;
         if (!fn) return;
         const th2 = THEATERS[theaterRef.current];
         if (!th2) return;
+        // Use containerPointToLatLng for accurate conversion
+        const rect = map.getContainer().getBoundingClientRect();
+        const px = e.originalEvent.clientX - rect.left;
+        const py = e.originalEvent.clientY - rect.top;
+        const latlng = map.containerPointToLatLng([px, py]);
         const b = th2.bounds;
-        // Direct conversion - avoid function call overhead
-        const simX = ((e.latlng.lng - b.west) / (b.east - b.west)) * ARENA;
-        const simY = ((e.latlng.lat - b.south) / (b.north - b.south)) * ARENA;
+        const simX = ((latlng.lng - b.west) / (b.east - b.west)) * ARENA;
+        const simY = ((latlng.lat - b.south) / (b.north - b.south)) * ARENA;
         fn(Math.max(0, Math.min(ARENA, simX)), Math.max(0, Math.min(ARENA, simY)));
       });
       // Right click for unit info (uses refs for fresh state)
