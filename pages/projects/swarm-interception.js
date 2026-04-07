@@ -52,15 +52,18 @@ function dist(a, b) {
 }
 
 // ── Create drones for a scenario ──
-function createDrones(scenario, theater) {
+function createDrones(scenario, theater, customAttackSpawns, customDefenseSpawns) {
   const th = THEATERS[theater] || THEATERS.default;
+  const attackOrigins = customAttackSpawns.length > 0 ? customAttackSpawns : th.attackOrigins;
+  const defensePositions = customDefenseSpawns.length > 0 ? customDefenseSpawns : th.defensePos;
+
   const attackerList = [];
   let id = 100;
   for (const [key, count] of Object.entries(scenario.attackers)) {
     const profile = DRONE_DB.attack.find((d) => d.key === key);
     if (!profile) continue;
     for (let i = 0; i < count; i++) {
-      const origin = th.attackOrigins[Math.floor(Math.random() * th.attackOrigins.length)];
+      const origin = attackOrigins[Math.floor(Math.random() * attackOrigins.length)];
       attackerList.push({
         id: id++,
         x: origin[0] + (Math.random() - 0.5) * 1500,
@@ -78,7 +81,7 @@ function createDrones(scenario, theater) {
 
   const interceptors = [];
   for (let i = 0; i < scenario.interceptors; i++) {
-    const dp = th.defensePos[Math.floor(Math.random() * th.defensePos.length)];
+    const dp = defensePositions[Math.floor(Math.random() * defensePositions.length)];
     interceptors.push({
       id: i,
       x: dp[0] + (Math.random() - 0.5) * 1000,
@@ -219,9 +222,19 @@ function LegendItem({ color, label, hollow }) {
 }
 
 // ── Canvas renderer ──
-function SimCanvas({ simState, theater, killFlashes }) {
+function SimCanvas({ simState, theater, killFlashes, attackSpawns, defenseSpawns, placementMode, onCanvasClick }) {
   const canvasRef = useRef(null);
   const th = THEATERS[theater] || THEATERS.default;
+
+  const handleClick = useCallback((e) => {
+    if (!onCanvasClick) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * ARENA;
+    const y = ((e.clientY - rect.top) / rect.height) * ARENA;
+    onCanvasClick(x, y);
+  }, [onCanvasClick]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -271,12 +284,48 @@ function SimCanvas({ simState, theater, killFlashes }) {
     ctx.textAlign = "left";
     ctx.fillText(th.name.toUpperCase(), 10, 20);
 
+    // Draw spawn markers (pre-sim)
+    for (const sp of attackSpawns) {
+      const sx = (sp[0] / ARENA) * w;
+      const sy = (sp[1] / ARENA) * h;
+      // Red diamond
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(Math.PI / 4);
+      ctx.strokeStyle = "#ff5555";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-8, -8, 16, 16);
+      ctx.restore();
+      ctx.fillStyle = "rgba(255, 85, 85, 0.15)";
+      ctx.beginPath(); ctx.arc(sx, sy, 30, 0, Math.PI * 2); ctx.fill();
+      ctx.font = "9px monospace";
+      ctx.fillStyle = "#ff5555";
+      ctx.textAlign = "center";
+      ctx.fillText("ATK", sx, sy + 20);
+    }
+    for (const sp of defenseSpawns) {
+      const sx = (sp[0] / ARENA) * w;
+      const sy = (sp[1] / ARENA) * h;
+      // Blue shield shape
+      ctx.strokeStyle = "#4a9eff";
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(sx, sy, 10, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(sx, sy, 6, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = "rgba(74, 158, 255, 0.15)";
+      ctx.beginPath(); ctx.arc(sx, sy, 30, 0, Math.PI * 2); ctx.fill();
+      ctx.font = "9px monospace";
+      ctx.fillStyle = "#4a9eff";
+      ctx.textAlign = "center";
+      ctx.fillText("DEF", sx, sy + 20);
+    }
+
     if (!simState) {
       // Idle state message
       ctx.font = "16px sans-serif";
       ctx.fillStyle = "#444";
       ctx.textAlign = "center";
-      ctx.fillText("Select a scenario and press Start", w / 2, h / 2);
+      const msg = placementMode ? `Click on map to place ${placementMode === "attack" ? "ATTACK" : "DEFENSE"} spawn point` : "Select a scenario and press Start";
+      ctx.fillText(msg, w / 2, h / 2);
       return;
     }
 
@@ -351,7 +400,7 @@ function SimCanvas({ simState, theater, killFlashes }) {
         }
       }
     }
-  }, [simState, theater, killFlashes, th]);
+  }, [simState, theater, killFlashes, th, attackSpawns, defenseSpawns, placementMode]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -365,7 +414,7 @@ function SimCanvas({ simState, theater, killFlashes }) {
     return () => window.removeEventListener("resize", resize);
   }, []);
 
-  return <canvas ref={canvasRef} style={{ width: "100%", height: "100%", display: "block" }} />;
+  return <canvas ref={canvasRef} onClick={handleClick} style={{ width: "100%", height: "100%", display: "block", cursor: placementMode ? "crosshair" : "default" }} />;
 }
 
 // ── Main page ──
@@ -379,6 +428,9 @@ export default function SwarmInterception() {
   const [dbTab, setDbTab] = useState("attack");
   const [killFlashes, setKillFlashes] = useState([]);
   const [statusText, setStatusText] = useState("READY");
+  const [attackSpawns, setAttackSpawns] = useState([]);
+  const [defenseSpawns, setDefenseSpawns] = useState([]);
+  const [placementMode, setPlacementMode] = useState(null); // null | "attack" | "defense"
 
   const simRef = useRef(null);
   const runRef = useRef(false);
@@ -391,10 +443,20 @@ export default function SwarmInterception() {
   useEffect(() => { speedRef.current = speed; }, [speed]);
   useEffect(() => { pausedRef.current = paused; }, [paused]);
 
+  const handleCanvasClick = useCallback((x, y) => {
+    if (!placementMode) return;
+    if (placementMode === "attack") {
+      setAttackSpawns((prev) => [...prev, [x, y]]);
+    } else {
+      setDefenseSpawns((prev) => [...prev, [x, y]]);
+    }
+  }, [placementMode]);
+
   const startSim = useCallback(() => {
     const sc = SCENARIOS[scenario];
     if (!sc) return;
-    const { interceptors, attackers } = createDrones(sc, theater);
+    setPlacementMode(null);
+    const { interceptors, attackers } = createDrones(sc, theater, attackSpawns, defenseSpawns);
     const initial = {
       interceptors,
       attackers,
@@ -413,7 +475,7 @@ export default function SwarmInterception() {
     pausedRef.current = false;
     setStatusText("RUNNING");
     runLoop();
-  }, [scenario, theater]);
+  }, [scenario, theater, attackSpawns, defenseSpawns]);
 
   const runLoop = useCallback(() => {
     if (!runRef.current) return;
@@ -565,6 +627,52 @@ export default function SwarmInterception() {
               ))}
             </select>
 
+            <PanelTitle>Spawn Points</PanelTitle>
+            <div style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>
+              Click map to place. Empty = theater defaults.
+            </div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+              <button
+                onClick={() => setPlacementMode(placementMode === "attack" ? null : "attack")}
+                disabled={running}
+                style={{
+                  ...btnBase,
+                  background: placementMode === "attack" ? "#4a1a1a" : "#1a2a40",
+                  borderColor: placementMode === "attack" ? "#ff5555" : "#2a4a6a",
+                  color: placementMode === "attack" ? "#ff5555" : "#e0e0e0",
+                  opacity: running ? 0.4 : 1,
+                  cursor: running ? "not-allowed" : "pointer",
+                  fontSize: 11,
+                }}
+              >
+                {placementMode === "attack" ? "Placing ATK..." : `ATK Spawns (${attackSpawns.length})`}
+              </button>
+              <button
+                onClick={() => setPlacementMode(placementMode === "defense" ? null : "defense")}
+                disabled={running}
+                style={{
+                  ...btnBase,
+                  background: placementMode === "defense" ? "#1a3a4a" : "#1a2a40",
+                  borderColor: placementMode === "defense" ? "#4a9eff" : "#2a4a6a",
+                  color: placementMode === "defense" ? "#4a9eff" : "#e0e0e0",
+                  opacity: running ? 0.4 : 1,
+                  cursor: running ? "not-allowed" : "pointer",
+                  fontSize: 11,
+                }}
+              >
+                {placementMode === "defense" ? "Placing DEF..." : `DEF Spawns (${defenseSpawns.length})`}
+              </button>
+            </div>
+            {(attackSpawns.length > 0 || defenseSpawns.length > 0) && (
+              <button
+                onClick={() => { setAttackSpawns([]); setDefenseSpawns([]); setPlacementMode(null); }}
+                disabled={running}
+                style={{ ...btnBase, background: "#1a1a24", borderColor: "#2a2a35", color: "#888", fontSize: 11, opacity: running ? 0.4 : 1, cursor: running ? "not-allowed" : "pointer" }}
+              >
+                Clear All Spawns
+              </button>
+            )}
+
             <PanelTitle>Simulation</PanelTitle>
             <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
               <button onClick={startSim} disabled={running && !simState?.done} style={{ ...btnBase, background: "#1a4a2a", borderColor: "#2a6a3a", color: "#4caf50", opacity: running && !simState?.done ? 0.4 : 1, cursor: running && !simState?.done ? "not-allowed" : "pointer" }}>
@@ -617,7 +725,7 @@ export default function SwarmInterception() {
 
           {/* Canvas */}
           <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
-            <SimCanvas simState={simState} theater={theater} killFlashes={killFlashes} />
+            <SimCanvas simState={simState} theater={theater} killFlashes={killFlashes} attackSpawns={attackSpawns} defenseSpawns={defenseSpawns} placementMode={placementMode} onCanvasClick={handleCanvasClick} />
           </div>
 
           {/* Right panel - metrics */}
