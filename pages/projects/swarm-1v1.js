@@ -521,7 +521,10 @@ export default function Swarm1v1() {
           b.airspaceCost = (b.airspaceCost || 0) + AIRSPACE_BREACH_COST;
           const angle = Math.atan2(a.y - playerHQ.y, a.x - playerHQ.x);
           b.playerAirBreaches.push(angle);
-          b.flashes.push({ x: playerHQ.x + Math.cos(angle) * playerAirspace, y: playerHQ.y + Math.sin(angle) * playerAirspace, time: b.step, type: "dmgtext", text: "-$" + AIRSPACE_BREACH_COST, color: "#ff9800" });
+          // Popup at the drone's position where it crossed
+          b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "dmgtext", text: "-$" + AIRSPACE_BREACH_COST, color: "#ff9800" });
+          // Small breach flash on the border
+          b.flashes.push({ x: playerHQ.x + Math.cos(angle) * playerAirspace, y: playerHQ.y + Math.sin(angle) * playerAirspace, time: b.step, type: "breach" });
         }
       }
       // Track player drones entering AI airspace
@@ -532,6 +535,8 @@ export default function Swarm1v1() {
           b.aiAirspaceCost = (b.aiAirspaceCost || 0) + AIRSPACE_BREACH_COST;
           const angle = Math.atan2(a.y - aiSetup.hqY, a.x - aiSetup.hqX);
           b.aiAirBreaches.push(angle);
+          // Popup at the drone's position
+          b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "dmgtext", text: "-$" + AIRSPACE_BREACH_COST, color: "#ff9800" });
         }
       }
 
