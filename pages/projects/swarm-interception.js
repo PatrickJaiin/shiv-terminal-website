@@ -197,18 +197,27 @@ function createDrones(scenario, theater, customAttackSpawns, customDefenseSpawns
 }
 
 // ── Simulation step ──
-function simStep(state, zoneCenter, assetRadius, adUnitsState) {
+function simStep(state, zoneCenter, assetRadius, adUnitsState, zoneRadius) {
   const { interceptors, attackers, metrics, step } = state;
 
   for (const a of attackers) {
     if (a.status !== "active") continue;
+    const prevDist = dist(a, { x: zoneCenter[0], y: zoneCenter[1] });
     const dx = zoneCenter[0] - a.x;
     const dy = zoneCenter[1] - a.y;
     const angle = Math.atan2(dy, dx);
     a.heading = a.heading * 0.95 + angle * 0.05 + (Math.random() - 0.5) * 0.03;
     a.x += Math.cos(a.heading) * a.speed;
     a.y += Math.sin(a.heading) * a.speed;
-    if (dist(a, { x: zoneCenter[0], y: zoneCenter[1] }) < assetRadius) {
+    const newDist = dist(a, { x: zoneCenter[0], y: zoneCenter[1] });
+    // Detect crossing green AD zone line
+    if (!a.crossedZone && prevDist > zoneRadius && newDist <= zoneRadius) {
+      a.crossedZone = true;
+      a.crossX = a.x;
+      a.crossY = a.y;
+    }
+    // Detect breach of inner asset zone
+    if (newDist < assetRadius) {
       a.status = "breached";
       a.breachX = a.x;
       a.breachY = a.y;
@@ -536,6 +545,17 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
       }).addTo(layer);
     }
 
+    // AD unit range circles (static, only redrawn on zone change)
+    for (const ad of adUnits) {
+      const sys = AD_SYSTEMS.find((s) => s.key === ad.key);
+      if (!sys || ad.health <= 0) continue;
+      const adLL = simToLL(ad.x, ad.y);
+      L.circle(adLL, {
+        radius: sys.range * metersPerUnit, color: sys.color, fillColor: sys.color,
+        fillOpacity: 0.03, weight: 1, opacity: 0.2, dashArray: "4 4", interactive: false,
+      }).addTo(layer);
+    }
+
     // Outer zone label
     const labelLL = simToLL(zoneCenter[0], zoneCenter[1] + zoneRadius + 200);
     L.marker(labelLL, {
@@ -555,27 +575,16 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
     if (!L || !droneLayer) return;
     droneLayer.clearLayers();
 
-    // Draw AD units (always visible)
+    // Draw AD unit markers (no range circles - those are in zone layer)
     for (const ad of adUnits) {
       const sys = AD_SYSTEMS.find((s) => s.key === ad.key);
       if (!sys) continue;
       const ll = simToLL(ad.x, ad.y);
       const alive = ad.health > 0;
-      // Range circle
-      if (alive) {
-        const th = THEATERS[theater] || THEATERS.kashmir;
-        const metersPerUnit = ((th.bounds.north - th.bounds.south) * 111000) / ARENA;
-        L.circle(ll, {
-          radius: sys.range * metersPerUnit, color: sys.color, fillColor: sys.color,
-          fillOpacity: 0.03, weight: 1, opacity: 0.3, dashArray: "4 4", interactive: false,
-        }).addTo(droneLayer);
-      }
-      // Unit marker
       L.circleMarker(ll, {
         radius: 7, color: alive ? sys.color : "#444", fillColor: alive ? sys.color : "#333",
         fillOpacity: alive ? 0.8 : 0.4, weight: 2, opacity: alive ? 1 : 0.5,
       }).addTo(droneLayer);
-      // Label
       const ammoText = ad.ammo > 0 ? ` [${ad.ammo}]` : " [0]";
       L.marker(ll, {
         icon: L.divIcon({
@@ -730,6 +739,7 @@ export default function SwarmInterception() {
   const frameRef = useRef(null);
   const theaterRef = useRef(theater);
   const zoneCenterRef = useRef(zoneCenter);
+  const zoneRadiusRef = useRef(zoneRadius);
   const assetRadiusRef = useRef(assetRadius);
   const adUnitsRef = useRef(adUnits);
 
@@ -737,6 +747,7 @@ export default function SwarmInterception() {
   useEffect(() => { pausedRef.current = paused; }, [paused]);
   useEffect(() => { theaterRef.current = theater; }, [theater]);
   useEffect(() => { zoneCenterRef.current = zoneCenter; }, [zoneCenter]);
+  useEffect(() => { zoneRadiusRef.current = zoneRadius; }, [zoneRadius]);
   useEffect(() => { assetRadiusRef.current = assetRadius; }, [assetRadius]);
   useEffect(() => { adUnitsRef.current = adUnits; }, [adUnits]);
 
@@ -799,7 +810,7 @@ export default function SwarmInterception() {
       if (s.done) break;
       const prevKills = s.metrics.kills;
       const prevBreaches = s.metrics.breaches;
-      s = simStep(s, zoneCenterRef.current, assetRadiusRef.current, adUnitsRef.current);
+      s = simStep(s, zoneCenterRef.current, assetRadiusRef.current, adUnitsRef.current, zoneRadiusRef.current);
       const now = Date.now();
       // Kill impact flashes
       if (s.metrics.kills > prevKills) {
@@ -810,17 +821,24 @@ export default function SwarmInterception() {
           }
         }
       }
-      // Breach flashes
+      // Breach flashes (inner asset zone)
       if (s.metrics.breaches > prevBreaches) {
-        const newBreached = s.attackers.filter((a) => a.status === "breached" && a.breachX != null);
-        const newBPs = [];
-        for (const b of newBreached.slice(-(s.metrics.breaches - prevBreaches))) {
-          flashesRef.current.push({ x: b.breachX, y: b.breachY, time: now, type: "breach" });
-          newBPs.push({ x: b.breachX, y: b.breachY, angle: Math.atan2(b.breachY - zoneCenterRef.current[1], b.breachX - zoneCenterRef.current[0]) });
-          b.breachX = null;
+        for (const b of s.attackers) {
+          if (b.status === "breached" && b.breachX != null) {
+            flashesRef.current.push({ x: b.breachX, y: b.breachY, time: now, type: "breach" });
+            b.breachX = null;
+          }
         }
-        if (newBPs.length > 0) setBreachPoints((prev) => [...prev, ...newBPs]);
       }
+      // Zone crossing marks (outer green AD line)
+      const newCross = [];
+      for (const a of s.attackers) {
+        if (a.crossedZone && a.crossX != null) {
+          newCross.push({ x: a.crossX, y: a.crossY, angle: Math.atan2(a.crossY - zoneCenterRef.current[1], a.crossX - zoneCenterRef.current[0]) });
+          a.crossX = null; // mark as counted
+        }
+      }
+      if (newCross.length > 0) setBreachPoints((prev) => [...prev, ...newCross]);
     }
 
     simRef.current = s;
@@ -869,7 +887,7 @@ export default function SwarmInterception() {
     pausedRef.current = true; setPaused(true); setStatusText("PAUSED");
     const prevKills = simRef.current.metrics.kills;
     const prevBreaches = simRef.current.metrics.breaches;
-    simRef.current = simStep(simRef.current, zoneCenterRef.current, assetRadiusRef.current, adUnitsRef.current);
+    simRef.current = simStep(simRef.current, zoneCenterRef.current, assetRadiusRef.current, adUnitsRef.current, zoneRadiusRef.current);
     const now = Date.now();
     if (simRef.current.metrics.kills > prevKills) {
       for (const k of simRef.current.attackers) {
@@ -880,17 +898,25 @@ export default function SwarmInterception() {
       }
     }
     if (simRef.current.metrics.breaches > prevBreaches) {
-      const newBreached = simRef.current.attackers.filter((a) => a.status === "breached" && a.breachX != null);
-      const newBPs = [];
-      for (const b of newBreached.slice(-(simRef.current.metrics.breaches - prevBreaches))) {
-        flashesRef.current.push({ x: b.breachX, y: b.breachY, time: now, type: "breach" });
-        newBPs.push({ x: b.breachX, y: b.breachY, angle: Math.atan2(b.breachY - zoneCenterRef.current[1], b.breachX - zoneCenterRef.current[0]) });
-        b.breachX = null;
+      for (const b of simRef.current.attackers) {
+        if (b.status === "breached" && b.breachX != null) {
+          flashesRef.current.push({ x: b.breachX, y: b.breachY, time: now, type: "breach" });
+          b.breachX = null;
+        }
       }
-      if (newBPs.length > 0) setBreachPoints((prev) => [...prev, ...newBPs]);
     }
+    // Zone crossings
+    const newCross = [];
+    for (const a of simRef.current.attackers) {
+      if (a.crossedZone && a.crossX != null) {
+        newCross.push({ x: a.crossX, y: a.crossY, angle: Math.atan2(a.crossY - zoneCenterRef.current[1], a.crossX - zoneCenterRef.current[0]) });
+        a.crossX = null;
+      }
+    }
+    if (newCross.length > 0) setBreachPoints((prev) => [...prev, ...newCross]);
     setSimState({ ...simRef.current });
     setKillFlashes([...flashesRef.current]);
+    setAdUnits([...adUnitsRef.current]);
     if (simRef.current.done) { runRef.current = false; setRunning(false); setStatusText("COMPLETE"); }
   }, []);
 
