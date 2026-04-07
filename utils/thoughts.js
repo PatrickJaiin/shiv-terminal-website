@@ -53,7 +53,7 @@ export const thoughts = [
       },
       {
         text: "Ad victorem spolias.",
-        source: "Senator William L. Marcy, 1832 — \"To the victor go the spoils\"",
+        source: "Senator William L. Marcy, 1832 - \"To the victor go the spoils\"",
       },
     ],
   },
@@ -68,6 +68,14 @@ export const thoughts = [
       {
         text: "Life is infinitely stranger than anything which the mind of man could invent.",
         source: "Arthur Conan Doyle, A Case of Identity",
+      },
+      {
+        text: "Aerodynamically, the bumblebee shouldn't be able to fly, but the bumblebee doesn't know it so it goes on flying anyway.",
+        source: "Mary Kay Ash",
+      },
+      {
+        text: "Consistency is the last refuge of the unimaginative.",
+        source: "Oscar Wilde",
       },
     ],
   },
