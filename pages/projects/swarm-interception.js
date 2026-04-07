@@ -272,7 +272,7 @@ function LegendItem({ color, label, hollow }) {
 }
 
 // ── Leaflet Map component ──
-function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, placementMode, onPlaceSpawn }) {
+function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, defenseSpawns, placementMode, onPlaceSpawn }) {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const droneLayerRef = useRef(null);
@@ -410,23 +410,81 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
     }
   }, [theater, attackSpawns, defenseSpawns, simToLL]);
 
-  // Draw legacy zone
+  // Draw legacy zone with breach gaps
   useEffect(() => {
     const L = LRef.current;
     const layer = legacyLayerRef.current;
     if (!L || !layer) return;
     layer.clearLayers();
 
-    const center = simToLL(LEGACY_CENTER[0], LEGACY_CENTER[1]);
     const th = THEATERS[theater] || THEATERS.kashmir;
     const latSpan = th.bounds.north - th.bounds.south;
     const metersPerUnit = (latSpan * 111000) / ARENA;
     const geoRadius = LEGACY_RADIUS * metersPerUnit;
-    L.circle(center, {
-      radius: geoRadius, color: "#22aa22", fillColor: "#22aa22",
-      fillOpacity: 0.04, weight: 2, opacity: 0.8,
-    }).addTo(layer);
 
+    // Use permanent breach points for gaps
+    const breachAngles = breachPoints.map((bp) => bp.angle);
+
+    const GAP_SIZE = 0.15; // radians (~8.5 degrees)
+
+    if (breachAngles.length === 0) {
+      // No breaches - draw full circle
+      const center = simToLL(LEGACY_CENTER[0], LEGACY_CENTER[1]);
+      L.circle(center, {
+        radius: geoRadius, color: "#22aa22", fillColor: "#22aa22",
+        fillOpacity: 0.04, weight: 2, opacity: 0.8,
+      }).addTo(layer);
+    } else {
+      // Draw arc segments with gaps at breach points
+      const SEGMENTS = 72;
+      const segAngle = (Math.PI * 2) / SEGMENTS;
+      for (let i = 0; i < SEGMENTS; i++) {
+        const startAngle = (i / SEGMENTS) * Math.PI * 2 - Math.PI;
+        const midAngle = startAngle + segAngle / 2;
+        // Check if this segment overlaps any breach gap
+        const inGap = breachAngles.some((ba) => {
+          let diff = midAngle - ba;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          return Math.abs(diff) < GAP_SIZE;
+        });
+        if (inGap) continue;
+
+        const points = [];
+        for (let j = 0; j <= 4; j++) {
+          const a = startAngle + (j / 4) * segAngle;
+          const sx = LEGACY_CENTER[0] + Math.cos(a) * LEGACY_RADIUS;
+          const sy = LEGACY_CENTER[1] + Math.sin(a) * LEGACY_RADIUS;
+          points.push(simToLL(sx, sy));
+        }
+        L.polyline(points, { color: "#22aa22", weight: 2, opacity: 0.8, interactive: false }).addTo(layer);
+      }
+
+      // Draw grey impact marks at breach points on the circle
+      for (const ba of breachAngles) {
+        const bx = LEGACY_CENTER[0] + Math.cos(ba) * LEGACY_RADIUS;
+        const by = LEGACY_CENTER[1] + Math.sin(ba) * LEGACY_RADIUS;
+        const bll = simToLL(bx, by);
+        L.circleMarker(bll, {
+          radius: 6, color: "#666", fillColor: "#444",
+          fillOpacity: 0.8, weight: 2, opacity: 0.9,
+        }).addTo(layer);
+        // Crack lines radiating from breach point
+        for (let ci = -1; ci <= 1; ci++) {
+          const crackAngle = ba + ci * 0.08;
+          const cx1 = LEGACY_CENTER[0] + Math.cos(crackAngle) * (LEGACY_RADIUS - 80);
+          const cy1 = LEGACY_CENTER[1] + Math.sin(crackAngle) * (LEGACY_RADIUS - 80);
+          const cx2 = LEGACY_CENTER[0] + Math.cos(crackAngle) * (LEGACY_RADIUS + 80);
+          const cy2 = LEGACY_CENTER[1] + Math.sin(crackAngle) * (LEGACY_RADIUS + 80);
+          L.polyline([simToLL(cx1, cy1), simToLL(cx2, cy2)], {
+            color: "#555", weight: 1, opacity: 0.6, interactive: false,
+          }).addTo(layer);
+        }
+      }
+    }
+
+    // Label
+    const center = simToLL(LEGACY_CENTER[0], LEGACY_CENTER[1]);
     L.marker(center, {
       icon: L.divIcon({
         className: "", iconSize: [150, 30], iconAnchor: [75, 15],
@@ -434,7 +492,7 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
       }),
       interactive: false,
     }).addTo(layer);
-  }, [theater, simToLL]);
+  }, [theater, simToLL, breachPoints]);
 
   // Draw drones, pursuit lines, and kill flashes
   useEffect(() => {
@@ -480,7 +538,7 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
       }
     }
 
-    // Kill impact flashes and breach flashes
+    // Kill impact pulses and breach markers
     if (flashLayer) {
       flashLayer.clearLayers();
       const now = Date.now();
@@ -489,48 +547,55 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
         const ll = simToLL(flash.x, flash.y);
 
         if (flash.type === "breach") {
-          // Breach: red pulsing expanding ring, lasts longer
-          if (age > 2000) continue;
-          const progress = age / 2000;
-          // Outer warning ring
-          L.circleMarker(ll, {
-            radius: 12 + progress * 30,
-            color: "#ff0000", fillColor: "transparent",
-            fillOpacity: 0, weight: 3, opacity: (1 - progress) * 0.8,
-          }).addTo(flashLayer);
-          // Inner solid
-          L.circleMarker(ll, {
-            radius: 6,
-            color: "#ff0000", fillColor: "#ff0000",
-            fillOpacity: (1 - progress) * 0.7, weight: 2, opacity: (1 - progress),
-          }).addTo(flashLayer);
+          // Breach: grey impact on defense line, fading warning
+          if (age > 3000) continue;
+          const progress = age / 3000;
+          // Red warning pulse at breach point on line
+          const ba = Math.atan2(flash.y - LEGACY_CENTER[1], flash.x - LEGACY_CENTER[0]);
+          const bx = LEGACY_CENTER[0] + Math.cos(ba) * LEGACY_RADIUS;
+          const by = LEGACY_CENTER[1] + Math.sin(ba) * LEGACY_RADIUS;
+          const bll = simToLL(bx, by);
+          if (progress < 0.5) {
+            const pulse = Math.sin(age / 100 * Math.PI) * 0.5 + 0.5;
+            L.circleMarker(bll, {
+              radius: 8 + pulse * 6,
+              color: "#ff3333", fillColor: "#ff0000",
+              fillOpacity: (1 - progress * 2) * 0.5, weight: 2, opacity: (1 - progress * 2) * pulse,
+            }).addTo(flashLayer);
+          }
           // Breach label
-          if (progress < 0.7) {
-            L.marker(ll, {
+          if (progress < 0.4) {
+            L.marker(bll, {
               icon: L.divIcon({
-                className: "", iconSize: [60, 16], iconAnchor: [30, -12],
-                html: `<div style="color:#ff0000;font-size:10px;font-family:monospace;font-weight:bold;text-align:center;text-shadow:0 0 4px #000;opacity:${1 - progress}">BREACH</div>`,
+                className: "", iconSize: [60, 16], iconAnchor: [30, -14],
+                html: `<div style="color:#ff0000;font-size:10px;font-family:monospace;font-weight:bold;text-align:center;text-shadow:0 0 4px #000;opacity:${1 - progress * 2.5}">BREACH</div>`,
               }),
               interactive: false,
             }).addTo(flashLayer);
           }
         } else {
-          // Kill impact: orange expanding flash
-          if (age > 500) continue;
-          const progress = age / 500;
+          // Kill impact: pulsing concentric rings
+          if (age > 800) continue;
+          const progress = age / 800;
+          const pulse = Math.sin(age / 60 * Math.PI) * 0.3 + 0.7;
+          // Outer pulsing ring
           L.circleMarker(ll, {
-            radius: 10 + progress * 20,
-            color: "#ffc800", fillColor: "#ff8800",
-            fillOpacity: (1 - progress) * 0.6, weight: 2, opacity: 1 - progress,
+            radius: 8 + progress * 18,
+            color: "#ffc800", fillColor: "transparent",
+            fillOpacity: 0, weight: 2, opacity: (1 - progress) * pulse,
           }).addTo(flashLayer);
-          // Impact X marker
-          if (progress < 0.5) {
-            L.marker(ll, {
-              icon: L.divIcon({
-                className: "", iconSize: [20, 16], iconAnchor: [10, 8],
-                html: `<div style="color:#ffc800;font-size:14px;font-weight:bold;text-align:center;text-shadow:0 0 4px #000;opacity:${1 - progress * 2}">X</div>`,
-              }),
-              interactive: false,
+          // Inner pulsing ring
+          L.circleMarker(ll, {
+            radius: 4 + progress * 8,
+            color: "#ff8800", fillColor: "#ff6600",
+            fillOpacity: (1 - progress) * 0.5 * pulse, weight: 1.5, opacity: (1 - progress) * pulse,
+          }).addTo(flashLayer);
+          // Center dot
+          if (progress < 0.6) {
+            L.circleMarker(ll, {
+              radius: 3,
+              color: "#ffffff", fillColor: "#ffffff",
+              fillOpacity: (1 - progress * 1.6) * pulse, weight: 0, opacity: 1,
             }).addTo(flashLayer);
           }
         }
@@ -556,6 +621,7 @@ export default function SwarmInterception() {
   const [speed, setSpeed] = useState(3);
   const [dbTab, setDbTab] = useState("attack");
   const [killFlashes, setKillFlashes] = useState([]);
+  const [breachPoints, setBreachPoints] = useState([]); // permanent [{x, y, angle}]
   const [statusText, setStatusText] = useState("READY");
   const [attackSpawns, setAttackSpawns] = useState([]); // [{x, y, droneKey, count}]
   const [defenseSpawns, setDefenseSpawns] = useState([]); // [{x, y, droneKey, count}]
@@ -600,6 +666,7 @@ export default function SwarmInterception() {
     simRef.current = initial;
     flashesRef.current = [];
     setKillFlashes([]);
+    setBreachPoints([]);
     setSimState({ ...initial });
     setRunning(true);
     setPaused(false);
@@ -633,16 +700,19 @@ export default function SwarmInterception() {
       // Breach flashes
       if (s.metrics.legacy_breaches > prevBreaches) {
         const newBreached = s.attackers.filter((a) => a.status === "breached" && a.breachX != null);
+        const newBPs = [];
         for (const b of newBreached.slice(-(s.metrics.legacy_breaches - prevBreaches))) {
           flashesRef.current.push({ x: b.breachX, y: b.breachY, time: now, type: "breach" });
-          b.breachX = null; // mark as counted
+          newBPs.push({ x: b.breachX, y: b.breachY, angle: Math.atan2(b.breachY - LEGACY_CENTER[1], b.breachX - LEGACY_CENTER[0]) });
+          b.breachX = null;
         }
+        if (newBPs.length > 0) setBreachPoints((prev) => [...prev, ...newBPs]);
       }
     }
 
     simRef.current = s;
     const now = Date.now();
-    flashesRef.current = flashesRef.current.filter((f) => now - f.time < (f.type === "breach" ? 2000 : 600));
+    flashesRef.current = flashesRef.current.filter((f) => now - f.time < (f.type === "breach" ? 3000 : 800));
     setSimState({ ...s });
     setKillFlashes([...flashesRef.current]);
 
@@ -654,6 +724,18 @@ export default function SwarmInterception() {
     runRef.current = false;
     if (frameRef.current) cancelAnimationFrame(frameRef.current);
     setRunning(false); setPaused(false); setSimState(null); setStatusText("READY");
+    setBreachPoints([]);
+  }, []);
+
+  const hardReset = useCallback(() => {
+    runRef.current = false;
+    if (frameRef.current) cancelAnimationFrame(frameRef.current);
+    flashesRef.current = [];
+    setRunning(false); setPaused(false); setSimState(null); setStatusText("READY");
+    setKillFlashes([]); setBreachPoints([]);
+    setAttackSpawns([]); setDefenseSpawns([]);
+    setPlacementMode(null);
+    setScenario("default_30v20");
   }, []);
 
   const togglePause = useCallback(() => {
@@ -675,10 +757,13 @@ export default function SwarmInterception() {
     }
     if (simRef.current.metrics.legacy_breaches > prevBreaches) {
       const newBreached = simRef.current.attackers.filter((a) => a.status === "breached" && a.breachX != null);
+      const newBPs = [];
       for (const b of newBreached.slice(-(simRef.current.metrics.legacy_breaches - prevBreaches))) {
         flashesRef.current.push({ x: b.breachX, y: b.breachY, time: now, type: "breach" });
+        newBPs.push({ x: b.breachX, y: b.breachY, angle: Math.atan2(b.breachY - LEGACY_CENTER[1], b.breachX - LEGACY_CENTER[0]) });
         b.breachX = null;
       }
+      if (newBPs.length > 0) setBreachPoints((prev) => [...prev, ...newBPs]);
     }
     setSimState({ ...simRef.current });
     setKillFlashes([...flashesRef.current]);
@@ -807,6 +892,7 @@ export default function SwarmInterception() {
               <button onClick={togglePause} disabled={!running} style={{ ...btnBase, background: "#1a2a40", borderColor: "#2a4a6a", color: "#e0e0e0", opacity: !running ? 0.4 : 1, cursor: !running ? "not-allowed" : "pointer" }}>{paused ? "Resume" : "Pause"}</button>
               <button onClick={stepOnce} disabled={!simState || simState.done} style={{ ...btnBase, background: "#1a2a40", borderColor: "#2a4a6a", color: "#e0e0e0", opacity: !simState || simState.done ? 0.4 : 1, cursor: !simState || simState.done ? "not-allowed" : "pointer" }}>Step</button>
             </div>
+            <button onClick={hardReset} style={{ ...btnBase, background: "#1a1a24", borderColor: "#2a2a35", color: "#888", fontSize: 11, marginBottom: 8 }}>Reset All</button>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <label style={{ fontSize: 12, color: "#888", whiteSpace: "nowrap" }}>Speed:</label>
               <input type="range" min="1" max="50" value={speed} onChange={(e) => setSpeed(parseInt(e.target.value))} style={{ flex: 1, padding: 0, margin: 0, height: 20 }} />
@@ -836,7 +922,7 @@ export default function SwarmInterception() {
 
           {/* Map */}
           <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
-            <SimMap simState={simState} theater={theater} killFlashes={killFlashes} attackSpawns={attackSpawns} defenseSpawns={defenseSpawns} placementMode={placementMode} onPlaceSpawn={placementMode ? handlePlaceSpawn : null} />
+            <SimMap simState={simState} theater={theater} killFlashes={killFlashes} breachPoints={breachPoints} attackSpawns={attackSpawns} defenseSpawns={defenseSpawns} placementMode={placementMode} onPlaceSpawn={placementMode ? handlePlaceSpawn : null} />
           </div>
 
           {/* Right panel */}
