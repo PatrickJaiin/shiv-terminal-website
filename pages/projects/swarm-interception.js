@@ -545,14 +545,14 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
       }).addTo(layer);
     }
 
-    // AD unit range circles (static, only redrawn on zone change)
+    // AD unit range circles (simple shaded fills)
     for (const ad of adUnits) {
       const sys = AD_SYSTEMS.find((s) => s.key === ad.key);
       if (!sys || ad.health <= 0) continue;
       const adLL = simToLL(ad.x, ad.y);
       L.circle(adLL, {
-        radius: sys.range * metersPerUnit, color: sys.color, fillColor: sys.color,
-        fillOpacity: 0.03, weight: 1, opacity: 0.2, dashArray: "4 4", interactive: false,
+        radius: sys.range * metersPerUnit, color: "transparent", fillColor: sys.color,
+        fillOpacity: 0.05, weight: 0, interactive: false,
       }).addTo(layer);
     }
 
@@ -597,16 +597,15 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
 
     if (!simState) return;
 
-    // Attackers
+    // Attackers (skip destroyed/breached to reduce SVG elements)
     for (const d of simState.attackers) {
-      if (d.status === "breached") continue;
+      if (d.status !== "active") continue;
       const ll = simToLL(d.x, d.y);
       const colors = { cheap: "#ff6666", medium: "#cc3333", expensive: "#881111" };
       const sizes = { cheap: 4, medium: 5, expensive: 6 };
-      const color = d.status !== "active" ? "#444" : (colors[d.threat] || "#ff6666");
-      const radius = d.status !== "active" ? 2 : (sizes[d.threat] || 4);
       L.circleMarker(ll, {
-        radius, color, fillColor: color, fillOpacity: 0.9, weight: 1, opacity: 1,
+        radius: sizes[d.threat] || 4, color: colors[d.threat] || "#ff6666",
+        fillColor: colors[d.threat] || "#ff6666", fillOpacity: 0.9, weight: 1, opacity: 1,
       }).addTo(droneLayer);
     }
 
@@ -667,30 +666,14 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
             }).addTo(flashLayer);
           }
         } else {
-          // Kill impact: pulsing concentric rings
-          if (age > 800) continue;
-          const progress = age / 800;
-          const pulse = Math.sin(age / 60 * Math.PI) * 0.3 + 0.7;
-          // Outer pulsing ring
+          // Kill impact: simple expanding ring
+          if (age > 500) continue;
+          const progress = age / 500;
           L.circleMarker(ll, {
-            radius: 8 + progress * 18,
-            color: "#ffc800", fillColor: "transparent",
-            fillOpacity: 0, weight: 2, opacity: (1 - progress) * pulse,
+            radius: 6 + progress * 12,
+            color: "#ff8800", fillColor: "#ff8800",
+            fillOpacity: (1 - progress) * 0.5, weight: 1.5, opacity: 1 - progress,
           }).addTo(flashLayer);
-          // Inner pulsing ring
-          L.circleMarker(ll, {
-            radius: 4 + progress * 8,
-            color: "#ff8800", fillColor: "#ff6600",
-            fillOpacity: (1 - progress) * 0.5 * pulse, weight: 1.5, opacity: (1 - progress) * pulse,
-          }).addTo(flashLayer);
-          // Center dot
-          if (progress < 0.6) {
-            L.circleMarker(ll, {
-              radius: 3,
-              color: "#ffffff", fillColor: "#ffffff",
-              fillOpacity: (1 - progress * 1.6) * pulse, weight: 0, opacity: 1,
-            }).addTo(flashLayer);
-          }
         }
       }
     }
@@ -843,7 +826,7 @@ export default function SwarmInterception() {
 
     simRef.current = s;
     const now = Date.now();
-    flashesRef.current = flashesRef.current.filter((f) => now - f.time < (f.type === "breach" ? 1000 : 800));
+    flashesRef.current = flashesRef.current.filter((f) => now - f.time < (f.type === "breach" ? 1000 : 500));
     setSimState({ ...s });
     setKillFlashes([...flashesRef.current]);
     setAdUnits([...adUnitsRef.current]);
