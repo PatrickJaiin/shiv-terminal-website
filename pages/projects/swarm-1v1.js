@@ -121,6 +121,7 @@ export default function Swarm1v1() {
   const [budgetShake, setBudgetShake] = useState(false);
   const [infoPopup, setInfoPopup] = useState(null);
   const [totalIncome, setTotalIncome] = useState(0);
+  const [damagePopup, setDamagePopup] = useState(null); // { text, color }
   const [playerBudget, setPlayerBudget] = useState(STARTING_BUDGET);
   const [placingWhat, setPlacingWhat] = useState(null);
 
@@ -535,7 +536,12 @@ export default function Swarm1v1() {
           if (!sys) continue;
           for (const a of b.aAttackers) {
             if (a.status !== "active") continue;
-            if (dist(ad, a) < sys.range) { ad.ammo--; if (Math.random() < sys.pk) { a.status = "destroyed"; b.aKills++; b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" }); } break; }
+            if (dist(ad, a) < sys.range) {
+              ad.ammo--;
+              b.flashes.push({ x: ad.x, y: ad.y, x2: a.x, y2: a.y, time: b.step, type: "adshot", color: sys.color });
+              if (Math.random() < sys.pk) { a.status = "destroyed"; b.aKills++; b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" }); }
+              break;
+            }
           }
         }
         for (const ad of b.aAD) {
@@ -544,7 +550,12 @@ export default function Swarm1v1() {
           if (!sys) continue;
           for (const a of b.pAttackers) {
             if (a.status !== "active") continue;
-            if (dist(ad, a) < sys.range) { ad.ammo--; if (Math.random() < sys.pk) { a.status = "destroyed"; b.pKills++; b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" }); } break; }
+            if (dist(ad, a) < sys.range) {
+              ad.ammo--;
+              b.flashes.push({ x: ad.x, y: ad.y, x2: a.x, y2: a.y, time: b.step, type: "adshot", color: sys.color });
+              if (Math.random() < sys.pk) { a.status = "destroyed"; b.pKills++; b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" }); }
+              break;
+            }
           }
         }
       }
@@ -568,15 +579,21 @@ export default function Swarm1v1() {
           if (i.status === "active") L.circleMarker(toLL(i.x, i.y), { radius: 5, color: "#880000", fillColor: "#ff5555", fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
           else if (i.status === "landed") L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#663333", fillColor: "#663333", fillOpacity: 0.5, weight: 1 }).addTo(bl);
         }
-        // Kill and breach flashes
-        b.flashes = b.flashes.filter((f) => b.step - f.time < 30);
+        // Kill, breach, and AD shot flashes
+        b.flashes = b.flashes.filter((f) => b.step - f.time < 20);
         for (const f of b.flashes) {
           const age = b.step - f.time;
-          const p = age / 30;
+          const p = age / 20;
           const ll = toLL(f.x, f.y);
-          if (f.type === "kill") {
+          if (f.type === "adshot") {
+            // Line from AD to target
+            if (age < 8) {
+              const ll2 = toLL(f.x2, f.y2);
+              L.polyline([ll, ll2], { color: f.color || "#ffaa00", weight: 1.5, opacity: (1 - age / 8) * 0.7, interactive: false }).addTo(bl);
+            }
+          } else if (f.type === "kill") {
             L.circleMarker(ll, { radius: 5 + p * 12, color: "#ff8800", fillColor: "#ff8800", fillOpacity: (1 - p) * 0.5, weight: 1.5, opacity: 1 - p }).addTo(bl);
-          } else {
+          } else if (f.type === "breach") {
             L.circleMarker(ll, { radius: 6 + p * 10, color: "#ff0000", fillColor: "#ff0000", fillOpacity: (1 - p) * 0.6, weight: 2, opacity: 1 - p }).addTo(bl);
           }
         }
@@ -653,8 +670,14 @@ export default function Swarm1v1() {
         const aAirCost = b.aiAirspaceCost || 0;
         if (pAirCost > 0) endLog.push(`Airspace breach cost: $${formatUSD(pAirCost)}`);
         if (aAirCost > 0) endLog.push(`Enemy airspace breach cost: $${formatUSD(aAirCost)}`);
-        setPlayerBudget((p) => p - pDmg - pAirCost);
-        setAiBudget((p) => p - aDmg - aAirCost);
+        const totalPLoss = pDmg + pAirCost;
+        const totalALoss = aDmg + aAirCost;
+        setPlayerBudget((p) => p - totalPLoss);
+        setAiBudget((p) => p - totalALoss);
+        if (totalPLoss > 0) {
+          setDamagePopup({ text: `-$${formatUSD(totalPLoss)}`, color: "#ff5555" });
+          setTimeout(() => setDamagePopup(null), 2500);
+        }
 
         // Update surviving interceptors
         setPlayerInterceptors((prev) => prev.map((d) => {
@@ -702,7 +725,10 @@ export default function Swarm1v1() {
         <title>Swarm 1v1 - Shiv Gupta</title>
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
       </Head>
-      <style jsx global>{`.leaflet-container { background: #0a0a0f; }`}</style>
+      <style jsx global>{`
+        .leaflet-container { background: #0a0a0f; }
+        @keyframes fadeUp { 0% { opacity: 1; transform: translate(-50%, -50%); } 100% { opacity: 0; transform: translate(-50%, -120%); } }
+      `}</style>
 
       <div style={{ background: "#0a0a0f", color: "#e0e0e0", fontFamily: "'Segoe UI', system-ui, sans-serif", height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
         <div style={{ background: "#111118", borderBottom: "1px solid #2a2a35", padding: "8px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 48, flexShrink: 0 }}>
@@ -1053,6 +1079,11 @@ export default function Swarm1v1() {
               {infoPopup && (
                 <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "rgba(17,17,24,0.95)", border: "1px solid #4a9eff", borderRadius: 6, padding: "8px 16px", fontSize: 11, color: "#e0e0e0", zIndex: 500, maxWidth: 400, textAlign: "center" }}>
                   {infoPopup.text}
+                </div>
+              )}
+              {damagePopup && (
+                <div style={{ position: "absolute", top: "40%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 600, fontSize: 32, fontWeight: 800, color: damagePopup.color, textShadow: "0 0 20px rgba(0,0,0,0.8)", animation: "fadeUp 2.5s ease-out forwards", pointerEvents: "none" }}>
+                  {damagePopup.text}
                 </div>
               )}
               {battleActive && (
