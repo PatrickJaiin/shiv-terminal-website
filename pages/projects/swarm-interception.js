@@ -20,16 +20,21 @@ const DRONE_DB = {
 };
 
 // ── Ground AD systems database ──
+// engageRate: seconds between shots (lower = faster). Based on real reload/cycle times.
+// missileCost: cost per interceptor missile fired
 const AD_SYSTEMS = [
-  { key: "s300", name: "S-300", country: "Russia", type: "long", range: 4000, altitude: 30, reloadTime: 300, missiles: 4, cost: 115000000, pk: 0.7, rcsThreshold: 0.02, color: "#cc8800" },
-  { key: "s400", name: "S-400", country: "Russia", type: "long", range: 5000, altitude: 30, reloadTime: 300, missiles: 4, cost: 300000000, pk: 0.8, rcsThreshold: 0.01, color: "#cc8800" },
-  { key: "patriot", name: "Patriot PAC-3", country: "USA", type: "long", range: 3500, altitude: 24, reloadTime: 540, missiles: 16, cost: 1000000000, pk: 0.75, rcsThreshold: 0.05, color: "#4488ff" },
-  { key: "nasams", name: "NASAMS 3", country: "Norway", type: "medium", range: 2500, altitude: 21, reloadTime: 120, missiles: 6, cost: 100000000, pk: 0.8, rcsThreshold: 0.01, color: "#4488ff" },
-  { key: "iron_dome", name: "Iron Dome", country: "Israel", type: "short", range: 2000, altitude: 10, reloadTime: 90, missiles: 20, cost: 50000000, pk: 0.85, rcsThreshold: 0.005, color: "#44bbff" },
-  { key: "gepard", name: "Gepard", country: "Germany", type: "short", range: 800, altitude: 3, reloadTime: 0, missiles: 680, cost: 5000000, pk: 0.2, rcsThreshold: 0.001, color: "#88aa44" },
-  { key: "pantsir", name: "Pantsir-S1", country: "Russia", type: "short", range: 1500, altitude: 15, reloadTime: 360, missiles: 12, cost: 15000000, pk: 0.65, rcsThreshold: 0.01, color: "#cc8800" },
-  { key: "iris_t", name: "IRIS-T SLM", country: "Germany", type: "medium", range: 2500, altitude: 20, reloadTime: 180, missiles: 8, cost: 150000000, pk: 0.8, rcsThreshold: 0.01, color: "#88aa44" },
+  { key: "s300", name: "S-300", country: "Russia", type: "long", range: 4000, missiles: 4, cost: 115000000, missileCost: 1000000, pk: 0.7, rcsThreshold: 0.02, engageRate: 5, color: "#cc8800" },
+  { key: "s400", name: "S-400", country: "Russia", type: "long", range: 5000, missiles: 4, cost: 300000000, missileCost: 2500000, pk: 0.8, rcsThreshold: 0.01, engageRate: 5, color: "#cc8800" },
+  { key: "patriot", name: "Patriot PAC-3", country: "USA", type: "long", range: 3500, missiles: 16, cost: 1000000000, missileCost: 4000000, pk: 0.75, rcsThreshold: 0.05, engageRate: 9, color: "#4488ff" },
+  { key: "nasams", name: "NASAMS 3", country: "Norway", type: "medium", range: 2500, missiles: 6, cost: 100000000, missileCost: 500000, pk: 0.8, rcsThreshold: 0.01, engageRate: 4, color: "#4488ff" },
+  { key: "iron_dome", name: "Iron Dome", country: "Israel", type: "short", range: 2000, missiles: 20, cost: 50000000, missileCost: 50000, pk: 0.85, rcsThreshold: 0.005, engageRate: 3, color: "#44bbff" },
+  { key: "gepard", name: "Gepard", country: "Germany", type: "short", range: 800, missiles: 680, cost: 5000000, missileCost: 100, pk: 0.2, rcsThreshold: 0.001, engageRate: 1, color: "#88aa44" },
+  { key: "pantsir", name: "Pantsir-S1", country: "Russia", type: "short", range: 1500, missiles: 12, cost: 15000000, missileCost: 60000, pk: 0.65, rcsThreshold: 0.01, engageRate: 3, color: "#cc8800" },
+  { key: "iris_t", name: "IRIS-T SLM", country: "Germany", type: "medium", range: 2500, missiles: 8, cost: 150000000, missileCost: 400000, pk: 0.8, rcsThreshold: 0.01, engageRate: 5, color: "#88aa44" },
 ];
+
+// Breach damage cost based on threat type (infrastructure/civilian damage estimate)
+const BREACH_DAMAGE = { cheap: 500000, medium: 5000000, expensive: 50000000 };
 
 // ── Theater configs with geographic bounds ──
 const THEATERS = {
@@ -227,6 +232,7 @@ function simStep(state, zoneCenter, assetRadius, adUnitsState, zoneRadius) {
       a.breachY = a.y;
       metrics.breaches++;
       metrics.misses++;
+      metrics.breach_damage += BREACH_DAMAGE[a.threat] || 500000;
     }
   }
 
@@ -265,8 +271,8 @@ function simStep(state, zoneCenter, assetRadius, adUnitsState, zoneRadius) {
       if (ad.health <= 0 || ad.ammo <= 0) continue;
       const sys = AD_SYSTEMS.find((s) => s.key === ad.key);
       if (!sys) continue;
-      // Fire rate: one shot attempt every few steps based on reload
-      const fireInterval = Math.max(5, Math.floor(sys.reloadTime / 10));
+      // Fire rate based on engageRate (seconds between shots, sim runs at 10 steps/sec)
+      const fireInterval = Math.max(1, Math.round(sys.engageRate * 10));
       if (step % fireInterval !== 0) continue;
       // Find closest in-range attacker with detectable RCS
       let bestTarget = null;
@@ -281,12 +287,12 @@ function simStep(state, zoneCenter, assetRadius, adUnitsState, zoneRadius) {
       }
       if (bestTarget) {
         ad.ammo--;
+        metrics.defense_cost += sys.missileCost;
         if (Math.random() < sys.pk) {
           bestTarget.status = "destroyed";
           bestTarget.killedByAD = true;
           metrics.kills++;
           metrics.threat_value_destroyed += bestTarget.cost;
-          metrics.defense_cost += sys.cost / (sys.missiles * 10);
         }
       }
     }
@@ -844,6 +850,7 @@ export default function SwarmInterception() {
   const [zoneRadius, setZoneRadius] = useState(DEFAULT_ZONE_RADIUS);
   const [assetRadius, setAssetRadius] = useState(DEFAULT_ASSET_RADIUS);
   const [defenseBudget, setDefenseBudget] = useState(500); // in millions USD
+  const [adPlaceKey, setAdPlaceKey] = useState("iron_dome");
   const [adUnits, setAdUnits] = useState([
     { id: 0, key: "nasams", x: 4500, y: 5800, health: 1, ammo: 6 },
     { id: 1, key: "iron_dome", x: 5500, y: 5800, health: 1, ammo: 20 },
@@ -891,6 +898,11 @@ export default function SwarmInterception() {
       const dy = y - zoneCenter[1];
       setAssetRadius(Math.max(100, Math.round(Math.sqrt(dx * dx + dy * dy))));
       setPlacementMode(null);
+    } else if (placementMode === "place_ad") {
+      const sys = AD_SYSTEMS.find((s) => s.key === adPlaceKey);
+      if (sys) {
+        setAdUnits((prev) => [...prev, { id: Date.now(), key: adPlaceKey, x: Math.round(x), y: Math.round(y), health: 1, ammo: sys.missiles }]);
+      }
     }
   }, [placementMode, spawnDroneKey, spawnDefKey, spawnCount, zoneCenter, zoneRadius]);
 
@@ -901,7 +913,7 @@ export default function SwarmInterception() {
     const { interceptors, attackers } = createDrones(sc, theater, attackSpawns, defenseSpawns);
     const initial = {
       interceptors, attackers,
-      metrics: { kills: 0, misses: 0, breaches: 0, defense_cost: 0, threat_value_destroyed: 0, active_interceptors: interceptors.length, active_threats: attackers.length },
+      metrics: { kills: 0, misses: 0, breaches: 0, breach_damage: 0, defense_cost: 0, threat_value_destroyed: 0, active_interceptors: interceptors.length, active_threats: attackers.length },
       step: 0, done: false,
     };
     simRef.current = initial;
@@ -1110,6 +1122,39 @@ export default function SwarmInterception() {
               </button>
             </div>
 
+            <PanelTitle>Ground AD Units</PanelTitle>
+            <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
+              <select value={adPlaceKey} onChange={(e) => setAdPlaceKey(e.target.value)} disabled={running}
+                style={{ flex: 1, padding: "5px 8px", background: "#1a1a24", border: "1px solid #2a2a35", color: "#e0e0e0", borderRadius: 4, fontSize: 10 }}>
+                {AD_SYSTEMS.map((s) => (
+                  <option key={s.key} value={s.key}>{s.name} (${formatUSD(s.cost)})</option>
+                ))}
+              </select>
+              <button onClick={() => setPlacementMode(placementMode === "place_ad" ? null : "place_ad")} disabled={running}
+                style={{ ...btnBase, width: "auto", padding: "5px 10px", fontSize: 10, background: placementMode === "place_ad" ? "#1a3a1a" : "#1a1a24", borderColor: placementMode === "place_ad" ? "#22aa22" : "#2a2a35", color: placementMode === "place_ad" ? "#22aa22" : "#888" }}>
+                {placementMode === "place_ad" ? "Click map..." : "Place"}
+              </button>
+            </div>
+            {(() => {
+              const sel = AD_SYSTEMS.find((s) => s.key === adPlaceKey);
+              if (!sel) return null;
+              return (
+                <div style={{ fontSize: 9, color: "#666", marginBottom: 4, lineHeight: 1.5 }}>
+                  {sel.type} range | {sel.range}m | {sel.missiles} rounds | {(60 / sel.engageRate).toFixed(0)} tgt/min | Pk {(sel.pk * 100).toFixed(0)}% | ${formatUSD(sel.missileCost)}/shot
+                </div>
+              );
+            })()}
+            {adUnits.map((ad, i) => {
+              const sys = AD_SYSTEMS.find((s) => s.key === ad.key);
+              return (
+                <div key={ad.id} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 3, fontSize: 10, color: sys?.color || "#888" }}>
+                  <span style={{ flex: 1 }}>{sys?.name || ad.key} [{ad.ammo}]</span>
+                  <button onClick={() => setAdUnits((prev) => prev.filter((_, j) => j !== i))} disabled={running}
+                    style={{ background: "transparent", border: "1px solid #333", color: "#888", width: 18, height: 18, padding: 0, fontSize: 12, lineHeight: "16px", textAlign: "center", cursor: "pointer", borderRadius: 3 }}>&times;</button>
+                </div>
+              );
+            })}
+
             <PanelTitle>Spawn Points</PanelTitle>
             <div style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Select type/count, click map to place.</div>
 
@@ -1260,13 +1305,13 @@ export default function SwarmInterception() {
               const flightCost = m.defense_cost || 0;
               const adDeployCost = adUnits.reduce((s, ad) => { const sys = AD_SYSTEMS.find((s2) => s2.key === ad.key); return s + (sys ? sys.cost : 0); }, 0);
               const adDamageCost = adUnits.reduce((s, ad) => { if (ad.health <= 0) { const sys = AD_SYSTEMS.find((s2) => s2.key === ad.key); return s + (sys ? sys.cost * 0.5 : 0); } return s; }, 0);
-              const totalSpent = droneFleetCost + lostDroneCost + flightCost + adDeployCost + adDamageCost;
+              const breachDmg = m.breach_damage || 0;
+              const totalSpent = droneFleetCost + lostDroneCost + flightCost + adDeployCost + adDamageCost + breachDmg;
               const remaining = budgetUSD - totalSpent;
               const pctUsed = budgetUSD > 0 ? Math.min(100, (totalSpent / budgetUSD) * 100) : 0;
               const overBudget = remaining < 0;
               const isDone = simState?.done;
-              const hasBreach = (m.breaches || 0) > 0;
-              const failed = isDone && (overBudget || hasBreach);
+              const failed = isDone && overBudget;
 
               return (
                 <div style={{ fontSize: 11 }}>
@@ -1289,6 +1334,11 @@ export default function SwarmInterception() {
                   <div style={{ borderBottom: "1px solid #1a1a24", padding: "4px 0", display: "flex", justifyContent: "space-between", color: "#884400" }}>
                     <span>Ground AD Damage</span><span>${formatUSD(adDamageCost)}</span>
                   </div>
+                  {breachDmg > 0 && (
+                    <div style={{ borderBottom: "1px solid #1a1a24", padding: "4px 0", display: "flex", justifyContent: "space-between", color: "#ff3333" }}>
+                      <span>Breach Damage ({m.breaches})</span><span>${formatUSD(breachDmg)}</span>
+                    </div>
+                  )}
                   <div style={{ padding: "6px 0", borderTop: "2px solid #2a2a35", marginTop: 4, display: "flex", justifyContent: "space-between", fontWeight: 600, fontSize: 12, color: overBudget ? "#ff5555" : "#4caf50" }}>
                     <span>Remaining</span><span>{overBudget ? "-" : ""}${formatUSD(Math.abs(remaining))}</span>
                   </div>
@@ -1302,11 +1352,7 @@ export default function SwarmInterception() {
                       border: `1px solid ${failed ? "#6a2a2a" : "#2a6a3a"}`,
                       color: failed ? "#ff5555" : "#4caf50",
                     }}>
-                      {failed
-                        ? (hasBreach && overBudget ? "DEFENSE FAILED - BREACHED & OVER BUDGET"
-                          : hasBreach ? "DEFENSE FAILED - ASSET BREACHED"
-                          : "DEFENSE FAILED - OVER BUDGET")
-                        : "DEFENSE SUCCESSFUL"}
+                      {failed ? "DEFENSE FAILED - OVER BUDGET" : "DEFENSE SUCCESSFUL"}
                     </div>
                   )}
                 </div>
