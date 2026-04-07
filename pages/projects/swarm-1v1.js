@@ -39,7 +39,7 @@ const RESOURCES = [
 
 const AI_NAMES = ["SKYNET-7", "AEGIS_AI", "IRON_WALL", "RED_FURY", "SHADOW_NET", "VANGUARD", "CERBERUS", "TITAN_DEF"];
 const STARTING_BUDGET = 30000000;
-const TOTAL_ROUNDS = 8;
+const AIRSPACE_BREACH_COST = 30; // per drone entering airspace
 const PHASE = { LOBBY: "lobby", MATCHMAKING: "matchmaking", SETUP: "setup", COMBAT: "combat" };
 
 function formatUSD(n) {
@@ -117,7 +117,9 @@ export default function Swarm1v1() {
   const [playerAD, setPlayerAD] = useState([]);
   const [playerAttack, setPlayerAttack] = useState({ fpv: 10, shahed: 3 });
   const [attackPriority, setAttackPriority] = useState("hq");
+  const [defPosture, setDefPosture] = useState("pursuing"); // "insane" | "pursuing" | "defensive"
   const [budgetShake, setBudgetShake] = useState(false);
+  const [infoPopup, setInfoPopup] = useState(null); // {x, y, text}
   const [playerBudget, setPlayerBudget] = useState(STARTING_BUDGET);
   const [placingWhat, setPlacingWhat] = useState(null);
 
@@ -273,6 +275,24 @@ export default function Swarm1v1() {
         let [cx, cy] = latLngToSim(e.latlng.lat, e.latlng.lng, t2.bounds);
         fn(Math.max(0, Math.min(ARENA, cx)), Math.max(0, Math.min(ARENA, cy)));
       });
+      // Right click for unit info
+      map.on("contextmenu", (e) => {
+        e.originalEvent.preventDefault();
+        const t2 = THEATERS[theaterRef.current];
+        let [cx, cy] = latLngToSim(e.latlng.lat, e.latlng.lng, t2.bounds);
+        // Find closest unit
+        const units = [];
+        if (playerHQ) units.push({ type: "Your HQ", x: playerHQ.x, y: playerHQ.y, info: `Position: ${Math.round(playerHQ.x)}, ${Math.round(playerHQ.y)}` });
+        for (const r of playerResources) { const res = RESOURCES.find((rr) => rr.key === r.key); if (res) units.push({ type: res.name, x: r.x, y: r.y, info: `Income: $${formatUSD(res.income)}/rnd | ${r.alive ? "Active" : "Destroyed"}` }); }
+        for (const d of playerInterceptors) { const def = DEFENSE_UNITS.find((dd) => dd.key === d.key); if (def) units.push({ type: def.name, x: d.x, y: d.y, info: `Count: ${d.count} | Cost: $${formatUSD(def.cost * d.count)} | ${def.destroyOnKill ? "Kamikaze" : `${Math.round((def.survivalRate || 0) * 100)}% survive`}` }); }
+        for (const ad of playerAD) { const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key); if (sys) units.push({ type: sys.name, x: ad.x, y: ad.y, info: `Ammo: ${ad.ammo}/${sys.missiles} | Pk: ${Math.round(sys.pk * 100)}% | Range: ${sys.range}m | ${ad.health > 0 ? "Active" : "Destroyed"}` }); }
+        let best = null, bd = 500;
+        for (const u of units) { const d2 = dist({ x: cx, y: cy }, u); if (d2 < bd) { bd = d2; best = u; } }
+        if (best) {
+          setInfoPopup({ text: `${best.type}: ${best.info}` });
+          setTimeout(() => setInfoPopup(null), 3000);
+        }
+      });
       setMapReady(true);
     })();
     return () => { cancelled = true; };
@@ -424,10 +444,36 @@ export default function Swarm1v1() {
         if (dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) < 200) { a.status = "breached"; b.pBreaches++; b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "breach" }); }
       }
 
-      // Player interceptors chase AI attackers
+      // Track airspace breaches (enemy entering player airspace)
+      for (const a of b.aAttackers) {
+        if (a.status !== "active" || a.enteredAirspace) continue;
+        if (playerHQ && dist(a, playerHQ) < playerAirspace) {
+          a.enteredAirspace = true;
+          b.airspaceCost = (b.airspaceCost || 0) + AIRSPACE_BREACH_COST;
+        }
+      }
+      // Track player drones entering AI airspace
+      for (const a of b.pAttackers) {
+        if (a.status !== "active" || a.enteredAirspace) continue;
+        if (dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) < aiSetup.airspace) {
+          a.enteredAirspace = true;
+          b.aiAirspaceCost = (b.aiAirspaceCost || 0) + AIRSPACE_BREACH_COST;
+        }
+      }
+
+      // Player interceptors chase AI attackers (posture-aware)
       for (const int of b.pInts) {
         if (int.status !== "active") continue;
-        const activeA = b.aAttackers.filter((a) => a.status === "active");
+        // Posture check: filter targets based on posture
+        let activeA = b.aAttackers.filter((a) => a.status === "active");
+        if (defPosture === "defensive") {
+          // Only engage targets inside player airspace
+          activeA = activeA.filter((a) => playerHQ && dist(a, playerHQ) < playerAirspace);
+        } else if (defPosture === "pursuing") {
+          // Don't enter enemy airspace (y > 5000 is player side for north HQ, so enemy is y < 5000)
+          activeA = activeA.filter((a) => a.y > 500);
+        }
+        // "insane" = no filter, chase anywhere
         let tgt = activeA.find((a) => a.id === int.targetId);
         if (!tgt) { let best = null, bd = Infinity; for (const a of activeA) { const d2 = dist(int, a); if (d2 < bd) { bd = d2; best = a; } } if (best) { int.targetId = best.id; tgt = best; } }
         if (tgt) {
@@ -583,8 +629,12 @@ export default function Swarm1v1() {
           if (b.pBreaches > 8) { setGameOver({ winner: username, reason: "Enemy HQ overwhelmed" }); endLog.push("ENEMY HQ DESTROYED!"); }
         }
 
-        setPlayerBudget((p) => p - pDmg);
-        setAiBudget((p) => p - aDmg);
+        const pAirCost = b.airspaceCost || 0;
+        const aAirCost = b.aiAirspaceCost || 0;
+        if (pAirCost > 0) endLog.push(`Airspace breach cost: $${formatUSD(pAirCost)}`);
+        if (aAirCost > 0) endLog.push(`Enemy airspace breach cost: $${formatUSD(aAirCost)}`);
+        setPlayerBudget((p) => p - pDmg - pAirCost);
+        setAiBudget((p) => p - aDmg - aAirCost);
 
         // Update surviving interceptors
         setPlayerInterceptors((prev) => prev.map((d) => {
@@ -605,8 +655,12 @@ export default function Swarm1v1() {
         setBattleActive(false);
         if (battleLayerRef.current) battleLayerRef.current.clearLayers();
 
-        if (round + 1 >= TOTAL_ROUNDS && !gameOver) {
-          setGameOver({ winner: playerBudget - pDmg > aiBudget - aDmg ? username : opponentName, reason: "Final score" });
+        // Game over if either budget goes below -$50M
+        if (!gameOver) {
+          const pFinal = playerBudget - pDmg - pAirCost;
+          const aFinal = aiBudget - aDmg - aAirCost;
+          if (pFinal < -50000000) setGameOver({ winner: opponentName, reason: "You went bankrupt" });
+          else if (aFinal < -50000000) setGameOver({ winner: username, reason: "Enemy went bankrupt" });
         }
         return;
       }
@@ -615,7 +669,7 @@ export default function Swarm1v1() {
     }
 
     frameRef.current = requestAnimationFrame(tick);
-  }, [playerHQ, aiSetup, currentRound, playerResources, playerInterceptors, playerAD, playerAttack, playerBudget, aiBudget, gameOver, battleActive, username, opponentName, attackPriority]);
+  }, [playerHQ, aiSetup, currentRound, playerResources, playerInterceptors, playerAD, playerAttack, playerBudget, aiBudget, gameOver, battleActive, username, opponentName, attackPriority, defPosture, playerAirspace]);
 
   useEffect(() => () => { if (frameRef.current) cancelAnimationFrame(frameRef.current); }, []);
 
@@ -641,7 +695,7 @@ export default function Swarm1v1() {
               <span style={{ color: "#4a9eff" }}>{username}: ${formatUSD(Math.max(0, playerBudget))}</span>
               <span style={{ color: "#666" }}>vs</span>
               <span style={{ color: "#ff5555" }}>{opponentName}: ${formatUSD(Math.max(0, aiBudget))}</span>
-              {phase === PHASE.COMBAT && <span style={{ color: "#888" }}>Round {currentRound}/{TOTAL_ROUNDS}</span>}
+              {phase === PHASE.COMBAT && <span style={{ color: "#888" }}>Round {currentRound}</span>}
             </div>
           )}
         </div>
@@ -785,9 +839,25 @@ export default function Swarm1v1() {
                         ))}
                       </div>
 
+                      <div style={{ fontSize: 10, textTransform: "uppercase", color: "#aa88ff", margin: "8px 0 4px" }}>Defense Posture</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 3, marginBottom: 4 }}>
+                        {[["insane", "Insane"], ["pursuing", "Pursuing"], ["defensive", "Defensive"]].map(([k, label]) => (
+                          <button key={k} onClick={() => setDefPosture(k)}
+                            style={{ ...inputStyle, fontSize: 9, padding: "5px 2px", textAlign: "center", cursor: "pointer",
+                              border: defPosture === k ? "1px solid #aa88ff" : "1px solid #2a2a35",
+                              color: defPosture === k ? "#aa88ff" : "#555",
+                              background: defPosture === k ? "rgba(170,136,255,0.1)" : "#1a1a24" }}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 8, color: "#555", marginBottom: 6 }}>
+                        {defPosture === "insane" ? "Chase anywhere including enemy airspace" : defPosture === "pursuing" ? "Chase but won't enter enemy airspace" : "Stay inside your airspace only"}
+                      </div>
+
                       {placingWhat && placingWhat !== "hq" && (
                         <button onClick={() => setPlacingWhat(null)}
-                          style={{ ...inputStyle, width: "100%", marginTop: 6, textAlign: "center", fontSize: 10, cursor: "pointer", border: "1px solid #666", color: "#ff9800" }}>
+                          style={{ ...inputStyle, width: "100%", marginTop: 2, textAlign: "center", fontSize: 10, cursor: "pointer", border: "1px solid #666", color: "#ff9800" }}>
                           Stop Placing ({placingWhat.replace("def_", "").replace("ad_", "")})
                         </button>
                       )}
@@ -804,7 +874,7 @@ export default function Swarm1v1() {
               {phase === PHASE.COMBAT && (
                 <>
                   <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "#ff6688", marginBottom: 8 }}>
-                    {gameOver ? "GAME OVER" : battleActive ? "BATTLE IN PROGRESS" : `Round ${currentRound + 1} / ${TOTAL_ROUNDS}`}
+                    {gameOver ? "GAME OVER" : battleActive ? "BATTLE IN PROGRESS" : `Round ${currentRound + 1}`}
                   </div>
 
                   <div style={{ fontSize: 10, color: "#888", marginBottom: 2 }}>Interceptors: {playerInterceptors.reduce((s, d) => s + d.count, 0)} | AD: {playerAD.filter((a) => a.health > 0).length}</div>
@@ -825,8 +895,31 @@ export default function Swarm1v1() {
                   </div>
 
                   {/* Between-round buying - same as setup */}
-                  {!gameOver && !battleActive && currentRound < TOTAL_ROUNDS && (
+                  {!gameOver && !battleActive && (
                     <>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: "#888" }}>Airspace:</span>
+                        <input type="range" min="1000" max="4000" step="200" value={playerAirspace} onChange={(e) => setPlayerAirspace(parseInt(e.target.value))} style={{ flex: 1 }} />
+                        <span style={{ fontSize: 9, color: "#4a9eff" }}>{playerAirspace}m</span>
+                      </div>
+                      <div style={{ fontSize: 9, color: "#4caf50", marginBottom: 6 }}>+${formatUSD(Math.floor(playerAirspace * 200))}/rnd from airspace</div>
+
+                      <div style={{ fontSize: 9, textTransform: "uppercase", color: "#aa88ff", marginBottom: 3 }}>Defense Posture</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 2, marginBottom: 6 }}>
+                        {[["insane", "Insane"], ["pursuing", "Pursuing"], ["defensive", "Defensive"]].map(([k, label]) => (
+                          <button key={k} onClick={() => setDefPosture(k)}
+                            style={{ ...inputStyle, fontSize: 8, padding: "4px 2px", textAlign: "center", cursor: "pointer",
+                              border: defPosture === k ? "1px solid #aa88ff" : "1px solid #2a2a35",
+                              color: defPosture === k ? "#aa88ff" : "#555",
+                              background: defPosture === k ? "rgba(170,136,255,0.1)" : "#1a1a24" }}>
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 8, color: "#555", marginBottom: 6 }}>
+                        {defPosture === "insane" ? "Interceptors chase anywhere including enemy airspace" : defPosture === "pursuing" ? "Interceptors chase but won't enter enemy airspace" : "Interceptors stay inside your airspace only"}
+                      </div>
+
                       <div style={{ fontSize: 10, textTransform: "uppercase", color: "#cc8800", margin: "4px 0 4px" }}>Build Resources</div>
                       {RESOURCES.map((r) => (
                         <button key={r.key} onClick={() => setPlacingWhat(r.key)}
@@ -929,6 +1022,11 @@ export default function Swarm1v1() {
 
             <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
               <div ref={mapRef} style={{ width: "100%", height: "100%", cursor: placingWhat ? "crosshair" : "grab" }} />
+              {infoPopup && (
+                <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "rgba(17,17,24,0.95)", border: "1px solid #4a9eff", borderRadius: 6, padding: "8px 16px", fontSize: 11, color: "#e0e0e0", zIndex: 500, maxWidth: 400, textAlign: "center" }}>
+                  {infoPopup.text}
+                </div>
+              )}
               {battleActive && (
                 <div style={{ position: "absolute", bottom: 12, right: 12, background: "rgba(17,17,24,0.9)", border: "1px solid #2a2a35", borderRadius: 6, padding: "8px 12px", fontSize: 9, zIndex: 500, lineHeight: 1.8 }}>
                   <div><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#00ddff", marginRight: 4 }} />Your attack</div>
