@@ -284,37 +284,42 @@ function SimCanvas({ simState, theater, killFlashes, attackSpawns, defenseSpawns
     ctx.textAlign = "left";
     ctx.fillText(th.name.toUpperCase(), 10, 20);
 
-    // Draw spawn markers (pre-sim)
-    for (const sp of attackSpawns) {
+    // Draw spawn markers - custom if set, otherwise theater defaults
+    const atkPoints = attackSpawns.length > 0 ? attackSpawns : th.attackOrigins;
+    const defPoints = defenseSpawns.length > 0 ? defenseSpawns : th.defensePos;
+    const atkIsCustom = attackSpawns.length > 0;
+    const defIsCustom = defenseSpawns.length > 0;
+
+    for (const sp of atkPoints) {
       const sx = (sp[0] / ARENA) * w;
       const sy = (sp[1] / ARENA) * h;
       // Red diamond
       ctx.save();
       ctx.translate(sx, sy);
       ctx.rotate(Math.PI / 4);
-      ctx.strokeStyle = "#ff5555";
+      ctx.strokeStyle = atkIsCustom ? "#ff5555" : "#662222";
       ctx.lineWidth = 2;
       ctx.strokeRect(-8, -8, 16, 16);
       ctx.restore();
-      ctx.fillStyle = "rgba(255, 85, 85, 0.15)";
+      ctx.fillStyle = atkIsCustom ? "rgba(255, 85, 85, 0.15)" : "rgba(255, 85, 85, 0.06)";
       ctx.beginPath(); ctx.arc(sx, sy, 30, 0, Math.PI * 2); ctx.fill();
       ctx.font = "9px monospace";
-      ctx.fillStyle = "#ff5555";
+      ctx.fillStyle = atkIsCustom ? "#ff5555" : "#662222";
       ctx.textAlign = "center";
       ctx.fillText("ATK", sx, sy + 20);
     }
-    for (const sp of defenseSpawns) {
+    for (const sp of defPoints) {
       const sx = (sp[0] / ARENA) * w;
       const sy = (sp[1] / ARENA) * h;
-      // Blue shield shape
-      ctx.strokeStyle = "#4a9eff";
+      // Blue circles
+      ctx.strokeStyle = defIsCustom ? "#4a9eff" : "#223366";
       ctx.lineWidth = 2;
       ctx.beginPath(); ctx.arc(sx, sy, 10, 0, Math.PI * 2); ctx.stroke();
       ctx.beginPath(); ctx.arc(sx, sy, 6, 0, Math.PI * 2); ctx.stroke();
-      ctx.fillStyle = "rgba(74, 158, 255, 0.15)";
+      ctx.fillStyle = defIsCustom ? "rgba(74, 158, 255, 0.15)" : "rgba(74, 158, 255, 0.06)";
       ctx.beginPath(); ctx.arc(sx, sy, 30, 0, Math.PI * 2); ctx.fill();
       ctx.font = "9px monospace";
-      ctx.fillStyle = "#4a9eff";
+      ctx.fillStyle = defIsCustom ? "#4a9eff" : "#223366";
       ctx.textAlign = "center";
       ctx.fillText("DEF", sx, sy + 20);
     }
