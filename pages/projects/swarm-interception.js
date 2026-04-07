@@ -5,18 +5,18 @@ import { useEffect, useRef, useState, useCallback } from "react";
 // ── Drone database ──
 const DRONE_DB = {
   attack: [
-    { key: "shahed_136", name: "Shahed-136", country: "Iran", speed: 185, cost: 20000, rcs: 0.1, threat: "cheap" },
-    { key: "lancet_3", name: "Lancet-3", country: "Russia", speed: 300, cost: 35000, rcs: 0.05, threat: "medium" },
-    { key: "fpv_kamikaze", name: "FPV Kamikaze", country: "Generic", speed: 150, cost: 500, rcs: 0.01, threat: "cheap" },
-    { key: "mohajer_6", name: "Mohajer-6", country: "Iran", speed: 200, cost: 500000, rcs: 0.5, threat: "expensive" },
-    { key: "orion", name: "Orion (Pacer)", country: "Russia", speed: 200, cost: 1000000, rcs: 1.0, threat: "expensive" },
-    { key: "wing_loong", name: "Wing Loong II", country: "China", speed: 370, cost: 2000000, rcs: 1.5, threat: "expensive" },
+    { key: "shahed_136", name: "Shahed-136", country: "Iran", speed: 185, cost: 20000, rcs: 0.1, threat: "cheap", desc: "Iranian loitering munition. Delta-wing design, GPS/INS guided, 40kg warhead. Used extensively in Ukraine conflict." },
+    { key: "lancet_3", name: "Lancet-3", country: "Russia", speed: 300, cost: 35000, rcs: 0.05, threat: "medium", desc: "Russian precision loitering munition by ZALA. TV/IR seeker, 3kg warhead. Targets vehicles and fortified positions." },
+    { key: "fpv_kamikaze", name: "FPV Kamikaze", country: "Generic", speed: 150, cost: 500, rcs: 0.01, threat: "cheap", desc: "Commercial-grade FPV drone with improvised warhead. Extremely cheap, hard to detect due to tiny RCS." },
+    { key: "mohajer_6", name: "Mohajer-6", country: "Iran", speed: 200, cost: 500000, rcs: 0.5, threat: "expensive", desc: "Iranian MALE UAV. 200km range, can carry precision guided munitions. Used for ISR and strike missions." },
+    { key: "orion", name: "Orion (Pacer)", country: "Russia", speed: 200, cost: 1000000, rcs: 1.0, threat: "expensive", desc: "Russian medium-altitude long-endurance UAV. 24hr flight time, 4 hardpoints for guided bombs/missiles." },
+    { key: "wing_loong", name: "Wing Loong II", country: "China", speed: 370, cost: 2000000, rcs: 1.5, threat: "expensive", desc: "Chinese MALE UCAV comparable to MQ-9 Reaper. 20hr endurance, 480kg payload, exported to 10+ countries." },
   ],
   interceptor: [
-    { key: "kamikaze_int", name: "Kamikaze Interceptor", country: "Generic", speed: 350, cost: 15000, rcs: 0.02, destroyOnKill: true },
-    { key: "armed_int", name: "Armed Interceptor", country: "Generic", speed: 300, cost: 180000, rcs: 0.05, destroyOnKill: false, survivalRate: 0.73 },
-    { key: "anduril", name: "Anduril Anvil", country: "USA", speed: 320, cost: 100000, rcs: 0.03, destroyOnKill: true },
-    { key: "fortem", name: "Fortem DroneHunter", country: "USA", speed: 160, cost: 150000, rcs: 0.08, destroyOnKill: false, survivalRate: 0.65 },
+    { key: "kamikaze_int", name: "Kamikaze Interceptor", country: "Generic", speed: 350, cost: 15000, rcs: 0.02, destroyOnKill: true, fictional: true, desc: "Game unit. Cheap expendable interceptor drone - rams target on contact. 100% kill rate but destroyed on every engagement. Inspired by Anduril Anvil concept." },
+    { key: "armed_int", name: "Armed Interceptor", country: "Generic", speed: 300, cost: 180000, rcs: 0.05, destroyOnKill: false, survivalRate: 0.73, fictional: true, desc: "Game unit. Reusable armed interceptor with onboard weapons. 73% survival rate per engagement - surviving units carry to next wave. Inspired by Fortem DroneHunter." },
+    { key: "anduril", name: "Anduril Anvil", country: "USA", speed: 320, cost: 100000, rcs: 0.03, destroyOnKill: true, desc: "Autonomous kinetic interceptor by Anduril Industries. AI-guided, rams target at high speed. Expendable design, low unit cost." },
+    { key: "fortem", name: "Fortem DroneHunter", country: "USA", speed: 160, cost: 150000, rcs: 0.08, destroyOnKill: false, survivalRate: 0.65, desc: "Net-capture counter-UAS drone by Fortem Technologies. Deploys net to entangle targets. Reusable with 65% survival rate." },
   ],
 };
 
@@ -24,14 +24,14 @@ const DRONE_DB = {
 // engageRate: seconds between shots (lower = faster). Based on real reload/cycle times.
 // missileCost: cost per interceptor missile fired
 const AD_SYSTEMS = [
-  { key: "s300", name: "S-300", country: "Russia", type: "long", range: 4000, missiles: 4, cost: 115000000, missileCost: 1000000, pk: 0.7, rcsThreshold: 0.02, engageRate: 5, color: "#cc8800" },
-  { key: "s400", name: "S-400", country: "Russia", type: "long", range: 5000, missiles: 4, cost: 300000000, missileCost: 2500000, pk: 0.8, rcsThreshold: 0.01, engageRate: 5, color: "#cc8800" },
-  { key: "patriot", name: "Patriot PAC-3", country: "USA", type: "long", range: 3500, missiles: 16, cost: 1000000000, missileCost: 4000000, pk: 0.75, rcsThreshold: 0.05, engageRate: 9, color: "#4488ff" },
-  { key: "nasams", name: "NASAMS 3", country: "Norway", type: "medium", range: 2500, missiles: 6, cost: 100000000, missileCost: 500000, pk: 0.8, rcsThreshold: 0.01, engageRate: 4, color: "#4488ff" },
-  { key: "iron_dome", name: "Iron Dome", country: "Israel", type: "short", range: 2000, missiles: 20, cost: 50000000, missileCost: 50000, pk: 0.85, rcsThreshold: 0.005, engageRate: 3, color: "#44bbff" },
-  { key: "gepard", name: "Gepard", country: "Germany", type: "short", range: 800, missiles: 680, cost: 5000000, missileCost: 100, pk: 0.2, rcsThreshold: 0.001, engageRate: 1, color: "#88aa44" },
-  { key: "pantsir", name: "Pantsir-S1", country: "Russia", type: "short", range: 1500, missiles: 12, cost: 15000000, missileCost: 60000, pk: 0.65, rcsThreshold: 0.01, engageRate: 3, color: "#cc8800" },
-  { key: "iris_t", name: "IRIS-T SLM", country: "Germany", type: "medium", range: 2500, missiles: 8, cost: 150000000, missileCost: 400000, pk: 0.8, rcsThreshold: 0.01, engageRate: 5, color: "#88aa44" },
+  { key: "s300", name: "S-300", country: "Russia", type: "long", range: 4000, missiles: 4, cost: 115000000, missileCost: 1000000, pk: 0.7, rcsThreshold: 0.02, engageRate: 5, color: "#cc8800", desc: "Soviet/Russian long-range SAM. SA-20 Gargoyle NATO designation. Deployed by India, China, Iran and others." },
+  { key: "s400", name: "S-400", country: "Russia", type: "long", range: 5000, missiles: 4, cost: 300000000, missileCost: 2500000, pk: 0.8, rcsThreshold: 0.01, engageRate: 5, color: "#cc8800", desc: "Russia's most advanced SAM. SA-21 Growler. Can track 300 targets, engage 36 simultaneously. Exported to Turkey, India, China." },
+  { key: "patriot", name: "Patriot PAC-3", country: "USA", type: "long", range: 3500, missiles: 16, cost: 1000000000, missileCost: 4000000, pk: 0.75, rcsThreshold: 0.05, engageRate: 9, color: "#4488ff", desc: "US Army primary air defense. Hit-to-kill technology. Proven in combat across Gulf War, Ukraine, Saudi Arabia." },
+  { key: "nasams", name: "NASAMS 3", country: "Norway", type: "medium", range: 2500, missiles: 6, cost: 100000000, missileCost: 500000, pk: 0.8, rcsThreshold: 0.01, engageRate: 4, color: "#4488ff", desc: "Norwegian/US medium-range system using AMRAAM missiles. Protects the US Capitol. Donated to Ukraine by NATO." },
+  { key: "iron_dome", name: "Iron Dome", country: "Israel", type: "short", range: 2000, missiles: 20, cost: 50000000, missileCost: 50000, pk: 0.85, rcsThreshold: 0.005, engageRate: 3, color: "#44bbff", desc: "Israeli mobile defense system by Rafael. 90%+ intercept rate. Designed specifically for rockets and drone threats." },
+  { key: "gepard", name: "Gepard", country: "Germany", type: "short", range: 800, missiles: 680, cost: 5000000, missileCost: 100, pk: 0.2, rcsThreshold: 0.001, engageRate: 1, color: "#88aa44", desc: "German anti-aircraft gun tank. Twin 35mm Oerlikon cannons, 680 rounds. Extremely effective against small drones in Ukraine." },
+  { key: "pantsir", name: "Pantsir-S1", country: "Russia", type: "short", range: 1500, missiles: 12, cost: 15000000, missileCost: 60000, pk: 0.65, rcsThreshold: 0.01, engageRate: 3, color: "#cc8800", desc: "Russian hybrid gun-missile system. SA-22 Greyhound. 12 missiles + twin 30mm autocannons. Point defense role." },
+  { key: "iris_t", name: "IRIS-T SLM", country: "Germany", type: "medium", range: 2500, missiles: 8, cost: 150000000, missileCost: 400000, pk: 0.8, rcsThreshold: 0.01, engageRate: 5, color: "#88aa44", desc: "German medium-range SAM by Diehl Defence. IR-guided missile with thrust vectoring. Key air defense system for Ukraine." },
 ];
 
 // Breach damage cost based on threat type (infrastructure/civilian damage estimate)
@@ -852,7 +852,8 @@ export default function SwarmInterception() {
   const [defenseBudget, setDefenseBudget] = useState(100); // in millions USD
   const [currentWave, setCurrentWave] = useState(0);
   const [waveBonus, setWaveBonus] = useState(0);
-  const [verdictPopup, setVerdictPopup] = useState(null); // null | { won: bool, msg: string }
+  const [verdictPopup, setVerdictPopup] = useState(null);
+  const [statsPanel, setStatsPanel] = useState(false);
   const [adPlaceKey, setAdPlaceKey] = useState("iron_dome");
   const [adUnits, setAdUnits] = useState(() => {
     const th = THEATERS.ukraine_kyiv;
@@ -1170,7 +1171,10 @@ export default function SwarmInterception() {
             <Link href="/#projects" style={{ color: "#4a9eff", fontSize: 13, textDecoration: "none" }}>&larr; Back to Projects</Link>
             <h1 style={{ fontSize: 16, fontWeight: 600, color: "#4a9eff", letterSpacing: 0.5, margin: 0 }}>SWARM INTERCEPTION SIMULATOR</h1>
           </div>
-          <span style={{ fontSize: 12, color: statusColor }}>{statusText}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <button onClick={() => setStatsPanel(true)} style={{ padding: "4px 12px", background: "#1a2a40", border: "1px solid #2a4a6a", color: "#4a9eff", borderRadius: 4, fontSize: 11, cursor: "pointer" }}>Unit Database</button>
+            <span style={{ fontSize: 12, color: statusColor }}>{statusText}</span>
+          </div>
         </div>
 
         {/* Main */}
@@ -1404,6 +1408,89 @@ export default function SwarmInterception() {
                     style={{ padding: "8px 24px", background: "#1a2a40", border: "1px solid #2a4a6a", color: "#e0e0e0", borderRadius: 6, fontSize: 13, cursor: "pointer" }}>
                     Close
                   </button>
+                </div>
+              </div>
+            )}
+            {statsPanel && (
+              <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
+                onClick={() => setStatsPanel(false)}>
+                <div style={{ background: "#111118", border: "1px solid #2a2a35", borderRadius: 12, padding: "24px", maxWidth: 700, width: "90%", maxHeight: "80vh", overflowY: "auto" }}
+                  onClick={(e) => e.stopPropagation()}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                    <h2 style={{ margin: 0, fontSize: 18, color: "#4a9eff" }}>Unit Database</h2>
+                    <button onClick={() => setStatsPanel(false)} style={{ background: "transparent", border: "1px solid #333", color: "#888", width: 28, height: 28, fontSize: 16, cursor: "pointer", borderRadius: 4 }}>&times;</button>
+                  </div>
+
+                  <div style={{ fontSize: 10, color: "#666", marginBottom: 12 }}>Real-world systems with publicly available specifications. Game mode units marked with *.</div>
+
+                  <h3 style={{ fontSize: 12, color: "#ff6666", margin: "16px 0 8px", textTransform: "uppercase", letterSpacing: 1 }}>Attack Drones</h3>
+                  {DRONE_DB.attack.map((d) => (
+                    <div key={d.key} style={{ background: "#1a1a24", border: "1px solid #2a2a35", borderRadius: 6, padding: 12, marginBottom: 6 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                        <span style={{ fontWeight: 600, fontSize: 12, color: "#ff6666" }}>{d.name}</span>
+                        <span style={{ fontSize: 10, color: "#666" }}>{d.country}</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 12, marginBottom: 6, fontSize: 10 }}>
+                        <span style={{ color: "#888" }}>Speed: <span style={{ color: "#e0e0e0" }}>{d.speed} km/h</span></span>
+                        <span style={{ color: "#888" }}>Cost: <span style={{ color: "#ff9800" }}>${formatUSD(d.cost)}</span></span>
+                        <span style={{ color: "#888" }}>RCS: <span style={{ color: "#e0e0e0" }}>{d.rcs} m2</span></span>
+                        <span style={{ color: "#888" }}>Threat: <span style={{ color: d.threat === "expensive" ? "#ff3333" : d.threat === "medium" ? "#ff9800" : "#4caf50" }}>{d.threat}</span></span>
+                      </div>
+                      <div style={{ fontSize: 10, color: "#555", lineHeight: 1.4 }}>{d.desc}</div>
+                    </div>
+                  ))}
+
+                  <h3 style={{ fontSize: 12, color: "#4a9eff", margin: "16px 0 8px", textTransform: "uppercase", letterSpacing: 1 }}>Interceptor Drones</h3>
+                  {DRONE_DB.interceptor.map((d) => (
+                    <div key={d.key} style={{ background: "#1a1a24", border: `1px solid ${d.fictional ? "#333300" : "#2a2a35"}`, borderRadius: 6, padding: 12, marginBottom: 6 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                        <span style={{ fontWeight: 600, fontSize: 12, color: "#4a9eff" }}>
+                          {d.name} {d.fictional && <span style={{ fontSize: 9, color: "#aa8800", fontWeight: 400 }}>* GAME UNIT</span>}
+                        </span>
+                        <span style={{ fontSize: 10, color: "#666" }}>{d.country}</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 12, marginBottom: 6, fontSize: 10, flexWrap: "wrap" }}>
+                        <span style={{ color: "#888" }}>Speed: <span style={{ color: "#e0e0e0" }}>{d.speed} km/h</span></span>
+                        <span style={{ color: "#888" }}>Cost: <span style={{ color: "#ff9800" }}>${formatUSD(d.cost)}</span></span>
+                        <span style={{ color: "#888" }}>Type: <span style={{ color: d.destroyOnKill ? "#ff5555" : "#4caf50" }}>{d.destroyOnKill ? "Kamikaze" : "Reusable"}</span></span>
+                        {!d.destroyOnKill && <span style={{ color: "#888" }}>Survival: <span style={{ color: "#4caf50" }}>{((d.survivalRate || 0) * 100).toFixed(0)}%</span></span>}
+                      </div>
+                      <div style={{ fontSize: 10, color: "#555", lineHeight: 1.4 }}>{d.desc}</div>
+                    </div>
+                  ))}
+
+                  <h3 style={{ fontSize: 12, color: "#22aa22", margin: "16px 0 8px", textTransform: "uppercase", letterSpacing: 1 }}>Ground Air Defense Systems</h3>
+                  {AD_SYSTEMS.map((s) => (
+                    <div key={s.key} style={{ background: "#1a1a24", border: "1px solid #2a2a35", borderRadius: 6, padding: 12, marginBottom: 6 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                        <span style={{ fontWeight: 600, fontSize: 12, color: s.color }}>{s.name}</span>
+                        <span style={{ fontSize: 10, color: "#666" }}>{s.country} - {s.type} range</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 8, marginBottom: 6, fontSize: 10, flexWrap: "wrap" }}>
+                        <span style={{ color: "#888" }}>Range: <span style={{ color: "#e0e0e0" }}>{s.range}m</span></span>
+                        <span style={{ color: "#888" }}>Ammo: <span style={{ color: "#e0e0e0" }}>{s.missiles}</span></span>
+                        <span style={{ color: "#888" }}>Rate: <span style={{ color: "#e0e0e0" }}>{(60 / s.engageRate).toFixed(0)}/min</span></span>
+                        <span style={{ color: "#888" }}>Pk: <span style={{ color: "#4caf50" }}>{(s.pk * 100).toFixed(0)}%</span></span>
+                        <span style={{ color: "#888" }}>Cost: <span style={{ color: "#ff9800" }}>${formatUSD(s.cost)}</span></span>
+                        <span style={{ color: "#888" }}>Shot: <span style={{ color: "#ff9800" }}>${formatUSD(s.missileCost)}</span></span>
+                        <span style={{ color: "#888" }}>Min RCS: <span style={{ color: "#e0e0e0" }}>{s.rcsThreshold} m2</span></span>
+                      </div>
+                      {/* Range bar visual */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: "#555", width: 35 }}>Range</span>
+                        <div style={{ flex: 1, background: "#0a0a0f", borderRadius: 3, height: 6 }}>
+                          <div style={{ width: `${Math.min(100, (s.range / 5000) * 100)}%`, height: "100%", background: s.color, borderRadius: 3, opacity: 0.7 }} />
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 9, color: "#555", width: 35 }}>Pk</span>
+                        <div style={{ flex: 1, background: "#0a0a0f", borderRadius: 3, height: 6 }}>
+                          <div style={{ width: `${s.pk * 100}%`, height: "100%", background: "#4caf50", borderRadius: 3, opacity: 0.7 }} />
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 10, color: "#555", lineHeight: 1.4, marginTop: 4 }}>{s.desc}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
