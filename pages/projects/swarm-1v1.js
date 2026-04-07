@@ -413,7 +413,13 @@ export default function Swarm1v1() {
           const closest = alive.reduce((best, ad) => dist(a, ad) < dist(a, best) ? ad : best, alive[0]);
           if (dist(a, closest) < 2500) {
             tx = closest.x; ty = closest.y;
-            if (dist(a, closest) < 80) { closest.health = 0; closest.ammo = 0; a.status = "expended"; b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" }); continue; }
+            if (dist(a, closest) < 80) {
+              const adSys = AD_SYSTEMS_1V1.find((s2) => s2.key === closest.key);
+              closest.health = 0; closest.ammo = 0; a.status = "expended";
+              b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" });
+              b.flashes.push({ x: a.x, y: a.y + 100, time: b.step, type: "dmgtext", text: `AD destroyed!`, color: "#ff3333" });
+              continue;
+            }
           }
         }
         const dx = tx - a.x, dy = ty - a.y;
@@ -423,7 +429,11 @@ export default function Swarm1v1() {
         a.heading += diff * 0.06;
         a.x += Math.cos(a.heading) * a.speed;
         a.y += Math.sin(a.heading) * a.speed;
-        if (dist(a, playerHQ) < 200) { a.status = "breached"; b.aBreaches++; b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "breach" }); }
+        if (dist(a, playerHQ) < 200) {
+          a.status = "breached"; b.aBreaches++;
+          b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "breach" });
+          b.flashes.push({ x: a.x, y: a.y + 100, time: b.step, type: "dmgtext", text: "-$500K", color: "#ff5555" });
+        }
       }
       // Move player attackers - target based on priority
       for (const a of b.pAttackers) {
@@ -433,13 +443,24 @@ export default function Swarm1v1() {
           const alive = b.aAD.filter((ad) => ad.health > 0);
           const closest = alive.reduce((best, ad) => dist(a, ad) < dist(a, best) ? ad : best, alive[0]);
           tx = closest.x; ty = closest.y;
-          if (dist(a, closest) < 100) { closest.health = 0; closest.ammo = 0; a.status = "expended"; continue; }
+          if (dist(a, closest) < 100) {
+            closest.health = 0; closest.ammo = 0; a.status = "expended";
+            b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" });
+            b.flashes.push({ x: a.x, y: a.y + 100, time: b.step, type: "dmgtext", text: "AD hit!", color: "#ff3333" });
+            continue;
+          }
         } else if (attackPriority === "resources") {
           const alive = aiSetup.resources.filter((r) => r.alive);
           if (alive.length > 0) {
             const closest = alive.reduce((best, r) => dist(a, r) < dist(a, best) ? r : best, alive[0]);
             tx = closest.x; ty = closest.y;
-            if (dist(a, closest) < 100) { closest.alive = false; a.status = "expended"; b.pBreaches++; continue; }
+            if (dist(a, closest) < 100) {
+              const res2 = RESOURCES.find((rr) => rr.key === closest.key);
+              closest.alive = false; a.status = "expended"; b.pBreaches++;
+              b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" });
+              b.flashes.push({ x: a.x, y: a.y - 100, time: b.step, type: "dmgtext", text: `${res2?.name || "Resource"} hit!`, color: "#ff9800" });
+              continue;
+            }
           }
         } else if (attackPriority === "interceptors" && b.aInts.some((i) => i.status === "active")) {
           const alive = b.aInts.filter((i) => i.status === "active");
@@ -454,7 +475,11 @@ export default function Swarm1v1() {
         a.heading += diff * 0.06;
         a.x += Math.cos(a.heading) * a.speed;
         a.y += Math.sin(a.heading) * a.speed;
-        if (dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) < 200) { a.status = "breached"; b.pBreaches++; b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "breach" }); }
+        if (dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) < 200) {
+          a.status = "breached"; b.pBreaches++;
+          b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "breach" });
+          b.flashes.push({ x: a.x, y: a.y - 100, time: b.step, type: "dmgtext", text: "-$500K", color: "#ff5555" });
+        }
       }
 
       // Track airspace breaches (enemy entering player airspace)
@@ -591,6 +616,15 @@ export default function Swarm1v1() {
               const ll2 = toLL(f.x2, f.y2);
               L.polyline([ll, ll2], { color: f.color || "#ffaa00", weight: 1.5, opacity: (1 - age / 8) * 0.7, interactive: false }).addTo(bl);
             }
+          } else if (f.type === "dmgtext") {
+            // Floating damage text that drifts up
+            const drift = age * 8;
+            const driftLL = toLL(f.x, f.y + drift);
+            L.marker(driftLL, {
+              icon: L.divIcon({ className: "", iconSize: [80, 16], iconAnchor: [40, 8],
+                html: `<div style="color:${f.color || "#ff5555"};font-size:12px;font-weight:800;font-family:monospace;text-align:center;text-shadow:0 0 6px #000;opacity:${1 - p}">${f.text}</div>` }),
+              interactive: false,
+            }).addTo(bl);
           } else if (f.type === "kill") {
             L.circleMarker(ll, { radius: 5 + p * 12, color: "#ff8800", fillColor: "#ff8800", fillOpacity: (1 - p) * 0.5, weight: 1.5, opacity: 1 - p }).addTo(bl);
           } else if (f.type === "breach") {
