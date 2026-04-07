@@ -368,10 +368,20 @@ export default function Swarm1v1() {
       if (!b) return;
       b.step++;
 
-      // Move AI attackers toward player HQ, player interceptors chase them
+      // Move AI attackers - medium/expensive target player AD first
       for (const a of b.aAttackers) {
         if (a.status !== "active") continue;
-        const dx = playerHQ.x - a.x, dy = playerHQ.y - a.y;
+        let tx = playerHQ.x, ty = playerHQ.y;
+        // Medium/expensive AI drones hunt player ground AD
+        if ((a.threat === "medium" || a.threat === "expensive") && b.pAD.some((ad) => ad.health > 0)) {
+          const alive = b.pAD.filter((ad) => ad.health > 0);
+          const closest = alive.reduce((best, ad) => dist(a, ad) < dist(a, best) ? ad : best, alive[0]);
+          if (dist(a, closest) < 2500) {
+            tx = closest.x; ty = closest.y;
+            if (dist(a, closest) < 80) { closest.health = 0; closest.ammo = 0; a.status = "expended"; b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" }); continue; }
+          }
+        }
+        const dx = tx - a.x, dy = ty - a.y;
         let diff = Math.atan2(dy, dx) - a.heading;
         while (diff > Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
