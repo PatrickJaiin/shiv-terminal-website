@@ -360,7 +360,7 @@ export default function Swarm1v1() {
     const pAD = playerAD.map((a) => ({ ...a }));
     const aAD = aiSetup.adUnits.map((a) => ({ ...a }));
 
-    battleRef.current = { pAttackers, aAttackers, pInts, aInts, pAD, aAD, step: 0, pKills: 0, aKills: 0, pBreaches: 0, aBreaches: 0 };
+    battleRef.current = { pAttackers, aAttackers, pInts, aInts, pAD, aAD, step: 0, pKills: 0, aKills: 0, pBreaches: 0, aBreaches: 0, flashes: [] };
 
     // Animate
     function tick() {
@@ -378,7 +378,7 @@ export default function Swarm1v1() {
         a.heading += diff * 0.06;
         a.x += Math.cos(a.heading) * a.speed;
         a.y += Math.sin(a.heading) * a.speed;
-        if (dist(a, playerHQ) < 200) { a.status = "breached"; b.aBreaches++; }
+        if (dist(a, playerHQ) < 200) { a.status = "breached"; b.aBreaches++; b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "breach" }); }
       }
       // Move player attackers - target based on priority
       for (const a of b.pAttackers) {
@@ -409,7 +409,7 @@ export default function Swarm1v1() {
         a.heading += diff * 0.06;
         a.x += Math.cos(a.heading) * a.speed;
         a.y += Math.sin(a.heading) * a.speed;
-        if (dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) < 200) { a.status = "breached"; b.pBreaches++; }
+        if (dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) < 200) { a.status = "breached"; b.pBreaches++; b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "breach" }); }
       }
 
       // Player interceptors chase AI attackers
@@ -424,6 +424,7 @@ export default function Swarm1v1() {
           int.y += Math.sin(int.heading) * int.speed;
           if (dist(int, tgt) < KILL_RADIUS) {
             tgt.status = "destroyed"; b.aKills++; int.targetId = null;
+            b.flashes.push({ x: tgt.x, y: tgt.y, time: b.step, type: "kill" });
             if (int.destroyOnKill) int.status = "expended";
             else if (Math.random() > (int.survivalRate || 0.73)) int.status = "expended";
           }
@@ -441,6 +442,7 @@ export default function Swarm1v1() {
           int.y += Math.sin(int.heading) * int.speed;
           if (dist(int, tgt) < KILL_RADIUS) {
             tgt.status = "destroyed"; b.pKills++; int.targetId = null;
+            b.flashes.push({ x: tgt.x, y: tgt.y, time: b.step, type: "kill" });
             if (int.destroyOnKill) int.status = "expended";
             else if (Math.random() > (int.survivalRate || 0.73)) int.status = "expended";
           }
@@ -455,7 +457,7 @@ export default function Swarm1v1() {
           if (!sys) continue;
           for (const a of b.aAttackers) {
             if (a.status !== "active") continue;
-            if (dist(ad, a) < sys.range) { ad.ammo--; if (Math.random() < sys.pk) { a.status = "destroyed"; b.aKills++; } break; }
+            if (dist(ad, a) < sys.range) { ad.ammo--; if (Math.random() < sys.pk) { a.status = "destroyed"; b.aKills++; b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" }); } break; }
           }
         }
         for (const ad of b.aAD) {
@@ -464,7 +466,7 @@ export default function Swarm1v1() {
           if (!sys) continue;
           for (const a of b.pAttackers) {
             if (a.status !== "active") continue;
-            if (dist(ad, a) < sys.range) { ad.ammo--; if (Math.random() < sys.pk) { a.status = "destroyed"; b.pKills++; } break; }
+            if (dist(ad, a) < sys.range) { ad.ammo--; if (Math.random() < sys.pk) { a.status = "destroyed"; b.pKills++; b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" }); } break; }
           }
         }
       }
@@ -487,6 +489,18 @@ export default function Swarm1v1() {
         for (const i of b.aInts) {
           if (i.status === "active") L.circleMarker(toLL(i.x, i.y), { radius: 5, color: "#880000", fillColor: "#ff5555", fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
           else if (i.status === "landed") L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#663333", fillColor: "#663333", fillOpacity: 0.5, weight: 1 }).addTo(bl);
+        }
+        // Kill and breach flashes
+        b.flashes = b.flashes.filter((f) => b.step - f.time < 30);
+        for (const f of b.flashes) {
+          const age = b.step - f.time;
+          const p = age / 30;
+          const ll = toLL(f.x, f.y);
+          if (f.type === "kill") {
+            L.circleMarker(ll, { radius: 5 + p * 12, color: "#ff8800", fillColor: "#ff8800", fillOpacity: (1 - p) * 0.5, weight: 1.5, opacity: 1 - p }).addTo(bl);
+          } else {
+            L.circleMarker(ll, { radius: 6 + p * 10, color: "#ff0000", fillColor: "#ff0000", fillOpacity: (1 - p) * 0.6, weight: 2, opacity: 1 - p }).addTo(bl);
+          }
         }
       }
 
@@ -679,10 +693,17 @@ export default function Swarm1v1() {
                         <input type="range" min="1000" max="4000" step="200" value={playerAirspace} onChange={(e) => setPlayerAirspace(parseInt(e.target.value))} style={{ flex: 1 }} />
                         <span style={{ fontSize: 10, color: "#4a9eff" }}>{playerAirspace}m</span>
                       </div>
-                      <div style={{ fontSize: 9, color: "#666", marginBottom: 8 }}>
-                        Income/round: ${formatUSD(playerResources.filter((r) => r.alive).reduce((s, r) => { const res = RESOURCES.find((rr) => rr.key === r.key); return s + (res?.income || 0); }, 0))}
-                        {playerResources.filter((r) => r.alive && r.key === "arms").length > 0 && ` + ${playerResources.filter((r) => r.alive && r.key === "arms").length * 2} free drones`}
-                      </div>
+                      {(() => {
+                        const resIncome = playerResources.filter((r) => r.alive).reduce((s, r) => { const res = RESOURCES.find((rr) => rr.key === r.key); return s + (res?.income || 0); }, 0);
+                        const armsCount = playerResources.filter((r) => r.alive && r.key === "arms").length;
+                        return (
+                          <div style={{ fontSize: 9, color: "#666", marginBottom: 8 }}>
+                            Income/round: <span style={{ color: "#4caf50" }}>${formatUSD(resIncome)}</span>
+                            {armsCount > 0 && <span style={{ color: "#8888cc" }}> + {armsCount * 2} free drones</span>}
+                            <br/>Airspace: {playerAirspace}m - <span style={{ color: playerAirspace > 3000 ? "#ff9800" : "#4caf50" }}>{playerAirspace > 3000 ? "large (hard to defend)" : playerAirspace > 2000 ? "medium" : "compact (easy to defend)"}</span>
+                          </div>
+                        );
+                      })()}
 
                       {/* Sell / Delete tools */}
                       <div style={{ display: "flex", gap: 3, marginBottom: 6 }}>
@@ -787,9 +808,18 @@ export default function Swarm1v1() {
                     )}
                   </div>
 
-                  {/* Between-round buying */}
+                  {/* Between-round buying - same as setup */}
                   {!gameOver && !battleActive && currentRound < TOTAL_ROUNDS && (
                     <>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", color: "#cc8800", margin: "4px 0 4px" }}>Build Resources</div>
+                      {RESOURCES.map((r) => (
+                        <button key={r.key} onClick={() => setPlacingWhat(r.key)}
+                          style={{ ...inputStyle, width: "100%", marginBottom: 3, cursor: "pointer", textAlign: "left", fontSize: 9,
+                            border: placingWhat === r.key ? `1px solid ${r.color}` : "1px solid #2a2a35" }}>
+                          <span style={{ color: r.color }}>{r.icon}</span> {r.name} ${formatUSD(r.cost)} (+${formatUSD(r.income)}/rnd)
+                        </button>
+                      ))}
+
                       <div style={{ fontSize: 10, textTransform: "uppercase", color: "#4a9eff", margin: "4px 0 4px" }}>Buy Interceptors</div>
                       {DEFENSE_UNITS.map((d) => (
                         <button key={d.key} onClick={() => setPlacingWhat("def_" + d.key)}
