@@ -208,10 +208,37 @@ function simStep(state, zoneCenter, assetRadius, adUnitsState, zoneRadius) {
   for (const a of attackers) {
     if (a.status !== "active") continue;
     const prevDist = dist(a, { x: zoneCenter[0], y: zoneCenter[1] });
-    const dx = zoneCenter[0] - a.x;
-    const dy = zoneCenter[1] - a.y;
+
+    // Medium/expensive drones prioritize nearby active AD units
+    let targetX = zoneCenter[0];
+    let targetY = zoneCenter[1];
+    if (adUnitsState && (a.threat === "medium" || a.threat === "expensive")) {
+      // Find closest alive AD unit within detection range
+      let bestAD = null;
+      let bestADDist = 3000; // detection range
+      for (const ad of adUnitsState) {
+        if (ad.health <= 0) continue;
+        const d = dist(a, ad);
+        if (d < bestADDist) { bestADDist = d; bestAD = ad; }
+      }
+      if (bestAD) {
+        targetX = bestAD.x;
+        targetY = bestAD.y;
+        a.adTargetId = bestAD.id;
+        // Check if close enough to destroy AD unit
+        if (bestADDist < 80) {
+          bestAD.health = 0;
+          bestAD.ammo = 0;
+          a.status = "expended";
+          metrics.misses++;
+          continue;
+        }
+      }
+    }
+
+    const dx = targetX - a.x;
+    const dy = targetY - a.y;
     const angle = Math.atan2(dy, dx);
-    // Shortest-path angle interpolation to avoid wrap-around bugs
     let diff = angle - a.heading;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
