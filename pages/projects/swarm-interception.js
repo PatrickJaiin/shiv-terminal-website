@@ -72,9 +72,9 @@ const THEATERS = {
 
 const SCENARIOS = {
   sandbox: { name: "Sandbox", attackers: { fpv_kamikaze: 10, shahed_136: 5 }, interceptors: 20, budget: null },
-  medium: { name: "Medium", attackers: { fpv_kamikaze: 25, shahed_136: 15, lancet_3: 8 }, interceptors: 20, budget: 300 },
-  hard: { name: "Hard", attackers: { fpv_kamikaze: 40, shahed_136: 25, lancet_3: 15, mohajer_6: 5 }, interceptors: 20, budget: 400 },
-  nightmare: { name: "Nightmare", attackers: { fpv_kamikaze: 60, shahed_136: 30, lancet_3: 20, mohajer_6: 8, orion: 3, wing_loong: 2 }, interceptors: 20, budget: 500 },
+  medium: { name: "Medium", attackers: { fpv_kamikaze: 60, shahed_136: 30, lancet_3: 15 }, interceptors: 12, budget: 200 },
+  hard: { name: "Hard", attackers: { fpv_kamikaze: 120, shahed_136: 60, lancet_3: 30, mohajer_6: 10 }, interceptors: 10, budget: 250 },
+  nightmare: { name: "Nightmare", attackers: { fpv_kamikaze: 200, shahed_136: 80, lancet_3: 50, mohajer_6: 20, orion: 8, wing_loong: 5 }, interceptors: 8, budget: 300 },
 };
 
 const KILL_RADIUS = 120;
@@ -852,9 +852,7 @@ export default function SwarmInterception() {
   const [defenseBudget, setDefenseBudget] = useState(300); // in millions USD
   const [adPlaceKey, setAdPlaceKey] = useState("iron_dome");
   const [adUnits, setAdUnits] = useState([
-    { id: 0, key: "nasams", x: 4500, y: 5800, health: 1, ammo: 6 },
-    { id: 1, key: "iron_dome", x: 5500, y: 5800, health: 1, ammo: 20 },
-    { id: 2, key: "gepard", x: 5000, y: 4200, health: 1, ammo: 680 },
+    { id: 0, key: "gepard", x: 5000, y: 4500, health: 1, ammo: 680 },
   ]);
 
   const simRef = useRef(null);
