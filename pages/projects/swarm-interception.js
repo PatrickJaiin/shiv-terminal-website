@@ -206,7 +206,11 @@ function simStep(state, zoneCenter, assetRadius, adUnitsState, zoneRadius) {
     const dx = zoneCenter[0] - a.x;
     const dy = zoneCenter[1] - a.y;
     const angle = Math.atan2(dy, dx);
-    a.heading = a.heading * 0.95 + angle * 0.05 + (Math.random() - 0.5) * 0.03;
+    // Shortest-path angle interpolation to avoid wrap-around bugs
+    let diff = angle - a.heading;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    a.heading += diff * 0.05 + (Math.random() - 0.5) * 0.03;
     a.x += Math.cos(a.heading) * a.speed;
     a.y += Math.sin(a.heading) * a.speed;
     const newDist = dist(a, { x: zoneCenter[0], y: zoneCenter[1] });
