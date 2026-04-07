@@ -19,6 +19,18 @@ const DRONE_DB = {
   ],
 };
 
+// ── Ground AD systems database ──
+const AD_SYSTEMS = [
+  { key: "s300", name: "S-300", country: "Russia", type: "long", range: 4000, altitude: 30, reloadTime: 300, missiles: 4, cost: 115000000, pk: 0.7, rcsThreshold: 0.02, color: "#cc8800" },
+  { key: "s400", name: "S-400", country: "Russia", type: "long", range: 5000, altitude: 30, reloadTime: 300, missiles: 4, cost: 300000000, pk: 0.8, rcsThreshold: 0.01, color: "#cc8800" },
+  { key: "patriot", name: "Patriot PAC-3", country: "USA", type: "long", range: 3500, altitude: 24, reloadTime: 540, missiles: 16, cost: 1000000000, pk: 0.75, rcsThreshold: 0.05, color: "#4488ff" },
+  { key: "nasams", name: "NASAMS 3", country: "Norway", type: "medium", range: 2500, altitude: 21, reloadTime: 120, missiles: 6, cost: 100000000, pk: 0.8, rcsThreshold: 0.01, color: "#4488ff" },
+  { key: "iron_dome", name: "Iron Dome", country: "Israel", type: "short", range: 2000, altitude: 10, reloadTime: 90, missiles: 20, cost: 50000000, pk: 0.85, rcsThreshold: 0.005, color: "#44bbff" },
+  { key: "gepard", name: "Gepard", country: "Germany", type: "short", range: 800, altitude: 3, reloadTime: 0, missiles: 680, cost: 5000000, pk: 0.2, rcsThreshold: 0.001, color: "#88aa44" },
+  { key: "pantsir", name: "Pantsir-S1", country: "Russia", type: "short", range: 1500, altitude: 15, reloadTime: 360, missiles: 12, cost: 15000000, pk: 0.65, rcsThreshold: 0.01, color: "#cc8800" },
+  { key: "iris_t", name: "IRIS-T SLM", country: "Germany", type: "medium", range: 2500, altitude: 20, reloadTime: 180, missiles: 8, cost: 150000000, pk: 0.8, rcsThreshold: 0.01, color: "#88aa44" },
+];
+
 // ── Theater configs with geographic bounds ──
 const THEATERS = {
   kashmir: {
@@ -181,7 +193,7 @@ function createDrones(scenario, theater, customAttackSpawns, customDefenseSpawns
 }
 
 // ── Simulation step ──
-function simStep(state, zoneCenter, assetRadius) {
+function simStep(state, zoneCenter, assetRadius, adUnitsState) {
   const { interceptors, attackers, metrics, step } = state;
 
   for (const a of attackers) {
@@ -230,6 +242,39 @@ function simStep(state, zoneCenter, assetRadius) {
     }
   }
 
+  // AD units engage attackers within range
+  if (adUnitsState) {
+    for (const ad of adUnitsState) {
+      if (ad.health <= 0 || ad.ammo <= 0) continue;
+      const sys = AD_SYSTEMS.find((s) => s.key === ad.key);
+      if (!sys) continue;
+      // Fire rate: one shot attempt every few steps based on reload
+      const fireInterval = Math.max(5, Math.floor(sys.reloadTime / 10));
+      if (step % fireInterval !== 0) continue;
+      // Find closest in-range attacker with detectable RCS
+      let bestTarget = null;
+      let bestDist = Infinity;
+      for (const a of attackers) {
+        if (a.status !== "active") continue;
+        const d = dist(ad, a);
+        if (d > sys.range) continue;
+        const profile = DRONE_DB.attack.find((p) => p.key === a.profileName?.toLowerCase?.().replace(/ /g, "_")) || { rcs: 0.1 };
+        if ((a.rcsOverride || profile.rcs || 0.1) < sys.rcsThreshold) continue;
+        if (d < bestDist) { bestDist = d; bestTarget = a; }
+      }
+      if (bestTarget) {
+        ad.ammo--;
+        if (Math.random() < sys.pk) {
+          bestTarget.status = "destroyed";
+          bestTarget.killedByAD = true;
+          metrics.kills++;
+          metrics.threat_value_destroyed += bestTarget.cost;
+          metrics.defense_cost += sys.cost / (sys.missiles * 10);
+        }
+      }
+    }
+  }
+
   const activeInt = interceptors.filter((i) => i.status === "active").length;
   const activeThreats = attackers.filter((a) => a.status === "active").length;
   return {
@@ -273,7 +318,7 @@ function LegendItem({ color, label, hollow }) {
 }
 
 // ── Leaflet Map component ──
-function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, defenseSpawns, placementMode, onPlaceSpawn, zoneCenter, zoneRadius, assetRadius }) {
+function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, defenseSpawns, placementMode, onPlaceSpawn, zoneCenter, zoneRadius, assetRadius, adUnits }) {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const droneLayerRef = useRef(null);
@@ -496,13 +541,44 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
     }).addTo(layer);
   }, [theater, simToLL, breachPoints, mapReady, zoneCenter, zoneRadius, assetRadius]);
 
-  // Draw drones, pursuit lines, and kill flashes
+  // Draw drones, AD units, pursuit lines, and kill flashes
   useEffect(() => {
     const L = LRef.current;
     const droneLayer = droneLayerRef.current;
     const flashLayer = flashLayerRef.current;
     if (!L || !droneLayer) return;
     droneLayer.clearLayers();
+
+    // Draw AD units (always visible)
+    for (const ad of adUnits) {
+      const sys = AD_SYSTEMS.find((s) => s.key === ad.key);
+      if (!sys) continue;
+      const ll = simToLL(ad.x, ad.y);
+      const alive = ad.health > 0;
+      // Range circle
+      if (alive) {
+        const th = THEATERS[theater] || THEATERS.kashmir;
+        const metersPerUnit = ((th.bounds.north - th.bounds.south) * 111000) / ARENA;
+        L.circle(ll, {
+          radius: sys.range * metersPerUnit, color: sys.color, fillColor: sys.color,
+          fillOpacity: 0.03, weight: 1, opacity: 0.3, dashArray: "4 4", interactive: false,
+        }).addTo(droneLayer);
+      }
+      // Unit marker
+      L.circleMarker(ll, {
+        radius: 7, color: alive ? sys.color : "#444", fillColor: alive ? sys.color : "#333",
+        fillOpacity: alive ? 0.8 : 0.4, weight: 2, opacity: alive ? 1 : 0.5,
+      }).addTo(droneLayer);
+      // Label
+      const ammoText = ad.ammo > 0 ? ` [${ad.ammo}]` : " [0]";
+      L.marker(ll, {
+        icon: L.divIcon({
+          className: "", iconSize: [80, 16], iconAnchor: [40, -10],
+          html: `<div style="color:${alive ? sys.color : "#555"};font-size:8px;font-family:monospace;text-align:center;text-shadow:0 0 3px #000">${sys.name}${ammoText}</div>`,
+        }),
+        interactive: false,
+      }).addTo(droneLayer);
+    }
 
     if (!simState) return;
 
@@ -603,7 +679,7 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
         }
       }
     }
-  }, [simState, killFlashes, simToLL]);
+  }, [simState, killFlashes, simToLL, adUnits, theater, mapReady]);
 
   return (
     <div
@@ -634,6 +710,11 @@ export default function SwarmInterception() {
   const [zoneCenter, setZoneCenter] = useState(DEFAULT_ZONE_CENTER);
   const [zoneRadius, setZoneRadius] = useState(DEFAULT_ZONE_RADIUS);
   const [assetRadius, setAssetRadius] = useState(DEFAULT_ASSET_RADIUS);
+  const [adUnits, setAdUnits] = useState([
+    { id: 0, key: "nasams", x: 4500, y: 5800, health: 1, ammo: 6 },
+    { id: 1, key: "iron_dome", x: 5500, y: 5800, health: 1, ammo: 20 },
+    { id: 2, key: "gepard", x: 5000, y: 4200, health: 1, ammo: 680 },
+  ]);
 
   const simRef = useRef(null);
   const runRef = useRef(false);
@@ -644,12 +725,14 @@ export default function SwarmInterception() {
   const theaterRef = useRef(theater);
   const zoneCenterRef = useRef(zoneCenter);
   const assetRadiusRef = useRef(assetRadius);
+  const adUnitsRef = useRef(adUnits);
 
   useEffect(() => { speedRef.current = speed; }, [speed]);
   useEffect(() => { pausedRef.current = paused; }, [paused]);
   useEffect(() => { theaterRef.current = theater; }, [theater]);
   useEffect(() => { zoneCenterRef.current = zoneCenter; }, [zoneCenter]);
   useEffect(() => { assetRadiusRef.current = assetRadius; }, [assetRadius]);
+  useEffect(() => { adUnitsRef.current = adUnits; }, [adUnits]);
 
   const handlePlaceSpawn = useCallback((x, y) => {
     if (placementMode === "attack") {
@@ -697,7 +780,7 @@ export default function SwarmInterception() {
       if (s.done) break;
       const prevKills = s.metrics.kills;
       const prevBreaches = s.metrics.breaches;
-      s = simStep(s, zoneCenterRef.current, assetRadiusRef.current);
+      s = simStep(s, zoneCenterRef.current, assetRadiusRef.current, adUnitsRef.current);
       const now = Date.now();
       // Kill impact flashes
       if (s.metrics.kills > prevKills) {
@@ -724,6 +807,7 @@ export default function SwarmInterception() {
     flashesRef.current = flashesRef.current.filter((f) => now - f.time < (f.type === "breach" ? 3000 : 800));
     setSimState({ ...s });
     setKillFlashes([...flashesRef.current]);
+    setAdUnits([...adUnitsRef.current]);
 
     if (s.done) { runRef.current = false; setRunning(false); setStatusText("COMPLETE"); }
     else { frameRef.current = requestAnimationFrame(runLoop); }
@@ -748,6 +832,11 @@ export default function SwarmInterception() {
     setZoneCenter(DEFAULT_ZONE_CENTER);
     setZoneRadius(DEFAULT_ZONE_RADIUS);
     setAssetRadius(DEFAULT_ASSET_RADIUS);
+    setAdUnits([
+      { id: 0, key: "nasams", x: 4500, y: 5800, health: 1, ammo: 6 },
+      { id: 1, key: "iron_dome", x: 5500, y: 5800, health: 1, ammo: 20 },
+      { id: 2, key: "gepard", x: 5000, y: 4200, health: 1, ammo: 680 },
+    ]);
   }, []);
 
   const togglePause = useCallback(() => {
@@ -960,7 +1049,7 @@ export default function SwarmInterception() {
 
           {/* Map */}
           <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
-            <SimMap simState={simState} theater={theater} killFlashes={killFlashes} breachPoints={breachPoints} attackSpawns={attackSpawns} defenseSpawns={defenseSpawns} placementMode={placementMode} onPlaceSpawn={placementMode ? handlePlaceSpawn : null} zoneCenter={zoneCenter} zoneRadius={zoneRadius} assetRadius={assetRadius} />
+            <SimMap simState={simState} theater={theater} killFlashes={killFlashes} breachPoints={breachPoints} attackSpawns={attackSpawns} defenseSpawns={defenseSpawns} placementMode={placementMode} onPlaceSpawn={placementMode ? handlePlaceSpawn : null} zoneCenter={zoneCenter} zoneRadius={zoneRadius} assetRadius={assetRadius} adUnits={adUnits} />
           </div>
 
           {/* Right panel */}
