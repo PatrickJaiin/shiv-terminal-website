@@ -232,7 +232,7 @@ function LegendItem({ color, label, hollow }) {
 }
 
 // ── Leaflet Map component ──
-function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, placementMode, onMapClick }) {
+function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, placementMode, onPlaceSpawn }) {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const droneLayerRef = useRef(null);
@@ -240,6 +240,10 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
   const legacyLayerRef = useRef(null);
   const flashLayerRef = useRef(null);
   const LRef = useRef(null);
+  const onPlaceRef = useRef(onPlaceSpawn);
+  const theaterRef2 = useRef(theater);
+  onPlaceRef.current = onPlaceSpawn;
+  theaterRef2.current = theater;
 
   // Initialize Leaflet map
   useEffect(() => {
@@ -253,7 +257,7 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
       const Leaf = LRef.current;
 
       if (mapInstanceRef.current) return;
-      const th = THEATERS[theater] || THEATERS.default;
+      const th = THEATERS[theaterRef2.current] || THEATERS.default;
 
       const map = Leaf.map(mapRef.current, {
         center: th.mapCenter,
@@ -281,13 +285,12 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
 
       // Click handler for spawn placement
       map.on("click", (e) => {
-        const cb = onMapClick.current;
-        if (!cb) return;
-        const thKey = onMapClick.theater || "default";
-        const th2 = THEATERS[thKey] || THEATERS.default;
+        const fn = onPlaceRef.current;
+        if (!fn) return;
+        const th2 = THEATERS[theaterRef2.current] || THEATERS.default;
         const [x, y] = latLngToSim(e.latlng.lat, e.latlng.lng, th2.bounds);
         if (x >= 0 && x <= ARENA && y >= 0 && y <= ARENA) {
-          cb(x, y);
+          fn(x, y);
         }
       });
     }
@@ -458,20 +461,15 @@ export default function SwarmInterception() {
   const frameRef = useRef(null);
   const theaterRef = useRef(theater);
 
-  // Mutable callback ref for map clicks - stores .current (callback) and .theater (string)
-  const mapClickRef = useRef(null);
-
   useEffect(() => { speedRef.current = speed; }, [speed]);
   useEffect(() => { pausedRef.current = paused; }, [paused]);
-  useEffect(() => { theaterRef.current = theater; mapClickRef.theater = theater; }, [theater]);
+  useEffect(() => { theaterRef.current = theater; }, [theater]);
 
-  useEffect(() => {
+  const handlePlaceSpawn = useCallback((x, y) => {
     if (placementMode === "attack") {
-      mapClickRef.current = (x, y) => setAttackSpawns((prev) => [...prev, [x, y]]);
+      setAttackSpawns((prev) => [...prev, [x, y]]);
     } else if (placementMode === "defense") {
-      mapClickRef.current = (x, y) => setDefenseSpawns((prev) => [...prev, [x, y]]);
-    } else {
-      mapClickRef.current = null;
+      setDefenseSpawns((prev) => [...prev, [x, y]]);
     }
   }, [placementMode]);
 
@@ -661,7 +659,7 @@ export default function SwarmInterception() {
 
           {/* Map */}
           <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
-            <SimMap simState={simState} theater={theater} killFlashes={killFlashes} attackSpawns={attackSpawns} defenseSpawns={defenseSpawns} placementMode={placementMode} onMapClick={mapClickRef} />
+            <SimMap simState={simState} theater={theater} killFlashes={killFlashes} attackSpawns={attackSpawns} defenseSpawns={defenseSpawns} placementMode={placementMode} onPlaceSpawn={placementMode ? handlePlaceSpawn : null} />
           </div>
 
           {/* Right panel */}
