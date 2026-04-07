@@ -71,10 +71,10 @@ const THEATERS = {
 };
 
 const SCENARIOS = {
-  default_30v20: { name: "default_30v20", attackers: { fpv_kamikaze: 15, shahed_136: 10, lancet_3: 5 }, interceptors: 20 },
-  massive_100v50: { name: "massive_100v50", attackers: { fpv_kamikaze: 50, shahed_136: 30, lancet_3: 15, mohajer_6: 5 }, interceptors: 50 },
-  cruise_strike: { name: "cruise_missile_strike", attackers: { mohajer_6: 5, orion: 3, wing_loong: 2 }, interceptors: 30 },
-  mixed_wave: { name: "mixed_wave", attackers: { fpv_kamikaze: 20, shahed_136: 10, lancet_3: 8, mohajer_6: 2 }, interceptors: 25 },
+  easy: { name: "Easy", attackers: { fpv_kamikaze: 10, shahed_136: 5 }, interceptors: 20 },
+  medium: { name: "Medium", attackers: { fpv_kamikaze: 25, shahed_136: 15, lancet_3: 8 }, interceptors: 20 },
+  hard: { name: "Hard", attackers: { fpv_kamikaze: 40, shahed_136: 25, lancet_3: 15, mohajer_6: 5 }, interceptors: 20 },
+  nightmare: { name: "Nightmare", attackers: { fpv_kamikaze: 60, shahed_136: 30, lancet_3: 20, mohajer_6: 8, orion: 3, wing_loong: 2 }, interceptors: 20 },
 };
 
 const KILL_RADIUS = 120;
@@ -831,7 +831,7 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
 // ── Main page ──
 export default function SwarmInterception() {
   const [theater, setTheater] = useState("ukraine_kyiv");
-  const [scenario, setScenario] = useState("default_30v20");
+  const [scenario, setScenario] = useState("medium");
   const [simState, setSimState] = useState(null);
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -1091,11 +1091,33 @@ export default function SwarmInterception() {
         <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
           {/* Left panel */}
           <div style={{ width: 280, background: "#111118", borderRight: "1px solid #2a2a35", padding: 16, overflowY: "auto", flexShrink: 0 }}>
-            <PanelTitle>Scenario</PanelTitle>
-            <select value={scenario} onChange={(e) => setScenario(e.target.value)} disabled={running}
-              style={{ width: "100%", padding: "8px 12px", background: "#1a1a24", border: "1px solid #2a2a35", color: "#e0e0e0", borderRadius: 4, fontSize: 13, marginBottom: 8, cursor: running ? "not-allowed" : "pointer", opacity: running ? 0.5 : 1 }}>
-              {Object.entries(SCENARIOS).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
-            </select>
+            <PanelTitle>Difficulty</PanelTitle>
+            <div style={{ display: "flex", gap: 3, marginBottom: 6 }}>
+              {Object.entries(SCENARIOS).map(([k, v]) => {
+                const total = Object.values(v.attackers).reduce((s, n) => s + n, 0);
+                const colors = { easy: "#4caf50", medium: "#ff9800", hard: "#ff5555", nightmare: "#cc00cc" };
+                const active = scenario === k;
+                return (
+                  <button key={k} onClick={() => setScenario(k)} disabled={running}
+                    style={{ flex: 1, padding: "6px 2px", fontSize: 10, fontWeight: active ? 700 : 400, borderRadius: 4, cursor: running ? "not-allowed" : "pointer", opacity: running ? 0.5 : 1, border: `1px solid ${active ? colors[k] : "#2a2a35"}`, background: active ? `${colors[k]}15` : "#1a1a24", color: active ? colors[k] : "#888" }}>
+                    {v.name}<br/><span style={{ fontSize: 8, opacity: 0.7 }}>{total} drones</span>
+                  </button>
+                );
+              })}
+            </div>
+            {(() => {
+              const sc = SCENARIOS[scenario];
+              if (!sc) return null;
+              const entries = Object.entries(sc.attackers);
+              return (
+                <div style={{ fontSize: 9, color: "#666", marginBottom: 6, lineHeight: 1.6 }}>
+                  {entries.map(([k, n]) => {
+                    const p = DRONE_DB.attack.find((d) => d.key === k);
+                    return <div key={k}>{p ? p.name : k} x{n}</div>;
+                  })}
+                </div>
+              );
+            })()}
 
             <PanelTitle>Theater</PanelTitle>
             <select value={theater} onChange={(e) => setTheater(e.target.value)} disabled={running}
