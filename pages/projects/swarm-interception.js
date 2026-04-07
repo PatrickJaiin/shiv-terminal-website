@@ -239,6 +239,8 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
   const spawnLayerRef = useRef(null);
   const legacyLayerRef = useRef(null);
   const flashLayerRef = useRef(null);
+  const tileLayersRef = useRef([]);
+  const arenaRectRef = useRef(null);
   const LRef = useRef(null);
   const onPlaceRef = useRef(onPlaceSpawn);
   const theaterRef2 = useRef(theater);
@@ -258,25 +260,41 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
 
       if (mapInstanceRef.current) return;
       const th = THEATERS[theaterRef2.current] || THEATERS.default;
+      const isDefault = theaterRef2.current === "default";
 
       const map = Leaf.map(mapRef.current, {
-        center: th.mapCenter,
-        zoom: th.mapZoom,
+        center: isDefault ? [5000, 5000] : th.mapCenter,
+        zoom: isDefault ? -1 : th.mapZoom,
         zoomControl: true,
+        crs: isDefault ? Leaf.CRS.Simple : Leaf.CRS.EPSG3857,
+        maxBounds: isDefault ? [[-500, -500], [10500, 10500]] : undefined,
       });
       mapInstanceRef.current = map;
 
-      // Satellite tiles
-      Leaf.tileLayer(
-        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-        { attribution: "Esri Satellite", maxZoom: 18 }
-      ).addTo(map);
-
-      // Streets overlay
-      Leaf.tileLayer(
-        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-        { attribution: "OSM", maxZoom: 19, opacity: 0.35 }
-      ).addTo(map);
+      if (isDefault) {
+        // Fit to arena bounds for simple CRS
+        map.fitBounds([[0, 0], [ARENA, ARENA]]);
+        // Draw arena rectangle
+        arenaRectRef.current = Leaf.rectangle([[0, 0], [ARENA, ARENA]], {
+          color: "#2a2a35", fillColor: "#0f0f18", fillOpacity: 1, weight: 2,
+        }).addTo(map);
+        // Grid lines
+        for (let i = 1; i < 10; i++) {
+          const v = (i / 10) * ARENA;
+          Leaf.polyline([[v, 0], [v, ARENA]], { color: "#1a1a28", weight: 0.5, interactive: false }).addTo(map);
+          Leaf.polyline([[0, v], [ARENA, v]], { color: "#1a1a28", weight: 0.5, interactive: false }).addTo(map);
+        }
+      } else {
+        const sat = Leaf.tileLayer(
+          "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+          { attribution: "Esri Satellite", maxZoom: 18 }
+        ).addTo(map);
+        const streets = Leaf.tileLayer(
+          "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+          { attribution: "OSM", maxZoom: 19, opacity: 0.35 }
+        ).addTo(map);
+        tileLayersRef.current = [sat, streets];
+      }
 
       droneLayerRef.current = Leaf.layerGroup().addTo(map);
       spawnLayerRef.current = Leaf.layerGroup().addTo(map);
@@ -287,23 +305,116 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
       map.on("click", (e) => {
         const fn = onPlaceRef.current;
         if (!fn) return;
-        const th2 = THEATERS[theaterRef2.current] || THEATERS.default;
-        const [x, y] = latLngToSim(e.latlng.lat, e.latlng.lng, th2.bounds);
-        if (x >= 0 && x <= ARENA && y >= 0 && y <= ARENA) {
-          fn(x, y);
+        const curTheater = theaterRef2.current;
+        const isSimple = curTheater === "default";
+        let x, y;
+        if (isSimple) {
+          x = e.latlng.lng;
+          y = e.latlng.lat;
+        } else {
+          const th2 = THEATERS[curTheater] || THEATERS.default;
+          [x, y] = latLngToSim(e.latlng.lat, e.latlng.lng, th2.bounds);
         }
+        x = Math.max(0, Math.min(ARENA, x));
+        y = Math.max(0, Math.min(ARENA, y));
+        fn(x, y);
       });
     }
     init();
     return () => { cancelled = true; };
   }, []);
 
-  // Update map view when theater changes
+  // Helper: convert sim coords to map latlng based on theater
+  const simToLL = useCallback((x, y) => {
+    if (theater === "default") return [y, x]; // Simple CRS: lat=y, lng=x
+    const th = THEATERS[theater] || THEATERS.default;
+    return simToLatLng(x, y, th.bounds);
+  }, [theater]);
+
+  // Reinitialize map when switching between default (Simple CRS) and geo theaters
+  const prevTheaterTypeRef = useRef(theater === "default" ? "simple" : "geo");
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
-    const th = THEATERS[theater] || THEATERS.default;
-    map.setView(th.mapCenter, th.mapZoom);
+    const isDefault = theater === "default";
+    const newType = isDefault ? "simple" : "geo";
+    if (newType !== prevTheaterTypeRef.current) {
+      // CRS changed - must recreate map
+      map.remove();
+      mapInstanceRef.current = null;
+      droneLayerRef.current = null;
+      spawnLayerRef.current = null;
+      legacyLayerRef.current = null;
+      flashLayerRef.current = null;
+      tileLayersRef.current = [];
+      arenaRectRef.current = null;
+      LRef.current = null;
+      prevTheaterTypeRef.current = newType;
+
+      // Re-run init
+      (async () => {
+        const L = await import("leaflet");
+        const Leaf = L.default || L;
+        LRef.current = Leaf;
+        const th = THEATERS[theater] || THEATERS.default;
+
+        const newMap = Leaf.map(mapRef.current, {
+          center: isDefault ? [5000, 5000] : th.mapCenter,
+          zoom: isDefault ? -1 : th.mapZoom,
+          zoomControl: true,
+          crs: isDefault ? Leaf.CRS.Simple : Leaf.CRS.EPSG3857,
+          maxBounds: isDefault ? [[-500, -500], [10500, 10500]] : undefined,
+        });
+        mapInstanceRef.current = newMap;
+
+        if (isDefault) {
+          newMap.fitBounds([[0, 0], [ARENA, ARENA]]);
+          arenaRectRef.current = Leaf.rectangle([[0, 0], [ARENA, ARENA]], {
+            color: "#2a2a35", fillColor: "#0f0f18", fillOpacity: 1, weight: 2,
+          }).addTo(newMap);
+          for (let i = 1; i < 10; i++) {
+            const v = (i / 10) * ARENA;
+            Leaf.polyline([[v, 0], [v, ARENA]], { color: "#1a1a28", weight: 0.5, interactive: false }).addTo(newMap);
+            Leaf.polyline([[0, v], [ARENA, v]], { color: "#1a1a28", weight: 0.5, interactive: false }).addTo(newMap);
+          }
+        } else {
+          const sat = Leaf.tileLayer(
+            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+            { attribution: "Esri Satellite", maxZoom: 18 }
+          ).addTo(newMap);
+          const streets = Leaf.tileLayer(
+            "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+            { attribution: "OSM", maxZoom: 19, opacity: 0.35 }
+          ).addTo(newMap);
+          tileLayersRef.current = [sat, streets];
+        }
+
+        droneLayerRef.current = Leaf.layerGroup().addTo(newMap);
+        spawnLayerRef.current = Leaf.layerGroup().addTo(newMap);
+        legacyLayerRef.current = Leaf.layerGroup().addTo(newMap);
+        flashLayerRef.current = Leaf.layerGroup().addTo(newMap);
+
+        newMap.on("click", (e) => {
+          const fn = onPlaceRef.current;
+          if (!fn) return;
+          const curTheater = theaterRef2.current;
+          const isSimple = curTheater === "default";
+          let x2, y2;
+          if (isSimple) { x2 = e.latlng.lng; y2 = e.latlng.lat; }
+          else {
+            const th2 = THEATERS[curTheater] || THEATERS.default;
+            [x2, y2] = latLngToSim(e.latlng.lat, e.latlng.lng, th2.bounds);
+          }
+          x2 = Math.max(0, Math.min(ARENA, x2));
+          y2 = Math.max(0, Math.min(ARENA, y2));
+          fn(x2, y2);
+        });
+      })();
+    } else if (!isDefault) {
+      // Same CRS type, just pan to new theater
+      const th = THEATERS[theater] || THEATERS.default;
+      map.setView(th.mapCenter, th.mapZoom);
+    }
   }, [theater]);
 
   // Draw spawn markers
@@ -320,7 +431,7 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
     const defCustom = defenseSpawns.length > 0;
 
     for (const sp of atkPoints) {
-      const ll = simToLatLng(sp[0], sp[1], th.bounds);
+      const ll = simToLL(sp[0], sp[1]);
       L.circleMarker(ll, {
         radius: 10, color: atkCustom ? "#ff5555" : "#662222", fillColor: atkCustom ? "#ff5555" : "#662222",
         fillOpacity: 0.3, weight: 2, opacity: 0.8,
@@ -334,7 +445,7 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
       }).addTo(layer);
     }
     for (const sp of defPoints) {
-      const ll = simToLatLng(sp[0], sp[1], th.bounds);
+      const ll = simToLL(sp[0], sp[1]);
       L.circleMarker(ll, {
         radius: 10, color: defCustom ? "#4a9eff" : "#223366", fillColor: defCustom ? "#4a9eff" : "#223366",
         fillOpacity: 0.3, weight: 2, opacity: 0.8,
@@ -347,7 +458,7 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
         interactive: false,
       }).addTo(layer);
     }
-  }, [theater, attackSpawns, defenseSpawns]);
+  }, [theater, attackSpawns, defenseSpawns, simToLL]);
 
   // Draw legacy zone
   useEffect(() => {
@@ -356,18 +467,24 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
     if (!L || !layer) return;
     layer.clearLayers();
 
-    const th = THEATERS[theater] || THEATERS.default;
-    const center = simToLatLng(LEGACY_CENTER[0], LEGACY_CENTER[1], th.bounds);
+    const center = simToLL(LEGACY_CENTER[0], LEGACY_CENTER[1]);
+    const isDefault = theater === "default";
 
-    // Scale legacy radius from sim meters to approximate geographic meters
-    const latSpan = th.bounds.north - th.bounds.south;
-    const metersPerUnit = (latSpan * 111000) / ARENA;
-    const geoRadius = LEGACY_RADIUS * metersPerUnit;
-
-    L.circle(center, {
-      radius: geoRadius, color: "#22aa22", fillColor: "#22aa22",
-      fillOpacity: 0.04, weight: 2, opacity: 0.8,
-    }).addTo(layer);
+    if (isDefault) {
+      L.circle(center, {
+        radius: LEGACY_RADIUS, color: "#22aa22", fillColor: "#22aa22",
+        fillOpacity: 0.04, weight: 2, opacity: 0.8,
+      }).addTo(layer);
+    } else {
+      const th = THEATERS[theater] || THEATERS.default;
+      const latSpan = th.bounds.north - th.bounds.south;
+      const metersPerUnit = (latSpan * 111000) / ARENA;
+      const geoRadius = LEGACY_RADIUS * metersPerUnit;
+      L.circle(center, {
+        radius: geoRadius, color: "#22aa22", fillColor: "#22aa22",
+        fillOpacity: 0.04, weight: 2, opacity: 0.8,
+      }).addTo(layer);
+    }
 
     L.marker(center, {
       icon: L.divIcon({
@@ -376,9 +493,9 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
       }),
       interactive: false,
     }).addTo(layer);
-  }, [theater]);
+  }, [theater, simToLL]);
 
-  // Draw drones and kill flashes
+  // Draw drones, pursuit lines, and kill flashes
   useEffect(() => {
     const L = LRef.current;
     const droneLayer = droneLayerRef.current;
@@ -387,12 +504,11 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
     droneLayer.clearLayers();
 
     if (!simState) return;
-    const th = THEATERS[theater] || THEATERS.default;
 
     // Attackers
     for (const d of simState.attackers) {
       if (d.status === "breached") continue;
-      const ll = simToLatLng(d.x, d.y, th.bounds);
+      const ll = simToLL(d.x, d.y);
       const colors = { cheap: "#ff6666", medium: "#cc3333", expensive: "#881111" };
       const sizes = { cheap: 4, medium: 5, expensive: 6 };
       const color = d.status !== "active" ? "#444" : (colors[d.threat] || "#ff6666");
@@ -402,14 +518,25 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
       }).addTo(droneLayer);
     }
 
-    // Interceptors
+    // Interceptors + pursuit lines
     for (const d of simState.interceptors) {
-      const ll = simToLatLng(d.x, d.y, th.bounds);
+      const ll = simToLL(d.x, d.y);
       const color = d.status === "active" ? "#4a9eff" : "#444";
       const radius = d.status === "active" ? 5 : 2;
       L.circleMarker(ll, {
         radius, color, fillColor: color, fillOpacity: 0.9, weight: 1, opacity: 1,
       }).addTo(droneLayer);
+
+      // Pursuit line to target
+      if (d.status === "active" && d.targetId != null) {
+        const target = simState.attackers.find((a) => a.id === d.targetId && a.status === "active");
+        if (target) {
+          const tll = simToLL(target.x, target.y);
+          L.polyline([ll, tll], {
+            color: "#4a9eff", weight: 1, opacity: 0.4, dashArray: "4 4", interactive: false,
+          }).addTo(droneLayer);
+        }
+      }
     }
 
     // Kill flashes
@@ -420,7 +547,7 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
         const age = now - flash.time;
         if (age > 500) continue;
         const progress = age / 500;
-        const ll = simToLatLng(flash.x, flash.y, th.bounds);
+        const ll = simToLL(flash.x, flash.y);
         L.circleMarker(ll, {
           radius: 10 + progress * 20,
           color: "#ffc800", fillColor: "#ff8800",
@@ -428,7 +555,7 @@ function SimMap({ simState, theater, killFlashes, attackSpawns, defenseSpawns, p
         }).addTo(flashLayer);
       }
     }
-  }, [simState, theater, killFlashes]);
+  }, [simState, killFlashes, simToLL]);
 
   return (
     <div
@@ -445,7 +572,7 @@ export default function SwarmInterception() {
   const [simState, setSimState] = useState(null);
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
-  const [speed, setSpeed] = useState(10);
+  const [speed, setSpeed] = useState(3);
   const [dbTab, setDbTab] = useState("attack");
   const [killFlashes, setKillFlashes] = useState([]);
   const [statusText, setStatusText] = useState("READY");
@@ -456,7 +583,7 @@ export default function SwarmInterception() {
   const simRef = useRef(null);
   const runRef = useRef(false);
   const pausedRef = useRef(false);
-  const speedRef = useRef(10);
+  const speedRef = useRef(3);
   const flashesRef = useRef([]);
   const frameRef = useRef(null);
   const theaterRef = useRef(theater);
