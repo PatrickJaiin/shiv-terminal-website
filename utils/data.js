@@ -41,7 +41,7 @@ export const siteData = {
       stack: ["Python", "ROS2", "Reinforcement Learning", "PyTorch", "Gazebo"],
       link: "/projects/swarm-interception",
       year: "2026",
-      type: "app",
+      type: "interactive",
     },
     {
       name: "AI Trading Tool",
