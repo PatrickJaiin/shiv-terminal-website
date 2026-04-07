@@ -748,6 +748,19 @@ export default function SwarmInterception() {
       const dy = y - zoneCenter[1];
       if (Math.sqrt(dx * dx + dy * dy) > zoneRadius) return;
       setDefenseSpawns((prev) => [...prev, { x, y, droneKey: spawnDefKey, count: spawnCount }]);
+    } else if (placementMode === "zone_center") {
+      setZoneCenter([Math.round(x), Math.round(y)]);
+      setPlacementMode(null);
+    } else if (placementMode === "zone_resize") {
+      const dx = x - zoneCenter[0];
+      const dy = y - zoneCenter[1];
+      setZoneRadius(Math.max(500, Math.round(Math.sqrt(dx * dx + dy * dy))));
+      setPlacementMode(null);
+    } else if (placementMode === "asset_resize") {
+      const dx = x - zoneCenter[0];
+      const dy = y - zoneCenter[1];
+      setAssetRadius(Math.max(100, Math.round(Math.sqrt(dx * dx + dy * dy))));
+      setPlacementMode(null);
     }
   }, [placementMode, spawnDroneKey, spawnDefKey, spawnCount, zoneCenter, zoneRadius]);
 
@@ -933,28 +946,22 @@ export default function SwarmInterception() {
             </select>
 
             <PanelTitle>Defense Zones</PanelTitle>
-            <div style={{ display: "flex", gap: 4, marginBottom: 4, alignItems: "center" }}>
-              <span style={{ fontSize: 10, color: "#22aa22", width: 55, flexShrink: 0 }}>AD Zone</span>
-              <input type="number" value={zoneRadius} onChange={(e) => setZoneRadius(Math.max(500, parseInt(e.target.value) || 2500))}
-                min="500" max="5000" step="100" disabled={running}
-                style={{ flex: 1, padding: "4px 6px", background: "#1a1a24", border: "1px solid #2a2a35", color: "#e0e0e0", borderRadius: 4, fontSize: 10, textAlign: "center" }} />
-              <span style={{ fontSize: 9, color: "#666" }}>r</span>
+            <div style={{ fontSize: 10, color: "#666", marginBottom: 4 }}>Click map to set center or resize.</div>
+            <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
+              <button onClick={() => setPlacementMode(placementMode === "zone_center" ? null : "zone_center")} disabled={running}
+                style={{ ...btnBase, fontSize: 10, padding: "5px 8px", background: placementMode === "zone_center" ? "#1a3a1a" : "#1a1a24", borderColor: placementMode === "zone_center" ? "#22aa22" : "#2a2a35", color: placementMode === "zone_center" ? "#22aa22" : "#888", opacity: running ? 0.4 : 1, cursor: running ? "not-allowed" : "pointer" }}>
+                {placementMode === "zone_center" ? "Click map..." : "Set Center"}
+              </button>
             </div>
-            <div style={{ display: "flex", gap: 4, marginBottom: 4, alignItems: "center" }}>
-              <span style={{ fontSize: 10, color: "#ff4444", width: 55, flexShrink: 0 }}>Asset</span>
-              <input type="number" value={assetRadius} onChange={(e) => setAssetRadius(Math.max(100, parseInt(e.target.value) || 600))}
-                min="100" max="2000" step="50" disabled={running}
-                style={{ flex: 1, padding: "4px 6px", background: "#1a1a24", border: "1px solid #2a2a35", color: "#e0e0e0", borderRadius: 4, fontSize: 10, textAlign: "center" }} />
-              <span style={{ fontSize: 9, color: "#666" }}>r</span>
-            </div>
-            <div style={{ display: "flex", gap: 4, marginBottom: 6, alignItems: "center" }}>
-              <span style={{ fontSize: 10, color: "#888", width: 55, flexShrink: 0 }}>Center</span>
-              <input type="number" value={zoneCenter[0]} onChange={(e) => setZoneCenter([parseInt(e.target.value) || 5000, zoneCenter[1]])}
-                min="0" max="10000" step="500" disabled={running}
-                style={{ flex: 1, padding: "4px 6px", background: "#1a1a24", border: "1px solid #2a2a35", color: "#e0e0e0", borderRadius: 4, fontSize: 10, textAlign: "center" }} />
-              <input type="number" value={zoneCenter[1]} onChange={(e) => setZoneCenter([zoneCenter[0], parseInt(e.target.value) || 5000])}
-                min="0" max="10000" step="500" disabled={running}
-                style={{ flex: 1, padding: "4px 6px", background: "#1a1a24", border: "1px solid #2a2a35", color: "#e0e0e0", borderRadius: 4, fontSize: 10, textAlign: "center" }} />
+            <div style={{ display: "flex", gap: 4, marginBottom: 4 }}>
+              <button onClick={() => setPlacementMode(placementMode === "zone_resize" ? null : "zone_resize")} disabled={running}
+                style={{ ...btnBase, fontSize: 10, padding: "5px 8px", background: placementMode === "zone_resize" ? "#1a3a1a" : "#1a1a24", borderColor: placementMode === "zone_resize" ? "#22aa22" : "#2a2a35", color: placementMode === "zone_resize" ? "#22aa22" : "#888", opacity: running ? 0.4 : 1, cursor: running ? "not-allowed" : "pointer" }}>
+                {placementMode === "zone_resize" ? "Click edge..." : `AD Zone r:${zoneRadius}`}
+              </button>
+              <button onClick={() => setPlacementMode(placementMode === "asset_resize" ? null : "asset_resize")} disabled={running}
+                style={{ ...btnBase, fontSize: 10, padding: "5px 8px", background: placementMode === "asset_resize" ? "#4a1a1a" : "#1a1a24", borderColor: placementMode === "asset_resize" ? "#ff4444" : "#2a2a35", color: placementMode === "asset_resize" ? "#ff4444" : "#888", opacity: running ? 0.4 : 1, cursor: running ? "not-allowed" : "pointer" }}>
+                {placementMode === "asset_resize" ? "Click edge..." : `Asset r:${assetRadius}`}
+              </button>
             </div>
 
             <PanelTitle>Spawn Points</PanelTitle>
