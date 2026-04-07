@@ -369,9 +369,23 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
   const LRef = useRef(null);
   const onPlaceRef = useRef(onPlaceSpawn);
   const theaterRef2 = useRef(theater);
+  const previewLayerRef = useRef(null);
+  const dragStateRef = useRef(null); // { type, startX, startY }
   const [mapReady, setMapReady] = useState(false);
   onPlaceRef.current = onPlaceSpawn;
+  // Attach zoneCenter to the ref so drag handlers can read it
+  if (onPlaceRef.current) onPlaceRef.current.zoneCenter = zoneCenter;
   theaterRef2.current = theater;
+
+  // Sync placement mode into drag state
+  useEffect(() => {
+    if (placementMode === "zone_center" || placementMode === "zone_resize" || placementMode === "asset_resize") {
+      dragStateRef.current = { mode: placementMode, dragging: false };
+    } else {
+      dragStateRef.current = null;
+      if (previewLayerRef.current) previewLayerRef.current.clearLayers();
+    }
+  }, [placementMode]);
 
   // Initialize Leaflet map
   useEffect(() => {
@@ -391,6 +405,7 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
         center: th.mapCenter,
         zoom: th.mapZoom,
         zoomControl: true,
+        preferCanvas: true,
       });
       mapInstanceRef.current = map;
 
@@ -407,14 +422,107 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
       spawnLayerRef.current = Leaf.layerGroup().addTo(map);
       legacyLayerRef.current = Leaf.layerGroup().addTo(map);
       flashLayerRef.current = Leaf.layerGroup().addTo(map);
+      previewLayerRef.current = Leaf.layerGroup().addTo(map);
 
-      map.on("click", (e) => {
+      // Helper to convert click latlng to sim coords
+      function clickToSim(latlng) {
+        const th2 = THEATERS[theaterRef2.current] || THEATERS.kashmir;
+        let [x, y] = latLngToSim(latlng.lat, latlng.lng, th2.bounds);
+        return [Math.max(0, Math.min(ARENA, x)), Math.max(0, Math.min(ARENA, y))];
+      }
+
+      function simToMap(x, y) {
+        const th2 = THEATERS[theaterRef2.current] || THEATERS.kashmir;
+        return simToLatLng(x, y, th2.bounds);
+      }
+
+      function getMetersPerUnit() {
+        const th2 = THEATERS[theaterRef2.current] || THEATERS.kashmir;
+        return ((th2.bounds.north - th2.bounds.south) * 111000) / ARENA;
+      }
+
+      // Mousedown: start drag for zone placement modes
+      map.on("mousedown", (e) => {
         const fn = onPlaceRef.current;
         if (!fn) return;
-        const th2 = THEATERS[theaterRef2.current] || THEATERS.kashmir;
-        let [x, y] = latLngToSim(e.latlng.lat, e.latlng.lng, th2.bounds);
-        x = Math.max(0, Math.min(ARENA, x));
-        y = Math.max(0, Math.min(ARENA, y));
+        const mode = dragStateRef.current?.mode;
+        if (mode === "zone_center" || mode === "zone_resize" || mode === "asset_resize") {
+          const [x, y] = clickToSim(e.latlng);
+          if (mode === "zone_center") {
+            dragStateRef.current = { mode, startX: x, startY: y, dragging: true };
+            fn(x, y); // set center immediately
+          } else {
+            dragStateRef.current = { mode, dragging: true };
+          }
+          map.dragging.disable();
+          e.originalEvent.preventDefault();
+        }
+      });
+
+      // Mousemove: live preview while dragging
+      map.on("mousemove", (e) => {
+        const ds = dragStateRef.current;
+        if (!ds || !ds.dragging) return;
+        const preview = previewLayerRef.current;
+        if (!preview) return;
+        preview.clearLayers();
+
+        const [mx, my] = clickToSim(e.latlng);
+        const mpu = getMetersPerUnit();
+
+        if (ds.mode === "zone_center") {
+          // Show both zone circles at cursor position
+          const ll = simToMap(mx, my);
+          onPlaceRef.current?.(mx, my);
+          Leaf.circle(ll, { radius: 2500 * mpu, color: "#22aa22", fillColor: "#22aa22", fillOpacity: 0.05, weight: 2, opacity: 0.6, dashArray: "10 6", interactive: false }).addTo(preview);
+          Leaf.circle(ll, { radius: 600 * mpu, color: "#ff4444", fillColor: "#ff2222", fillOpacity: 0.08, weight: 2, opacity: 0.6, dashArray: "8 6", interactive: false }).addTo(preview);
+          Leaf.circleMarker(ll, { radius: 4, color: "#ffffff", fillColor: "#ffffff", fillOpacity: 1, weight: 0 }).addTo(preview);
+        } else if (ds.mode === "zone_resize" || ds.mode === "asset_resize") {
+          // Show preview circle from current zone center to cursor
+          const zc = onPlaceRef.current?.zoneCenter || [5000, 5000];
+          const dx = mx - zc[0];
+          const dy = my - zc[1];
+          const r = Math.max(ds.mode === "asset_resize" ? 100 : 500, Math.round(Math.sqrt(dx * dx + dy * dy)));
+          const centerLL = simToMap(zc[0], zc[1]);
+          const edgeLL = e.latlng;
+          const isAsset = ds.mode === "asset_resize";
+          Leaf.circle(centerLL, { radius: r * mpu, color: isAsset ? "#ff4444" : "#22aa22", fillColor: isAsset ? "#ff2222" : "#22aa22", fillOpacity: 0.08, weight: 2, opacity: 0.8, dashArray: isAsset ? "8 6" : "10 6", interactive: false }).addTo(preview);
+          // Line from center to cursor
+          Leaf.polyline([centerLL, edgeLL], { color: isAsset ? "#ff4444" : "#22aa22", weight: 1, opacity: 0.5, dashArray: "4 4", interactive: false }).addTo(preview);
+          // Radius label
+          Leaf.marker(edgeLL, {
+            icon: Leaf.divIcon({ className: "", iconSize: [60, 14], iconAnchor: [30, -8], html: `<div style="color:${isAsset ? "#ff4444" : "#22aa22"};font-size:10px;font-family:monospace;text-align:center;text-shadow:0 0 3px #000">${r}</div>` }),
+            interactive: false,
+          }).addTo(preview);
+        }
+      });
+
+      // Mouseup: confirm drag
+      map.on("mouseup", (e) => {
+        const ds = dragStateRef.current;
+        if (!ds || !ds.dragging) return;
+        map.dragging.enable();
+        const preview = previewLayerRef.current;
+        if (preview) preview.clearLayers();
+
+        const [mx, my] = clickToSim(e.latlng);
+        const fn = onPlaceRef.current;
+
+        if (ds.mode === "zone_center") {
+          fn?.(mx, my);
+        } else if (ds.mode === "zone_resize" || ds.mode === "asset_resize") {
+          fn?.(mx, my);
+        }
+        dragStateRef.current = { ...ds, dragging: false };
+      });
+
+      // Click handler for spawn placement (non-drag modes)
+      map.on("click", (e) => {
+        const ds = dragStateRef.current;
+        if (ds && (ds.mode === "zone_center" || ds.mode === "zone_resize" || ds.mode === "asset_resize")) return;
+        const fn = onPlaceRef.current;
+        if (!fn) return;
+        const [x, y] = clickToSim(e.latlng);
         fn(x, y);
       });
 
