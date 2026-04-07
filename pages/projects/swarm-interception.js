@@ -1172,6 +1172,7 @@ export default function SwarmInterception() {
             <h1 style={{ fontSize: 16, fontWeight: 600, color: "#4a9eff", letterSpacing: 0.5, margin: 0 }}>SWARM INTERCEPTION SIMULATOR</h1>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <Link href="/projects/swarm-1v1" style={{ padding: "4px 12px", background: "#4a1a2a", border: "1px solid #8a2a4a", color: "#ff6688", borderRadius: 4, fontSize: 11, cursor: "pointer", textDecoration: "none", fontWeight: 600 }}>1v1 GAME MODE</Link>
             <button onClick={() => setStatsPanel(true)} style={{ padding: "4px 12px", background: "#1a2a40", border: "1px solid #2a4a6a", color: "#4a9eff", borderRadius: 4, fontSize: 11, cursor: "pointer" }}>Unit Database</button>
             <span style={{ fontSize: 12, color: statusColor }}>{statusText}</span>
           </div>
