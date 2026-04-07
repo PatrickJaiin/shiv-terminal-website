@@ -596,6 +596,10 @@ export default function SwarmInterception() {
     if (placementMode === "attack") {
       setAttackSpawns((prev) => [...prev, [x, y]]);
     } else if (placementMode === "defense") {
+      // Only allow inside legacy defense zone
+      const dx = x - LEGACY_CENTER[0];
+      const dy = y - LEGACY_CENTER[1];
+      if (Math.sqrt(dx * dx + dy * dy) > LEGACY_RADIUS) return;
       setDefenseSpawns((prev) => [...prev, [x, y]]);
     }
   }, [placementMode]);
