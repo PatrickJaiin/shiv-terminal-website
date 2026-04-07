@@ -72,9 +72,9 @@ const THEATERS = {
 
 const SCENARIOS = {
   sandbox: { name: "Sandbox", attackers: { fpv_kamikaze: 10, shahed_136: 5 }, interceptors: 20, budget: null },
-  medium: { name: "Medium", attackers: { fpv_kamikaze: 60, shahed_136: 30, lancet_3: 15 }, interceptors: 12, budget: 200 },
-  hard: { name: "Hard", attackers: { fpv_kamikaze: 120, shahed_136: 60, lancet_3: 30, mohajer_6: 10 }, interceptors: 10, budget: 250 },
-  nightmare: { name: "Nightmare", attackers: { fpv_kamikaze: 200, shahed_136: 80, lancet_3: 50, mohajer_6: 20, orion: 8, wing_loong: 5 }, interceptors: 8, budget: 300 },
+  medium: { name: "Medium", attackers: { fpv_kamikaze: 80, shahed_136: 40, lancet_3: 20 }, interceptors: 6, budget: 8 },
+  hard: { name: "Hard", attackers: { fpv_kamikaze: 150, shahed_136: 70, lancet_3: 40, mohajer_6: 15 }, interceptors: 5, budget: 12 },
+  nightmare: { name: "Nightmare", attackers: { fpv_kamikaze: 250, shahed_136: 100, lancet_3: 60, mohajer_6: 25, orion: 10, wing_loong: 5 }, interceptors: 4, budget: 15 },
 };
 
 const KILL_RADIUS = 120;
@@ -876,10 +876,9 @@ export default function SwarmInterception() {
   const [zoneCenter, setZoneCenter] = useState(DEFAULT_ZONE_CENTER);
   const [zoneRadius, setZoneRadius] = useState(DEFAULT_ZONE_RADIUS);
   const [assetRadius, setAssetRadius] = useState(DEFAULT_ASSET_RADIUS);
-  const [defenseBudget, setDefenseBudget] = useState(300); // in millions USD
+  const [defenseBudget, setDefenseBudget] = useState(8); // in millions USD
   const [adPlaceKey, setAdPlaceKey] = useState("iron_dome");
   const [adUnits, setAdUnits] = useState([
-    { id: 0, key: "gepard", x: 5000, y: 4500, health: 1, ammo: 680 },
   ]);
 
   const simRef = useRef(null);
@@ -1027,7 +1026,7 @@ export default function SwarmInterception() {
     setZoneCenter(DEFAULT_ZONE_CENTER);
     setZoneRadius(DEFAULT_ZONE_RADIUS);
     setAssetRadius(DEFAULT_ASSET_RADIUS);
-    setDefenseBudget(300);
+    setDefenseBudget(8);
     setAdUnits([
       { id: 0, key: "nasams", x: 4500, y: 5800, health: 1, ammo: 6 },
       { id: 1, key: "iron_dome", x: 5500, y: 5800, health: 1, ammo: 20 },
