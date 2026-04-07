@@ -282,6 +282,7 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
   const LRef = useRef(null);
   const onPlaceRef = useRef(onPlaceSpawn);
   const theaterRef2 = useRef(theater);
+  const [mapReady, setMapReady] = useState(false);
   onPlaceRef.current = onPlaceSpawn;
   theaterRef2.current = theater;
 
@@ -329,6 +330,8 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
         y = Math.max(0, Math.min(ARENA, y));
         fn(x, y);
       });
+
+      setMapReady(true);
     }
     init();
     return () => { cancelled = true; };
@@ -408,7 +411,7 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
         }).addTo(layer);
       }
     }
-  }, [theater, attackSpawns, defenseSpawns, simToLL]);
+  }, [theater, attackSpawns, defenseSpawns, simToLL, mapReady]);
 
   // Draw legacy zone with breach gaps
   useEffect(() => {
@@ -492,7 +495,7 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
       }),
       interactive: false,
     }).addTo(layer);
-  }, [theater, simToLL, breachPoints]);
+  }, [theater, simToLL, breachPoints, mapReady]);
 
   // Draw drones, pursuit lines, and kill flashes
   useEffect(() => {
@@ -613,7 +616,7 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
 
 // ── Main page ──
 export default function SwarmInterception() {
-  const [theater, setTheater] = useState("kashmir");
+  const [theater, setTheater] = useState("ukraine_kyiv");
   const [scenario, setScenario] = useState("default_30v20");
   const [simState, setSimState] = useState(null);
   const [running, setRunning] = useState(false);
