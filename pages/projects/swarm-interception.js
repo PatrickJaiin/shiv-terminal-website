@@ -1243,13 +1243,24 @@ export default function SwarmInterception() {
             </div>
             {(() => {
               const budgetUSD = defenseBudget * 1e6;
-              // Costs
-              const droneFleetCost = simState ? simState.interceptors.reduce((s, i) => s + i.cost, 0) : 0;
+              // Drone fleet cost: from sim state if running, from spawns/scenario if pre-sim
+              let droneFleetCost = 0;
+              if (simState) {
+                droneFleetCost = simState.interceptors.reduce((s, i) => s + i.cost, 0);
+              } else if (defenseSpawns.length > 0) {
+                droneFleetCost = defenseSpawns.reduce((s, sp) => {
+                  const p = DRONE_DB.interceptor.find((d) => d.key === sp.droneKey) || DRONE_DB.interceptor[0];
+                  return s + p.cost * sp.count;
+                }, 0);
+              } else {
+                const sc = SCENARIOS[scenario];
+                if (sc) droneFleetCost = sc.interceptors * 200000;
+              }
               const lostDroneCost = simState ? simState.interceptors.filter((i) => i.status === "expended").reduce((s, i) => s + i.cost, 0) : 0;
-              const flightCost = m.defense_cost || 0; // engagement/ops costs
+              const flightCost = m.defense_cost || 0;
               const adDeployCost = adUnits.reduce((s, ad) => { const sys = AD_SYSTEMS.find((s2) => s2.key === ad.key); return s + (sys ? sys.cost : 0); }, 0);
               const adDamageCost = adUnits.reduce((s, ad) => { if (ad.health <= 0) { const sys = AD_SYSTEMS.find((s2) => s2.key === ad.key); return s + (sys ? sys.cost * 0.5 : 0); } return s; }, 0);
-              const totalSpent = droneFleetCost + flightCost + adDeployCost + adDamageCost;
+              const totalSpent = droneFleetCost + lostDroneCost + flightCost + adDeployCost + adDamageCost;
               const remaining = budgetUSD - totalSpent;
               const pctUsed = budgetUSD > 0 ? Math.min(100, (totalSpent / budgetUSD) * 100) : 0;
               const overBudget = remaining < 0;
