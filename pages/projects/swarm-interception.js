@@ -594,53 +594,25 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
     const atkCustom = attackSpawns.length > 0;
     const defCustom = defenseSpawns.length > 0;
 
-    // Attack spawns (custom with type/count or theater defaults)
+    // Attack spawns
     if (atkCustom) {
       for (const sp of attackSpawns) {
-        const ll = simToLL(sp.x, sp.y);
-        const profile = DRONE_DB.attack.find((d) => d.key === sp.droneKey);
-        const label = `${profile ? profile.name.split(" ")[0] : sp.droneKey} x${sp.count}`;
-        L.circleMarker(ll, { radius: 10, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 0.3, weight: 2, opacity: 0.8 }).addTo(layer);
-        L.marker(ll, {
-          icon: L.divIcon({ className: "", iconSize: [80, 16], iconAnchor: [40, -8],
-            html: `<div style="color:#ff5555;font-size:9px;font-family:monospace;text-align:center;text-shadow:0 0 3px #000">${label}</div>` }),
-          interactive: false,
-        }).addTo(layer);
+        L.circleMarker(simToLL(sp.x, sp.y), { radius: 8, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 0.3, weight: 2, opacity: 0.8 }).addTo(layer);
       }
     } else {
       for (const sp of th.attackOrigins) {
-        const ll = simToLL(sp[0], sp[1]);
-        L.circleMarker(ll, { radius: 10, color: "#662222", fillColor: "#662222", fillOpacity: 0.3, weight: 2, opacity: 0.8 }).addTo(layer);
-        L.marker(ll, {
-          icon: L.divIcon({ className: "", iconSize: [40, 16], iconAnchor: [20, -8],
-            html: `<div style="color:#662222;font-size:9px;font-family:monospace;text-align:center">ATK</div>` }),
-          interactive: false,
-        }).addTo(layer);
+        L.circleMarker(simToLL(sp[0], sp[1]), { radius: 8, color: "#662222", fillColor: "#662222", fillOpacity: 0.3, weight: 2, opacity: 0.8 }).addTo(layer);
       }
     }
 
     // Defense spawns
     if (defCustom) {
       for (const sp of defenseSpawns) {
-        const ll = simToLL(sp.x, sp.y);
-        const profile = DRONE_DB.interceptor.find((d) => d.key === sp.droneKey);
-        const label = `${profile ? profile.name.split(" ")[0] : sp.droneKey} x${sp.count}`;
-        L.circleMarker(ll, { radius: 10, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 0.3, weight: 2, opacity: 0.8 }).addTo(layer);
-        L.marker(ll, {
-          icon: L.divIcon({ className: "", iconSize: [80, 16], iconAnchor: [40, -8],
-            html: `<div style="color:#4a9eff;font-size:9px;font-family:monospace;text-align:center;text-shadow:0 0 3px #000">${label}</div>` }),
-          interactive: false,
-        }).addTo(layer);
+        L.circleMarker(simToLL(sp.x, sp.y), { radius: 8, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 0.3, weight: 2, opacity: 0.8 }).addTo(layer);
       }
     } else {
       for (const sp of th.defensePos) {
-        const ll = simToLL(sp[0], sp[1]);
-        L.circleMarker(ll, { radius: 10, color: "#223366", fillColor: "#223366", fillOpacity: 0.3, weight: 2, opacity: 0.8 }).addTo(layer);
-        L.marker(ll, {
-          icon: L.divIcon({ className: "", iconSize: [40, 16], iconAnchor: [20, -8],
-            html: `<div style="color:#223366;font-size:9px;font-family:monospace;text-align:center">DEF</div>` }),
-          interactive: false,
-        }).addTo(layer);
+        L.circleMarker(simToLL(sp[0], sp[1]), { radius: 8, color: "#223366", fillColor: "#223366", fillOpacity: 0.3, weight: 2, opacity: 0.8 }).addTo(layer);
       }
     }
   }, [theater, attackSpawns, defenseSpawns, simToLL, mapReady]);
@@ -663,13 +635,6 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
       radius: assetGeoRadius, color: "#ff4444", fillColor: "#ff2222",
       fillOpacity: 0.06, weight: 2, opacity: 0.6, dashArray: "8 6",
     }).addTo(layer);
-    L.marker(assetCenter, {
-      icon: L.divIcon({
-        className: "", iconSize: [120, 16], iconAnchor: [60, 8],
-        html: '<div style="color:#ff4444;font-size:9px;font-family:monospace;text-align:center;text-shadow:0 0 4px #000">DEFENDED ASSET</div>',
-      }),
-      interactive: false,
-    }).addTo(layer);
 
     // ── Outer: Ground Air Defense Zone (green dashed with gaps at crossings) ──
     const geoRadius = zoneRadius * metersPerUnit;
@@ -683,7 +648,7 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
       }).addTo(layer);
     } else {
       // Draw 36 arc segments, skip those near a breach
-      const SEG = 36;
+      const SEG = 24;
       const segArc = (Math.PI * 2) / SEG;
       for (let i = 0; i < SEG; i++) {
         const mid = -Math.PI + (i + 0.5) * segArc;
@@ -713,26 +678,16 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
       }
     }
 
-    // AD unit range circles (simple shaded fills)
+    // AD unit range indicators (lightweight circleMarkers instead of heavy L.circle)
     for (const ad of adUnits) {
       const sys = AD_SYSTEMS.find((s) => s.key === ad.key);
       if (!sys || ad.health <= 0) continue;
       const adLL = simToLL(ad.x, ad.y);
-      L.circle(adLL, {
-        radius: sys.range * metersPerUnit, color: "transparent", fillColor: sys.color,
-        fillOpacity: 0.05, weight: 0, interactive: false,
+      L.circleMarker(adLL, {
+        radius: 25, color: sys.color, fillColor: sys.color,
+        fillOpacity: 0.08, weight: 1, opacity: 0.3, interactive: false,
       }).addTo(layer);
     }
-
-    // Outer zone label
-    const labelLL = simToLL(zoneCenter[0], zoneCenter[1] + zoneRadius + 200);
-    L.marker(labelLL, {
-      icon: L.divIcon({
-        className: "", iconSize: [180, 16], iconAnchor: [90, 8],
-        html: '<div style="color:#22aa22;font-size:9px;font-family:monospace;text-align:center;text-shadow:0 0 4px #000">GROUND AIR DEFENSE ZONE</div>',
-      }),
-      interactive: false,
-    }).addTo(layer);
   }, [theater, simToLL, breachPoints, mapReady, zoneCenter, zoneRadius, assetRadius]);
 
   // Draw drones, AD units, pursuit lines, and kill flashes
@@ -743,23 +698,15 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
     if (!L || !droneLayer) return;
     droneLayer.clearLayers();
 
-    // Draw AD unit markers (no range circles - those are in zone layer)
+    // Draw AD unit markers (circleMarkers only, no DOM labels)
     for (const ad of adUnits) {
       const sys = AD_SYSTEMS.find((s) => s.key === ad.key);
       if (!sys) continue;
       const ll = simToLL(ad.x, ad.y);
       const alive = ad.health > 0;
       L.circleMarker(ll, {
-        radius: 7, color: alive ? sys.color : "#444", fillColor: alive ? sys.color : "#333",
+        radius: alive ? 7 : 4, color: alive ? sys.color : "#444", fillColor: alive ? sys.color : "#333",
         fillOpacity: alive ? 0.8 : 0.4, weight: 2, opacity: alive ? 1 : 0.5,
-      }).addTo(droneLayer);
-      const ammoText = ad.ammo > 0 ? ` [${ad.ammo}]` : " [0]";
-      L.marker(ll, {
-        icon: L.divIcon({
-          className: "", iconSize: [80, 16], iconAnchor: [40, -10],
-          html: `<div style="color:${alive ? sys.color : "#555"};font-size:8px;font-family:monospace;text-align:center;text-shadow:0 0 3px #000">${sys.name}${ammoText}</div>`,
-        }),
-        interactive: false,
       }).addTo(droneLayer);
     }
 
@@ -777,35 +724,14 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
       }).addTo(droneLayer);
     }
 
-    // Interceptors + pursuit lines + RTB lines
+    // Interceptors (no pursuit/RTB lines during sim for performance)
     for (const d of simState.interceptors) {
+      if (d.status !== "active" && d.status !== "landed") continue;
       const ll = simToLL(d.x, d.y);
-      const color = d.status === "active" ? "#4a9eff" : d.status === "landed" ? "#2266aa" : "#444";
-      const radius = d.status === "active" ? 5 : d.status === "landed" ? 4 : 2;
+      const color = d.status === "active" ? "#4a9eff" : "#2266aa";
       L.circleMarker(ll, {
-        radius, color, fillColor: color, fillOpacity: 0.9, weight: 1, opacity: 1,
+        radius: 5, color, fillColor: color, fillOpacity: 0.9, weight: 1, opacity: 1,
       }).addTo(droneLayer);
-
-      // Pursuit line to target
-      if (d.status === "active" && d.targetId != null) {
-        const target = simState.attackers.find((a) => a.id === d.targetId && a.status === "active");
-        if (target) {
-          const tll = simToLL(target.x, target.y);
-          L.polyline([ll, tll], {
-            color: "#4a9eff", weight: 1, opacity: 0.4, dashArray: "4 4", interactive: false,
-          }).addTo(droneLayer);
-        }
-      }
-      // RTB line when returning to spawn
-      if (d.status === "active" && d.targetId == null && d.spawnX != null) {
-        const activeThreats = simState.attackers.filter((a) => a.status === "active").length;
-        if (activeThreats === 0) {
-          const sll = simToLL(d.spawnX, d.spawnY);
-          L.polyline([ll, sll], {
-            color: "#2266aa", weight: 1, opacity: 0.3, dashArray: "6 4", interactive: false,
-          }).addTo(droneLayer);
-        }
-      }
     }
 
     // Kill impact pulses and breach markers
@@ -817,22 +743,12 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
         const ll = simToLL(flash.x, flash.y);
 
         if (flash.type === "breach") {
-          // Brief red flash at breach location
-          if (age > 1000) continue;
-          const progress = age / 1000;
+          if (age > 600) continue;
+          const progress = age / 600;
           L.circleMarker(ll, {
-            radius: 8, color: "#ff3333", fillColor: "#ff0000",
-            fillOpacity: (1 - progress) * 0.6, weight: 2, opacity: 1 - progress,
+            radius: 6 + progress * 8, color: "#ff3333", fillColor: "#ff0000",
+            fillOpacity: (1 - progress) * 0.5, weight: 2, opacity: 1 - progress,
           }).addTo(flashLayer);
-          if (progress < 0.5) {
-            L.marker(ll, {
-              icon: L.divIcon({
-                className: "", iconSize: [60, 14], iconAnchor: [30, -10],
-                html: `<div style="color:#ff0000;font-size:9px;font-family:monospace;font-weight:bold;text-align:center;text-shadow:0 0 3px #000;opacity:${1 - progress * 2}">BREACH</div>`,
-              }),
-              interactive: false,
-            }).addTo(flashLayer);
-          }
         } else {
           // Kill impact: simple expanding ring
           if (age > 500) continue;
