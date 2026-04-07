@@ -176,7 +176,7 @@ export default function Swarm1v1() {
 
   // Map click
   const handleMapClick = useCallback((x, y) => {
-    if (phase !== PHASE.SETUP || !placingWhat) return;
+    if ((phase !== PHASE.SETUP && phase !== PHASE.COMBAT) || !placingWhat || battleActive) return;
     if (placingWhat === "hq") {
       if (y < 5500) return;
       setPlayerHQ({ x, y }); setPlacingWhat(null);
@@ -398,15 +398,19 @@ export default function Swarm1v1() {
         }
       }
 
-      // Draw battle
+      // Draw battle - distinct visuals per drone type
       const L = LRef.current; const bl = battleLayerRef.current;
       if (L && bl) {
         bl.clearLayers();
         const th = THEATERS[theaterRef.current]; const toLL = (x, y) => simToLatLng(x, y, th.bounds);
-        for (const a of b.aAttackers) { if (a.status === "active") L.circleMarker(toLL(a.x, a.y), { radius: 3, color: "#ff6666", fillColor: "#ff6666", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
-        for (const a of b.pAttackers) { if (a.status === "active") L.circleMarker(toLL(a.x, a.y), { radius: 3, color: "#66aaff", fillColor: "#66aaff", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
-        for (const i of b.pInts) { if (i.status === "active") L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 0.9, weight: 1 }).addTo(bl); }
-        for (const i of b.aInts) { if (i.status === "active") L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 0.9, weight: 1 }).addTo(bl); }
+        // Enemy attack drones: red small triangles (heading south->north)
+        for (const a of b.aAttackers) { if (a.status === "active") L.circleMarker(toLL(a.x, a.y), { radius: 3, color: "#ff4444", fillColor: "#ff4444", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
+        // Your attack drones: cyan small (heading north->south)
+        for (const a of b.pAttackers) { if (a.status === "active") L.circleMarker(toLL(a.x, a.y), { radius: 3, color: "#00ddff", fillColor: "#00ddff", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
+        // Your interceptors: blue with white border (larger, defending)
+        for (const i of b.pInts) { if (i.status === "active") L.circleMarker(toLL(i.x, i.y), { radius: 5, color: "#ffffff", fillColor: "#4a9eff", fillOpacity: 0.9, weight: 1.5 }).addTo(bl); }
+        // Enemy interceptors: red with dark border (larger, defending)
+        for (const i of b.aInts) { if (i.status === "active") L.circleMarker(toLL(i.x, i.y), { radius: 5, color: "#880000", fillColor: "#ff5555", fillOpacity: 0.9, weight: 1.5 }).addTo(bl); }
       }
 
       setBattleDrones({ playerAttackers: [...b.pAttackers], aiAttackers: [...b.aAttackers], playerInts: [...b.pInts], aiInts: [...b.aInts] });
@@ -618,18 +622,56 @@ export default function Swarm1v1() {
                     {gameOver ? "GAME OVER" : battleActive ? "BATTLE IN PROGRESS" : `Round ${currentRound + 1} / ${TOTAL_ROUNDS}`}
                   </div>
 
-                  <div style={{ fontSize: 10, color: "#888", marginBottom: 4 }}>Defenses: {playerInterceptors.reduce((s, d) => s + d.count, 0)} interceptors | {playerAD.filter((a) => a.health > 0).length} AD</div>
-                  <div style={{ fontSize: 10, color: "#888", marginBottom: 8 }}>Resources: {playerResources.filter((r) => r.alive).length} alive</div>
+                  <div style={{ fontSize: 10, color: "#888", marginBottom: 2 }}>Interceptors: {playerInterceptors.reduce((s, d) => s + d.count, 0)} | AD: {playerAD.filter((a) => a.health > 0).length}</div>
+                  <div style={{ fontSize: 10, color: "#888", marginBottom: 2 }}>Resources: {playerResources.filter((r) => r.alive).length} alive</div>
+                  <div style={{ fontSize: 10, color: remaining >= 0 ? "#4caf50" : "#ff5555", marginBottom: 8 }}>Available: ${formatUSD(Math.max(0, playerBudget - spent))}</div>
 
-                  {!gameOver && currentRound < TOTAL_ROUNDS && !battleActive && (
-                    <button onClick={launchRound}
-                      style={{ ...btnStyle, width: "100%", background: "#4a1a2a", borderColor: "#ff6688", color: "#ff6688", fontSize: 12, marginBottom: 12 }}>
-                      LAUNCH ROUND {currentRound + 1}
-                    </button>
+                  {/* Between-round buying */}
+                  {!gameOver && !battleActive && currentRound < TOTAL_ROUNDS && (
+                    <>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", color: "#4a9eff", margin: "4px 0 4px" }}>Buy Interceptors</div>
+                      {DEFENSE_UNITS.map((d) => (
+                        <button key={d.key} onClick={() => setPlacingWhat("def_" + d.key)}
+                          style={{ ...inputStyle, width: "100%", marginBottom: 3, cursor: "pointer", textAlign: "left", fontSize: 9,
+                            border: placingWhat === "def_" + d.key ? "1px solid #4a9eff" : "1px solid #2a2a35" }}>
+                          {d.name} x4 ${formatUSD(d.cost * 4)}
+                        </button>
+                      ))}
+
+                      <div style={{ fontSize: 10, textTransform: "uppercase", color: "#22aa22", margin: "4px 0 4px" }}>Buy Ground AD</div>
+                      {AD_SYSTEMS_1V1.map((s) => (
+                        <button key={s.key} onClick={() => setPlacingWhat("ad_" + s.key)}
+                          style={{ ...inputStyle, width: "100%", marginBottom: 3, cursor: "pointer", textAlign: "left", fontSize: 9,
+                            border: placingWhat === "ad_" + s.key ? `1px solid ${s.color}` : "1px solid #2a2a35" }}>
+                          {s.name} ${formatUSD(s.cost)}
+                        </button>
+                      ))}
+
+                      <div style={{ fontSize: 10, textTransform: "uppercase", color: "#ff5555", margin: "4px 0 4px" }}>Attack Wave</div>
+                      {ATTACK_UNITS.map((a) => (
+                        <div key={a.key} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2 }}>
+                          <span style={{ flex: 1, fontSize: 9, color: "#ff6666" }}>{a.name}</span>
+                          <input type="number" value={playerAttack[a.key] || 0} min="0" max="200"
+                            onChange={(e) => setPlayerAttack((p) => ({ ...p, [a.key]: Math.max(0, parseInt(e.target.value) || 0) }))}
+                            style={{ width: 40, ...inputStyle, fontSize: 9, textAlign: "center", padding: "2px" }} />
+                        </div>
+                      ))}
+
+                      <button onClick={launchRound}
+                        style={{ ...btnStyle, width: "100%", marginTop: 8, background: "#4a1a2a", borderColor: "#ff6688", color: "#ff6688", fontSize: 12 }}>
+                        LAUNCH ROUND {currentRound + 1}
+                      </button>
+                    </>
                   )}
 
                   {battleActive && (
-                    <div style={{ fontSize: 11, color: "#ff9800", marginBottom: 12 }}>Drones in flight... watch the map</div>
+                    <div style={{ padding: 8, background: "#1a1a24", borderRadius: 6, marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, color: "#ff9800", marginBottom: 4 }}>Battle in progress...</div>
+                      <div style={{ fontSize: 9, color: "#4a9eff" }}>Your attack: {battleDrones.playerAttackers.filter((a) => a.status === "active").length} active</div>
+                      <div style={{ fontSize: 9, color: "#ff5555" }}>Enemy attack: {battleDrones.aiAttackers.filter((a) => a.status === "active").length} active</div>
+                      <div style={{ fontSize: 9, color: "#66ccff" }}>Your defense: {battleDrones.playerInts.filter((i) => i.status === "active").length} active</div>
+                      <div style={{ fontSize: 9, color: "#ff8888" }}>Enemy defense: {battleDrones.aiInts.filter((i) => i.status === "active").length} active</div>
+                    </div>
                   )}
 
                   {gameOver && (
@@ -668,6 +710,14 @@ export default function Swarm1v1() {
 
             <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
               <div ref={mapRef} style={{ width: "100%", height: "100%", cursor: placingWhat ? "crosshair" : "grab" }} />
+              {battleActive && (
+                <div style={{ position: "absolute", bottom: 12, right: 12, background: "rgba(17,17,24,0.9)", border: "1px solid #2a2a35", borderRadius: 6, padding: "8px 12px", fontSize: 9, zIndex: 500, lineHeight: 1.8 }}>
+                  <div><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#00ddff", marginRight: 4 }} />Your attack</div>
+                  <div><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#ff4444", marginRight: 4 }} />Enemy attack</div>
+                  <div><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "#4a9eff", border: "1.5px solid #fff", marginRight: 4 }} />Your defense</div>
+                  <div><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "#ff5555", border: "1.5px solid #880000", marginRight: 4 }} />Enemy defense</div>
+                </div>
+              )}
             </div>
           </div>
         )}
