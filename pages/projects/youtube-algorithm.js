@@ -572,7 +572,7 @@ export default function YouTubeAlgorithm() {
   // transitions a live run would, so the demo feels real on Vercel where
   // live YouTube transcript fetching is IP-blocked.
 
-  const runSampleFromCache = async (provider, presetId) => {
+  const runSampleFromCache = async (provider, presetId, depth) => {
     addLog("Loading pre-computed sample run...");
     const res = await fetch("/sample-analysis.json", { cache: "no-store" });
     if (!res.ok) {
@@ -581,28 +581,51 @@ export default function YouTubeAlgorithm() {
       );
     }
     const cached = await res.json();
+
+    // v3 cache: keyed by depth -> { graphData, statsByVideoId, analyses }
+    // v2 cache (legacy): flat graphData/statsByVideoId/analyses, treat as depth 2
+    const depthsBucket = cached.depths || { "2": {
+      graphData: cached.graphData,
+      statsByVideoId: cached.statsByVideoId,
+      analyses: cached.analyses,
+    } };
+
+    const depthKey = String(depth);
+    let depthBucket = depthsBucket[depthKey];
+    let usedDepth = depth;
+    if (!depthBucket) {
+      // Fall back to depth 2 (always present), then any available depth
+      depthBucket = depthsBucket["2"] || depthsBucket[Object.keys(depthsBucket)[0]];
+      usedDepth = depthBucket === depthsBucket["2"] ? 2 : Object.keys(depthsBucket)[0];
+      if (!depthBucket) {
+        throw new Error(`No cached depths found in sample-analysis.json`);
+      }
+      addLog(`Note: depth ${depth} not in cache, falling back to depth ${usedDepth}`);
+    }
+
+    const graphData = depthBucket.graphData;
+    const statsByVideoId = depthBucket.statsByVideoId || {};
     const cacheKey = `${provider}_${presetId}`;
-    let analysisResults = cached.analyses?.[cacheKey];
+    let analysisResults = depthBucket.analyses?.[cacheKey];
     let usedKey = cacheKey;
     if (!analysisResults || analysisResults.length === 0) {
-      // Fall back to claude_youtube if the requested combo wasn't precomputed
       const fallback = "claude_youtube";
-      analysisResults = cached.analyses?.[fallback];
+      analysisResults = depthBucket.analyses?.[fallback];
       usedKey = fallback;
       if (!analysisResults || analysisResults.length === 0) {
-        throw new Error(`No cached results found for ${cacheKey} or ${fallback}`);
+        throw new Error(`No cached results found for ${cacheKey} or ${fallback} at depth ${usedDepth}`);
       }
       addLog(`Note: ${cacheKey} not in cache, falling back to ${fallback}`);
     }
 
     // Replay phase 1: discover/graph
     await sleep(300);
-    setGraphData(cached.graphData);
+    setGraphData(graphData);
     addLog(
-      `Graph built: ${cached.graphData.totalVideos} videos, ${cached.graphData.totalEdges} edges, ${cached.graphData.communities.length} communities`
+      `Graph built: ${graphData.totalVideos} videos, ${graphData.totalEdges} edges, ${graphData.communities.length} communities`
     );
     addLog(
-      `Selected ${cached.graphData.selectedVideos.length} comparison videos from ${cached.graphData.communities.length} clusters`
+      `Selected ${graphData.selectedVideos.length} comparison videos from ${graphData.communities.length} clusters`
     );
 
     // Replay phase 2: analyze (animate through results for UX)
@@ -627,7 +650,7 @@ export default function YouTubeAlgorithm() {
     setPhase("scoring");
     addLog("Loading cached YouTube statistics and weights...");
     const statsArr = analysisResults.map(
-      (r) => cached.statsByVideoId?.[r.comparisonVideoId] || { weight: 1 }
+      (r) => statsByVideoId[r.comparisonVideoId] || { weight: 1 }
     );
     setStatsResults(statsArr);
     await sleep(250);
@@ -642,7 +665,7 @@ export default function YouTubeAlgorithm() {
     setFinalScores(scores);
 
     addLog(
-      `Analysis complete (cached sample, ${usedKey}, generated ${cached.generatedAt?.slice(0, 10) || "unknown"})`
+      `Analysis complete (cached sample, depth ${usedDepth}, ${usedKey}, generated ${cached.generatedAt?.slice(0, 10) || "unknown"})`
     );
     setPhase("done");
     setTimeout(() => {
@@ -674,7 +697,7 @@ export default function YouTubeAlgorithm() {
       videoId === SAMPLE_VIDEO_ID && searchQuery.trim() === SAMPLE_QUERY;
     if (isSampleInputs && (preset === "youtube" || preset === "research")) {
       try {
-        await runSampleFromCache(llmProvider, preset);
+        await runSampleFromCache(llmProvider, preset, crawlDepth);
       } catch (err) {
         setError(`Could not load cached sample: ${err.message}`);
         setPhase("error");
