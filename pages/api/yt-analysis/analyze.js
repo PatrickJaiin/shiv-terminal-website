@@ -310,14 +310,22 @@ export default async function handler(req, res) {
     } catch (err) {
       return res
         .status(400)
-        .json({ error: `Could not get transcript for your video: ${err.message}` });
+        .json({
+          error: `Could not get transcript for your video: ${err.message}`,
+          errorType: "user_transcript",
+          fatal: true,
+        });
     }
     try {
       compTranscript = await fetchTranscript(comparisonVideoId);
     } catch (err) {
       return res
         .status(400)
-        .json({ error: `No transcript for comparison video: ${err.message}`, skippable: true });
+        .json({
+          error: `No transcript for comparison video: ${err.message}`,
+          errorType: "comparison_transcript",
+          skippable: true,
+        });
     }
 
     // Sarvam has a smaller context window, truncate more aggressively

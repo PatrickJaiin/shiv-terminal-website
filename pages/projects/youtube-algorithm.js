@@ -634,6 +634,11 @@ export default function YouTubeAlgorithm() {
           const analyzeData = await analyzeRes.json();
 
           if (!analyzeRes.ok) {
+            if (analyzeData.errorType === "user_transcript" || analyzeData.fatal) {
+              addLog(`  Stopped: your video transcript is not accessible`);
+              failures.push({ kind: "userTranscript", error: analyzeData.error || "no transcript" });
+              break;
+            }
             if (analyzeData.skippable) {
               addLog(`  Skipped (no transcript available)`);
               skipCount++;
@@ -655,12 +660,15 @@ export default function YouTubeAlgorithm() {
 
       if (results.length === 0) {
         // Surface the actual underlying error rather than a generic message
+        const userTranscriptFails = failures.filter((f) => f.kind === "userTranscript");
         const transcriptFails = failures.filter((f) => f.kind === "transcript").length;
         const apiFails = failures.filter((f) => f.kind === "api");
         const netFails = failures.filter((f) => f.kind === "network");
 
         let detail;
-        if (transcriptFails === failures.length && transcriptFails > 0) {
+        if (userTranscriptFails.length > 0) {
+          detail = `${userTranscriptFails[0].error} Try enabling captions on your video, testing a video with public English captions, or running the app locally if YouTube is blocking transcript access from your host IP.`;
+        } else if (transcriptFails === failures.length && transcriptFails > 0) {
           detail = `All ${transcriptFails} comparison videos had no fetchable transcripts. YouTube often blocks server-side transcript fetching from cloud IPs (Vercel/AWS). Try a different topic with English-captioned videos, or run locally.`;
         } else if (apiFails.length > 0) {
           // Show the first actual API error - this is the most diagnostic
