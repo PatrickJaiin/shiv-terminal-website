@@ -1,9 +1,45 @@
-// ---------- transcript fetching (Android innertube API) ----------
+// ---------- transcript fetching (multi-client innertube + scrape fallback) ----------
 
-const ANDROID_UA = "com.google.android.youtube/20.10.38 (Linux; U; Android 14)";
 const INNERTUBE_PLAYER = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
+const ANDROID_UA = "com.google.android.youtube/20.10.38 (Linux; U; Android 14)";
+const IOS_UA = "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)";
 const WEB_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+// Multiple client variants - YouTube serves different responses to each, and at least
+// one usually returns captionTracks even when others get filtered out by IP rules.
+const INNERTUBE_CLIENTS = [
+  {
+    name: "ANDROID",
+    ua: ANDROID_UA,
+    body: { context: { client: { clientName: "ANDROID", clientVersion: "20.10.38", androidSdkVersion: 34, hl: "en", gl: "US" } } },
+  },
+  {
+    name: "IOS",
+    ua: IOS_UA,
+    body: { context: { client: { clientName: "IOS", clientVersion: "19.45.4", deviceMake: "Apple", deviceModel: "iPhone16,2", hl: "en", gl: "US" } } },
+  },
+  {
+    name: "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+    ua: WEB_UA,
+    body: {
+      context: {
+        client: {
+          clientName: "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+          clientVersion: "2.0",
+          hl: "en",
+          gl: "US",
+        },
+        thirdParty: { embedUrl: "https://www.youtube.com" },
+      },
+    },
+  },
+  {
+    name: "WEB",
+    ua: WEB_UA,
+    body: { context: { client: { clientName: "WEB", clientVersion: "2.20240924.00.00", hl: "en", gl: "US" } } },
+  },
+];
 
 function decodeEntities(s) {
   return s
@@ -18,7 +54,6 @@ function decodeEntities(s) {
 }
 
 function parseTranscriptXml(xml) {
-  // Format 3 (Android): <p t="ms" d="ms"><s ac="N">word</s>...</p>
   const pSegments = [];
   const pRegex = /<p\s+t="\d+"[^>]*>([\s\S]*?)<\/p>/g;
   let pm;
@@ -36,7 +71,6 @@ function parseTranscriptXml(xml) {
   }
   if (pSegments.length > 0) return pSegments.map(decodeEntities);
 
-  // Legacy format: <text start="N" dur="N">content</text>
   const textSegments = [];
   const tRegex = /<text[^>]*>([\s\S]*?)<\/text>/g;
   let tm;
@@ -44,52 +78,75 @@ function parseTranscriptXml(xml) {
   return textSegments.map(decodeEntities);
 }
 
-async function fetchTranscript(videoId) {
-  // Primary: Android innertube player API (most reliable server-side)
-  const playerRes = await fetch(INNERTUBE_PLAYER, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "User-Agent": ANDROID_UA },
-    body: JSON.stringify({
-      context: { client: { clientName: "ANDROID", clientVersion: "20.10.38" } },
-      videoId,
-    }),
-  });
-
-  let tracks;
-  if (playerRes.ok) {
-    const data = await playerRes.json();
-    tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+async function tryInnertubeClient(videoId, client) {
+  try {
+    const res = await fetch(INNERTUBE_PLAYER, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "User-Agent": client.ua },
+      body: JSON.stringify({ ...client.body, videoId }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (tracks && tracks.length > 0) return tracks;
+    return null;
+  } catch {
+    return null;
   }
+}
 
-  // Fallback: web page scraping
-  if (!tracks || tracks.length === 0) {
-    const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+async function tryWebScrape(videoId) {
+  try {
+    const res = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
       headers: { "User-Agent": WEB_UA, "Accept-Language": "en-US,en;q=0.9" },
     });
-    if (!pageRes.ok) throw new Error(`YouTube page fetch failed: ${pageRes.status}`);
-    const html = await pageRes.text();
+    if (!res.ok) return null;
+    const html = await res.text();
     const match = html.match(/"captionTracks":\s*(\[.*?\])/);
-    if (!match) throw new Error("No captions available for this video");
-    tracks = JSON.parse(match[1]);
+    if (!match) return null;
+    return JSON.parse(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchTranscript(videoId) {
+  // Try each Innertube client variant in sequence - at least one usually works
+  let tracks = null;
+  let triedClients = [];
+  for (const client of INNERTUBE_CLIENTS) {
+    triedClients.push(client.name);
+    tracks = await tryInnertubeClient(videoId, client);
+    if (tracks) break;
   }
 
-  if (!tracks || tracks.length === 0) throw new Error("No caption tracks found");
+  // Final fallback: scrape the watch page HTML
+  if (!tracks) {
+    triedClients.push("WEB_SCRAPE");
+    tracks = await tryWebScrape(videoId);
+  }
 
-  // Prefer English
+  if (!tracks || tracks.length === 0) {
+    throw new Error(
+      `No captions accessible (tried: ${triedClients.join(", ")}). YouTube may be blocking server-side transcript fetching from this IP, or the video has no captions.`
+    );
+  }
+
   const track =
     tracks.find((t) => t.languageCode === "en") ||
     tracks.find((t) => t.languageCode?.startsWith("en")) ||
     tracks[0];
 
+  if (!track?.baseUrl) throw new Error("Caption track has no URL");
+
   const capRes = await fetch(track.baseUrl, { headers: { "User-Agent": ANDROID_UA } });
-  if (!capRes.ok) throw new Error("Failed to fetch captions");
+  if (!capRes.ok) throw new Error(`Failed to fetch caption XML: ${capRes.status}`);
   const xml = await capRes.text();
 
   const segments = parseTranscriptXml(xml);
   const fullText = segments.join(" ").replace(/\s+/g, " ").trim();
-  if (!fullText) throw new Error("Transcript is empty");
+  if (!fullText) throw new Error("Transcript XML was empty");
 
-  // Truncate to ~5000 words to fit LLM context
   const words = fullText.split(" ");
   return words.length > 5000 ? words.slice(0, 5000).join(" ") + "..." : fullText;
 }
