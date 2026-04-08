@@ -344,6 +344,51 @@ const RECOMMENDATIONS = {
   },
 };
 
+// ─── cost estimation ────────────────────────────────────────
+
+// Approx comparison videos selected by the discover step at each depth
+// (capped by maxTotal=15 in discover.js, but we estimate roughly)
+const COMPARISONS_PER_DEPTH = { 1: 8, 2: 12, 3: 15, 4: 15, 5: 15 };
+
+// Provider pricing per 1M tokens (USD) - input / output
+const PROVIDER_PRICING = {
+  claude: { in: 3.0, out: 15.0, model: "Claude Sonnet 4.6" },
+  gemini: { in: 0.10, out: 0.40, model: "Gemini 3.1 Flash Lite (preview)" },
+  sarvam: { in: 0.0, out: 0.0, model: "Sarvam (free tier)" },
+};
+
+// Approx token counts per LLM call
+// Sarvam uses 3000 char transcripts, others use 12000 chars
+// Rule of thumb: 1 token ≈ 4 chars
+function estimateTokensPerCall(provider, paramCount) {
+  const transcriptChars = provider === "sarvam" ? 3000 : 12000;
+  // Two transcripts + instructions + parameter descriptions
+  const inputChars = transcriptChars * 2 + 500 + paramCount * 80;
+  const inputTokens = Math.ceil(inputChars / 4);
+  // Output: ~30 tokens per parameter (two scores per param) + JSON overhead
+  const outputTokens = paramCount * 60 + 100;
+  return { inputTokens, outputTokens };
+}
+
+function estimateCost(provider, depth, paramCount) {
+  const calls = COMPARISONS_PER_DEPTH[depth] || 12;
+  const { inputTokens, outputTokens } = estimateTokensPerCall(provider, paramCount);
+  const totalInput = inputTokens * calls;
+  const totalOutput = outputTokens * calls;
+  const pricing = PROVIDER_PRICING[provider] || PROVIDER_PRICING.claude;
+  const cost = (totalInput / 1_000_000) * pricing.in + (totalOutput / 1_000_000) * pricing.out;
+  // YouTube API quota: 100 units per search, ~12-25 searches at depth 2+, ~1 unit per video stats
+  const ytQuota = depth === 1 ? 1100 : depth === 2 ? 2100 : depth === 3 ? 3000 : depth === 4 ? 3800 : 4500;
+  return {
+    calls,
+    totalInput,
+    totalOutput,
+    cost,
+    ytQuota,
+    model: pricing.model,
+  };
+}
+
 function generateRecommendations(finalScores, parameters) {
   const activeParams = parameters.filter((p) => p.enabled && finalScores[p.key]);
   const sorted = activeParams
@@ -973,6 +1018,36 @@ export default function YouTubeAlgorithm() {
                 </div>
               )}
             </div>
+
+            {/* Cost estimate */}
+            {(() => {
+              const activeParamCount = parameters.filter((p) => p.enabled).length;
+              const est = estimateCost(llmProvider, crawlDepth, activeParamCount);
+              const costLabel = est.cost === 0
+                ? "Free"
+                : est.cost < 0.01
+                ? "< $0.01"
+                : `~$${est.cost.toFixed(2)}`;
+              return (
+                <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div>
+                      <p className="text-xs font-semibold text-amber-900 mb-0.5">
+                        Estimated cost: <span className="font-bold">{costLabel}</span>
+                      </p>
+                      <p className="text-[11px] text-amber-700 leading-snug">
+                        ~{est.calls} LLM calls via {est.model} ({(est.totalInput / 1000).toFixed(0)}k in / {(est.totalOutput / 1000).toFixed(1)}k out tokens)
+                        {" - "}
+                        ~{est.ytQuota} YouTube API quota units
+                      </p>
+                    </div>
+                    <span className="text-[10px] text-amber-600 italic shrink-0">
+                      Estimate only - actual usage varies
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Analyze + Sample buttons */}
             <div className="flex gap-3">
