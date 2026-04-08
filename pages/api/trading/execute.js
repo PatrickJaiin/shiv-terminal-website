@@ -73,22 +73,85 @@ export default async function handler(req, res) {
     }
 
     if (pairType === "kalshi_polymarket") {
+      // Simulate fills with small slippage on top of quoted prices.
       const slip1 = (Math.random() - 0.4) * 0.02;
       const slip2 = (Math.random() - 0.4) * 0.02;
-      const simBuyPrice = Math.max(0.01, opp.buyPrice + slip1);
-      const simSellPrice = Math.max(0.01, opp.sellPrice + slip2);
-      const simGross = 1.0 - simBuyPrice - simSellPrice;
+      const buyFill  = Math.max(0.01, Math.min(0.99, opp.buyPrice  + slip1));
+      const sellFill = Math.max(0.01, Math.min(0.99, opp.sellPrice + slip2));
+      const simGross = 1.0 - buyFill - sellFill;
       const simNet = simGross - slippageBuffer;
+
+      // Build the open position. Each leg will pay out 1.0 if its side wins,
+      // 0 otherwise. Combined cost = buyFill + sellFill, max payoff = 1.0,
+      // so realized arb = 1.0 - (buyFill + sellFill) regardless of outcome.
+      // We sell `contracts` units on each leg; the dollar position size is
+      // contracts * (buyFill + sellFill).
+      const totalCost = buyFill + sellFill;
+      const contracts = totalCost > 0 ? Math.max(1, Math.floor(posSize / totalCost)) : 1;
+      const realizedDollarSize = contracts * totalCost;
+
+      // Identify which side each leg backs.
+      // direction "kalshi_yes_poly_no": buy=Kalshi YES on opp.team, sell=Poly opponent
+      // direction "poly_yes_kalshi_no": buy=Poly opp.team,            sell=Kalshi NO on opp.team
+      const team = (opp.team || "").toLowerCase();
+      const opponent = team === (opp.teamA || "").toLowerCase()
+        ? (opp.teamB || "").toLowerCase()
+        : (opp.teamA || "").toLowerCase();
+      const isKYes = opp.direction === "kalshi_yes_poly_no";
+
+      // Kalshi leg
+      const kalshiLeg = {
+        platform: "kalshi",
+        ticker: opp.kalshiTicker,
+        side: isKYes ? "YES" : "NO",
+        backsTeam: isKYes ? team : opponent,
+        entryPrice: isKYes ? +buyFill.toFixed(4) : +sellFill.toFixed(4),
+        payoffIfWin: 1.0,
+      };
+      // Polymarket leg
+      const polyLeg = {
+        platform: "polymarket",
+        marketId: opp.polymarketId,
+        slug: opp.polymarketSlug,
+        question: opp.polymarketQuestion,
+        side: "YES", // Polymarket is two binary outcomes; we're always buying one outcome
+        backsTeam: isKYes ? opponent : team,
+        entryPrice: isKYes ? +sellFill.toFixed(4) : +buyFill.toFixed(4),
+        payoffIfWin: 1.0,
+      };
+
+      const positionId = `paper-${ts}-${Math.floor(Math.random() * 1e6)}`;
+      const position = {
+        id: positionId,
+        createdAt: ts,
+        mode: "paper",
+        status: "open",
+        pairType: "kalshi_polymarket",
+        event: {
+          label: opp.matchName,
+          gameDate: opp.gameDate || null,
+          teamA: opp.teamA || null,
+          teamB: opp.teamB || null,
+        },
+        backingTeam: team,
+        contracts,
+        legs: [kalshiLeg, polyLeg],
+        entryGrossArb: +simGross.toFixed(4),
+        entryNetArb: +simNet.toFixed(4),
+        positionSize: realizedDollarSize,
+      };
+
       return res.status(200).json({
         success: true, shadow: true, timestamp: ts,
+        position,
+        // Legacy fields kept for compatibility with the existing trade-row renderer
         buyPlatform: opp.buyPlatform,
-        buyFillPrice: +simBuyPrice.toFixed(4),
+        buyFillPrice: +buyFill.toFixed(4),
         sellPlatform: opp.sellPlatform,
-        sellFillPrice: +simSellPrice.toFixed(4),
-        positionSize: posSize,
+        sellFillPrice: +sellFill.toFixed(4),
+        positionSize: realizedDollarSize,
         actualGrossArb: +simGross.toFixed(4),
         actualNetArb: +simNet.toFixed(4),
-        polymarketNote: "Polymarket leg simulated (paper mode - on-chain execution not supported)",
       });
     }
 

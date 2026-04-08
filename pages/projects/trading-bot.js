@@ -126,23 +126,14 @@ async function fetchStakeMatchesClient(apiKey, game) {
 
 /* ═══════════════════════════════════════════════════
    Platform helpers
+   Stake is hidden from the UI but server-side code is preserved.
+   The bot is locked to ['kalshi','polymarket'].
    ═══════════════════════════════════════════════════ */
 const PLATFORM_LABELS = { stake: "Stake", kalshi: "Kalshi", polymarket: "Polymarket" };
+const ACTIVE_PLATFORMS = ["kalshi", "polymarket"];
 
 function platformPairLabel(platforms) {
   return platforms.map((p) => PLATFORM_LABELS[p] || p).join(" x ");
-}
-
-function togglePlatform(current, platform) {
-  if (current.includes(platform)) {
-    if (current.length <= 2) return current; // must have exactly 2
-    return current.filter((p) => p !== platform);
-  }
-  if (current.length >= 2) {
-    // Replace the first platform that isn't the one being toggled
-    return [current[1], platform];
-  }
-  return [...current, platform];
 }
 
 /* ═══════════════════════════════════════════════════
@@ -167,11 +158,11 @@ function ts() { return new Date().toLocaleTimeString("en-US", { hour12: false })
 
 function Dashboard() {
   // ── platforms & game ──
-  const [platforms, setPlatforms] = useState(["kalshi", "polymarket"]);
+  // Stake is hidden from the UI per project decision; server code is preserved.
+  const platforms = ACTIVE_PLATFORMS;
   const [game, setGame] = useState("nba");
 
   // ── credentials ──
-  const [stakeApiKey, setStakeApiKey] = useState("");
   const [kalshiKeyId, setKalshiKeyId] = useState("");
   const [kalshiPrivateKey, setKalshiPrivateKey] = useState("");
 
@@ -194,6 +185,11 @@ function Dashboard() {
   const [paperBalance, setPaperBalance] = useState(null);
   const [paperPnL, setPaperPnL] = useState(0);
 
+  // ── open positions (paper trades that haven't settled yet) ──
+  const [openPositions, setOpenPositions] = useState([]);
+  const openPositionsRef = useRef(openPositions);
+  useEffect(() => { openPositionsRef.current = openPositions; }, [openPositions]);
+
   // ── auto-execute ──
   const [autoExecute, setAutoExecute] = useState(true);
   const autoExecuteRef = useRef(autoExecute);
@@ -203,34 +199,60 @@ function Dashboard() {
   const logEndRef = useRef(null);
 
   // ── derived ──
-  const hasStake = platforms.includes("stake");
-  const hasKalshi = platforms.includes("kalshi");
-  const hasPoly = platforms.includes("polymarket");
+  const hasStake = false; // Stake is permanently disabled in UI
+  const hasKalshi = true;
+  const hasPoly = true;
 
-  // ── load saved credentials from localStorage ──
+  // ── load saved credentials + positions from localStorage ──
   useEffect(() => {
     try {
       const saved = localStorage.getItem("arbbot_creds");
       if (saved) {
         const c = JSON.parse(saved);
-        if (c.stakeApiKey) setStakeApiKey(c.stakeApiKey);
         if (c.kalshiKeyId) setKalshiKeyId(c.kalshiKeyId);
         if (c.kalshiPrivateKey) setKalshiPrivateKey(c.kalshiPrivateKey);
-        if (c.platforms) setPlatforms(c.platforms);
         if (c.game) setGame(c.game);
       }
       const savedCfg = localStorage.getItem("arbbot_config");
       if (savedCfg) setConfig({ ...DEFAULT_CONFIG, ...JSON.parse(savedCfg) });
+      const savedPositions = localStorage.getItem("arbbot_positions");
+      if (savedPositions) {
+        const parsed = JSON.parse(savedPositions);
+        if (Array.isArray(parsed)) setOpenPositions(parsed);
+      }
+      const savedTrades = localStorage.getItem("arbbot_trades");
+      if (savedTrades) {
+        const parsed = JSON.parse(savedTrades);
+        if (Array.isArray(parsed)) setTrades(parsed);
+      }
+      const savedBalance = localStorage.getItem("arbbot_balance");
+      if (savedBalance) {
+        const b = JSON.parse(savedBalance);
+        if (typeof b.balance === "number") setPaperBalance(b.balance);
+        if (typeof b.pnl === "number") setPaperPnL(b.pnl);
+      }
     } catch {}
   }, []);
+
+  // ── persist positions / trades / balance whenever they change ──
+  useEffect(() => {
+    try { localStorage.setItem("arbbot_positions", JSON.stringify(openPositions)); } catch {}
+  }, [openPositions]);
+  useEffect(() => {
+    try { localStorage.setItem("arbbot_trades", JSON.stringify(trades.slice(0, 200))); } catch {}
+  }, [trades]);
+  useEffect(() => {
+    if (paperBalance === null) return;
+    try { localStorage.setItem("arbbot_balance", JSON.stringify({ balance: paperBalance, pnl: paperPnL })); } catch {}
+  }, [paperBalance, paperPnL]);
 
   // ── save credentials ──
   const saveCreds = useCallback(() => {
     try {
-      localStorage.setItem("arbbot_creds", JSON.stringify({ stakeApiKey, kalshiKeyId, kalshiPrivateKey, platforms, game }));
+      localStorage.setItem("arbbot_creds", JSON.stringify({ kalshiKeyId, kalshiPrivateKey, game }));
       localStorage.setItem("arbbot_config", JSON.stringify(config));
     } catch {}
-  }, [stakeApiKey, kalshiKeyId, kalshiPrivateKey, platforms, game, config]);
+  }, [kalshiKeyId, kalshiPrivateKey, game, config]);
 
   // ── add log entry ──
   const addLog = useCallback((msg, level = "info") => {
@@ -240,38 +262,75 @@ function Dashboard() {
   // auto-scroll log
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [logs]);
 
-  // ── hasApiKeys check based on selected platforms ──
-  const hasApiKeys = (() => {
-    if (hasStake && !stakeApiKey) return false;
-    if (hasKalshi && (!kalshiKeyId || !kalshiPrivateKey)) return false;
-    // Polymarket needs no keys
-    return true;
-  })();
+  // ── hasApiKeys check ──
+  const hasApiKeys = !!(kalshiKeyId && kalshiPrivateKey);
+
+  // ── settle open positions: poll Kalshi + Polymarket for resolution and close any that are done ──
+  const checkSettlements = useCallback(async () => {
+    const open = openPositionsRef.current;
+    if (!open || open.length === 0) return;
+    try {
+      const resp = await fetch("/api/trading/check-positions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ positions: open, kalshiKeyId, kalshiPrivateKey, config }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !Array.isArray(data.updates)) return;
+
+      const settledIds = new Set();
+      for (const u of data.updates) {
+        if (u.status !== "settled") continue;
+        const pos = open.find((p) => p.id === u.positionId);
+        if (!pos) continue;
+        settledIds.add(pos.id);
+
+        const profit = u.realizedPnl;
+        // Roll into trades + balance
+        const trade = {
+          id: pos.id,
+          time: ts(),
+          match: pos.event.label,
+          team: pos.backingTeam.toUpperCase(),
+          pairType: "kalshi_polymarket",
+          mode: "Paper",
+          grossArb: pos.entryGrossArb,
+          netArb: pos.entryNetArb,
+          positionSize: pos.positionSize,
+          profit,
+          success: true,
+          error: null,
+          settled: true,
+          kalshiResult: u.kalshiResult,
+          polyWinner: u.polyWinner,
+        };
+        setTrades((prev) => [trade, ...prev]);
+        setPaperBalance((prev) => (prev ?? config.bankroll) + profit);
+        setPaperPnL((prev) => prev + profit);
+        addLog(`[SETTLED] ${pos.event.label} | Kalshi: ${u.kalshiResult || "?"} | realized=$${profit.toFixed(2)}`, "success");
+      }
+      if (settledIds.size > 0) {
+        setOpenPositions((prev) => prev.filter((p) => !settledIds.has(p.id)));
+      }
+    } catch (e) {
+      addLog(`Settlement check error: ${e.message}`, "dim");
+    }
+  }, [kalshiKeyId, kalshiPrivateKey, config, addLog]);
 
   // ── scan cycle ──
   const runScan = useCallback(async (cycleNum) => {
     addLog(`--- Scan cycle #${cycleNum} ---`);
+    // Check settlements at the start of each cycle so balance reflects resolved games.
+    checkSettlements();
     try {
-      // Fetch Stake data client-side if Stake is selected
-      let stakeMatches = [];
-      if (hasStake) {
-        try {
-          stakeMatches = await fetchStakeMatchesClient(stakeApiKey, game);
-          addLog(`Fetched ${stakeMatches.length} Stake matches (client-side)`);
-        } catch (e) {
-          addLog(`Stake fetch failed: ${e.message}`, "error");
-        }
-      }
-
       const resp = await fetch("/api/trading/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           platforms,
           game,
-          stakeMatches: hasStake ? stakeMatches : undefined,
-          kalshiKeyId: hasKalshi ? kalshiKeyId : undefined,
-          kalshiPrivateKey: hasKalshi ? kalshiPrivateKey : undefined,
+          kalshiKeyId,
+          kalshiPrivateKey,
           config,
         }),
       });
@@ -285,9 +344,9 @@ function Dashboard() {
       if (data.message) addLog(data.message, "warn");
 
       const counts = [];
-      if (data.stakeMatchCount !== undefined && hasStake) counts.push(`${data.stakeMatchCount} Stake matches`);
-      if (data.kalshiMarketCount !== undefined && hasKalshi) counts.push(`${data.kalshiMarketCount} Kalshi markets`);
-      if (data.polymarketCount !== undefined && hasPoly) counts.push(`${data.polymarketCount} Polymarket markets`);
+      if (data.kalshiMarketCount !== undefined) counts.push(`${data.kalshiMarketCount} Kalshi markets`);
+      if (data.polymarketCount !== undefined) counts.push(`${data.polymarketCount} Polymarket markets`);
+      if (data.matchedEventCount !== undefined) counts.push(`${data.matchedEventCount} matched events`);
       if (counts.length) addLog(`Found ${counts.join(", ")}`);
 
       const qualifying = opps.filter((o) => o.passesThreshold);
@@ -312,7 +371,7 @@ function Dashboard() {
     } catch (e) {
       addLog(`Scan error: ${e.message}`, "error");
     }
-  }, [platforms, hasStake, hasKalshi, hasPoly, stakeApiKey, kalshiKeyId, kalshiPrivateKey, config, addLog]);
+  }, [platforms, kalshiKeyId, kalshiPrivateKey, game, config, addLog]);
 
   // ── start/stop scanning ──
   const startScanning = () => {
@@ -391,9 +450,8 @@ function Dashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           platforms,
-          stakeApiKey: hasStake ? stakeApiKey : undefined,
-          kalshiKeyId: hasKalshi ? kalshiKeyId : undefined,
-          kalshiPrivateKey: hasKalshi ? kalshiPrivateKey : undefined,
+          kalshiKeyId,
+          kalshiPrivateKey,
           opportunity: opp,
           mode,
           config,
@@ -433,35 +491,59 @@ function Dashboard() {
 
       const posSize = result.stakeAmount ?? result.positionSize ?? opp.positionSize ?? config.bankroll * config.maxPositionPct;
       const netArbVal = result.actualNetArb ?? opp.netArb;
-      const profit = result.success ? posSize * netArbVal : 0;
 
-      const trade = {
-        id: Date.now(),
-        time: ts(),
-        match: opp.matchName,
-        team: opp.team,
-        pairType: opp.pairType || "stake_kalshi",
-        mode: result.shadow ? "Paper" : "Live",
-        grossArb: result.actualGrossArb ?? opp.grossArb,
-        netArb: netArbVal,
-        positionSize: posSize,
-        profit,
-        success: result.success,
-        error: result.error,
-        stakeBetId: result.stakeBetId,
-        kalshiOrderId: result.kalshiOrderId,
-      };
-      setTrades((prev) => [trade, ...prev]);
+      // ── Paper K+P trades become OPEN POSITIONS that settle when the game resolves.
+      //    Realized P&L is recorded later by the settlement check, not here.
+      if (result.success && result.shadow && result.position) {
+        const pos = result.position;
+        const dupKey = `${pos.legs[0].ticker}|${pos.legs[1].marketId || pos.legs[1].slug}|${pos.backingTeam}`;
+        let added = false;
+        // Dedup inside the setter so concurrent paper trades on the same opp don't double-up
+        setOpenPositions((prev) => {
+          const exists = prev.some((p) => {
+            const k = `${p.legs[0].ticker}|${p.legs[1].marketId || p.legs[1].slug}|${p.backingTeam}`;
+            return k === dupKey;
+          });
+          if (exists) return prev;
+          added = true;
+          return [pos, ...prev];
+        });
+        if (paperBalance === null) setPaperBalance(config.bankroll);
+        if (added) {
+          addLog(`[PAPER] Opened position: ${pos.event.label} | backing ${pos.backingTeam.toUpperCase()} | size=$${pos.positionSize.toFixed(2)} | expected net=${fmt(pos.entryNetArb)}`, "success");
+        } else {
+          addLog(`Skipped duplicate open position for ${opp.matchName} (${opp.team})`, "dim");
+        }
+      } else {
+        // Non-paper-K+P path: live execution still records into trades immediately.
+        const profit = result.success ? posSize * netArbVal : 0;
+        const trade = {
+          id: Date.now(),
+          time: ts(),
+          match: opp.matchName,
+          team: opp.team,
+          pairType: opp.pairType || "stake_kalshi",
+          mode: result.shadow ? "Paper" : "Live",
+          grossArb: result.actualGrossArb ?? opp.grossArb,
+          netArb: netArbVal,
+          positionSize: posSize,
+          profit,
+          success: result.success,
+          error: result.error,
+          stakeBetId: result.stakeBetId,
+          kalshiOrderId: result.kalshiOrderId,
+        };
+        setTrades((prev) => [trade, ...prev]);
 
-      // update balance
-      if (result.success) {
-        setPaperBalance((prev) => (prev ?? config.bankroll) + profit);
-        setPaperPnL((prev) => prev + profit);
-        const tag = result.shadow ? "[PAPER]" : "[LIVE]";
-        addLog(`${tag} Trade completed: ${opp.team} | gross=${fmt(result.actualGrossArb)} net=${fmt(result.actualNetArb)} | profit=$${profit.toFixed(2)}`, "success");
-        if (result.polymarketNote) addLog(result.polymarketNote, "dim");
-      } else if (!result.pending) {
-        addLog(`Trade failed: ${result.error}`, "error");
+        if (result.success) {
+          setPaperBalance((prev) => (prev ?? config.bankroll) + profit);
+          setPaperPnL((prev) => prev + profit);
+          const tag = result.shadow ? "[PAPER]" : "[LIVE]";
+          addLog(`${tag} Trade completed: ${opp.team} | gross=${fmt(result.actualGrossArb)} net=${fmt(result.actualNetArb)} | profit=$${profit.toFixed(2)}`, "success");
+          if (result.polymarketNote) addLog(result.polymarketNote, "dim");
+        } else if (!result.pending) {
+          addLog(`Trade failed: ${result.error}`, "error");
+        }
       }
     } catch (e) {
       addLog(`Execution error: ${e.message}`, "error");
@@ -569,32 +651,15 @@ function Dashboard() {
 
           {showSettings && (
             <div className="p-5 space-y-5 border-t border-gray-200">
-              {/* Platform Selector */}
+              {/* Game Selector */}
               <div>
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Platforms (select 2)</p>
-                <div className="flex gap-2">
-                  {["stake", "kalshi", "polymarket"].map((p) => {
-                    const selected = platforms.includes(p);
-                    return (
-                      <button
-                        key={p}
-                        onClick={() => {
-                          if (scanning) return;
-                          const next = togglePlatform(platforms, p);
-                          if (next.length === 2) setPlatforms(next);
-                        }}
-                        disabled={scanning}
-                        className={`px-4 py-2 rounded-full text-sm font-medium transition-colors border ${
-                          selected
-                            ? "bg-gray-900 text-white border-gray-900"
-                            : "bg-white text-gray-500 border-gray-200 hover:border-gray-400 hover:text-gray-700"
-                        } disabled:opacity-50`}
-                      >
-                        {PLATFORM_LABELS[p]}
-                      </button>
-                    );
-                  })}
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Platforms</p>
+                <div className="flex gap-2 mb-2">
+                  <span className="px-4 py-2 rounded-full text-sm font-medium bg-gray-900 text-white">Kalshi</span>
+                  <span className="px-4 py-2 rounded-full text-sm font-medium bg-gray-900 text-white">Polymarket</span>
                 </div>
+                <p className="text-xs text-gray-400">Bot scans for the same real-world game on both platforms, then checks for cross-market arb.</p>
+
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mt-4 mb-3">Game</p>
                 <div className="flex gap-2 flex-wrap">
                   {Object.entries(GAME_OPTIONS).map(([key, g]) => (
@@ -612,90 +677,51 @@ function Dashboard() {
                     </button>
                   ))}
                 </div>
-                {hasPoly && !hasStake && !hasKalshi && (
-                  <p className="text-xs text-amber-600 mt-2">Select one more platform to pair with Polymarket</p>
-                )}
               </div>
 
               {/* API Keys */}
               <div>
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">API Credentials</p>
-                <p className="text-xs text-gray-400 mb-3">Keys are stored in your browser only. Required for both paper and live trading — all scans use real market data.</p>
+                <p className="text-xs text-gray-400 mb-3">Keys are stored in your browser only. Kalshi credentials are required to read market data and orderbooks. Polymarket needs no key.</p>
                 <details className="mb-3 border border-blue-100 rounded-lg bg-blue-50 overflow-hidden">
-                  <summary className="px-3 py-2 text-xs font-medium text-blue-700 cursor-pointer hover:bg-blue-100">How to get your API keys</summary>
+                  <summary className="px-3 py-2 text-xs font-medium text-blue-700 cursor-pointer hover:bg-blue-100">How to get your Kalshi API key</summary>
                   <div className="px-3 pb-3 text-xs text-blue-800 space-y-3">
-                    {hasStake && (
-                      <div>
-                        <p className="font-semibold mt-2">Stake API Key</p>
-                        <ol className="list-decimal ml-4 mt-1 space-y-0.5 text-blue-700">
-                          <li>Log in to <strong>stake.com</strong></li>
-                          <li>Go to <strong>Settings &rarr; Security &rarr; API</strong></li>
-                          <li>Click <strong>Create API Key</strong></li>
-                          <li>Enable <strong>Sports Betting</strong> permissions</li>
-                          <li>Copy the key and paste it above</li>
-                        </ol>
-                      </div>
-                    )}
-                    {hasKalshi && (
-                      <div>
-                        <p className="font-semibold mt-2">Kalshi API Key</p>
-                        <ol className="list-decimal ml-4 mt-1 space-y-0.5 text-blue-700">
-                          <li>Create an account at <strong>kalshi.com</strong></li>
-                          <li>Complete identity verification (KYC)</li>
-                          <li>Go to <strong>Settings &rarr; API Keys</strong></li>
-                          <li>Click <strong>Create API Key</strong> &mdash; this generates an RSA key pair</li>
-                          <li>Copy the <strong>Key ID</strong> into the &quot;Kalshi API Key ID&quot; field</li>
-                          <li>Download the <strong>Private Key</strong> (.pem file), open it, and paste the full contents into the &quot;RSA Private Key&quot; field</li>
-                        </ol>
-                        <p className="mt-1 text-blue-600">Note: Kalshi is US-only. You need a verified, funded account to access market data.</p>
-                      </div>
-                    )}
-                    {hasPoly && (
-                      <div>
-                        <p className="font-semibold mt-2">Polymarket</p>
-                        <p className="text-blue-700">No API key needed for reading market data. Polymarket&apos;s public API is used to fetch prices.</p>
-                        <p className="mt-1 text-blue-600">Note: Live execution on Polymarket requires on-chain transactions and is not yet supported. Polymarket pairs are paper-trade only for execution.</p>
-                      </div>
-                    )}
+                    <div>
+                      <ol className="list-decimal ml-4 mt-2 space-y-0.5 text-blue-700">
+                        <li>Create an account at <strong>kalshi.com</strong></li>
+                        <li>Complete identity verification (KYC)</li>
+                        <li>Go to <strong>Settings -&gt; API Keys</strong></li>
+                        <li>Click <strong>Create API Key</strong> - this generates an RSA key pair</li>
+                        <li>Copy the <strong>Key ID</strong> into the &quot;Kalshi API Key ID&quot; field</li>
+                        <li>Download the <strong>Private Key</strong> (.pem file), open it, and paste the full contents into the &quot;RSA Private Key&quot; field</li>
+                      </ol>
+                      <p className="mt-1 text-blue-600">Note: Kalshi is US-only. You need a verified, funded account to access market data.</p>
+                    </div>
                     <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-emerald-800">
-                      <p className="font-semibold">Paper Mode Safety</p>
-                      <p className="mt-0.5">In Paper Trade mode, <strong>zero real orders are placed</strong>. The bot reads live market data (odds and prices) but only simulates execution locally. No bets are placed on Stake, no orders are sent to Kalshi, no on-chain transactions on Polymarket. Your accounts are read-only in paper mode.</p>
+                      <p className="font-semibold">Paper Mode</p>
+                      <p className="mt-0.5">Paper Trade mode reads live market data (odds, depth, prices) but never sends orders. Trades become open positions that settle when the underlying game resolves.</p>
                     </div>
                   </div>
                 </details>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {hasStake && (
-                    <div>
-                      <label className="text-xs text-gray-500 block mb-1">Stake API Key</label>
-                      <input type="password" value={stakeApiKey} onChange={(e) => setStakeApiKey(e.target.value)}
-                        placeholder="Your Stake API key" disabled={scanning}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400" />
-                    </div>
-                  )}
-                  {hasKalshi && (
-                    <div>
-                      <label className="text-xs text-gray-500 block mb-1">Kalshi API Key ID</label>
-                      <input type="password" value={kalshiKeyId} onChange={(e) => setKalshiKeyId(e.target.value)}
-                        placeholder="Your Kalshi key ID" disabled={scanning}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400" />
-                    </div>
-                  )}
+                  <div>
+                    <label className="text-xs text-gray-500 block mb-1">Kalshi API Key ID</label>
+                    <input type="password" value={kalshiKeyId} onChange={(e) => setKalshiKeyId(e.target.value)}
+                      placeholder="Your Kalshi key ID" disabled={scanning}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400" />
+                  </div>
                 </div>
-                {hasKalshi && (
-                  <div className="mt-3">
-                    <label className="text-xs text-gray-500 block mb-1">Kalshi RSA Private Key</label>
-                    <textarea value={kalshiPrivateKey} onChange={(e) => setKalshiPrivateKey(e.target.value)}
-                      placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----" disabled={scanning} rows={3}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400 resize-y" />
-                  </div>
-                )}
-                {hasPoly && !hasStake && !hasKalshi ? null : hasPoly && (
-                  <div className="mt-3 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-                    <p className="text-xs text-gray-500">
-                      <strong>Polymarket:</strong> No API key needed for market data. Public API is used automatically.
-                    </p>
-                  </div>
-                )}
+                <div className="mt-3">
+                  <label className="text-xs text-gray-500 block mb-1">Kalshi RSA Private Key</label>
+                  <textarea value={kalshiPrivateKey} onChange={(e) => setKalshiPrivateKey(e.target.value)}
+                    placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----" disabled={scanning} rows={3}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-400 resize-y" />
+                </div>
+                <div className="mt-3 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                  <p className="text-xs text-gray-500">
+                    <strong>Polymarket:</strong> No API key needed for market data. Public API is used automatically.
+                  </p>
+                </div>
               </div>
 
               {/* Config */}
@@ -707,10 +733,9 @@ function Dashboard() {
                     { label: "Min Net Arb (c)", key: "minNetArb", step: 0.005, min: 0, mult: 100 },
                     { label: "Slippage Buffer (c)", key: "slippageBuffer", step: 0.005, min: 0, mult: 100 },
                     { label: "Max Position (%)", key: "maxPositionPct", step: 0.01, min: 0, mult: 100 },
-                    ...(hasStake ? [{ label: "Max Vig (%)", key: "maxStakeVig", step: 0.01, min: 0, mult: 100 }] : []),
-                    ...(hasKalshi ? [{ label: "Min Depth Mult", key: "kalshiMinDepthMult", step: 0.1, min: 1 }] : []),
+                    { label: "Min Depth Mult", key: "kalshiMinDepthMult", step: 0.1, min: 1 },
                     { label: "Poll Interval (s)", key: "pollInterval", step: 1, min: 2 },
-                    ...(hasKalshi ? [{ label: "Kalshi Timeout (ms)", key: "kalshiTimeout", step: 1000, min: 1000 }] : []),
+                    { label: "Kalshi Timeout (ms)", key: "kalshiTimeout", step: 1000, min: 1000 },
                   ].map((f) => (
                     <div key={f.key}>
                       <label className="text-xs text-gray-500 block mb-1">{f.label}</label>
@@ -878,6 +903,71 @@ function Dashboard() {
           </div>
         )}
 
+        {/* ── Open Positions ── */}
+        {openPositions.length > 0 && (
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-gray-700">Open Positions ({openPositions.length})</h2>
+              <button
+                onClick={() => {
+                  if (!confirm("Discard all open positions?")) return;
+                  setOpenPositions([]);
+                }}
+                className="text-xs text-gray-400 hover:text-red-500"
+              >Clear all</button>
+            </div>
+            <div className="space-y-3">
+              {openPositions.map((pos) => {
+                const kLeg = pos.legs.find((l) => l.platform === "kalshi");
+                const pLeg = pos.legs.find((l) => l.platform === "polymarket");
+                return (
+                  <div key={pos.id} className="border border-blue-200 bg-blue-50 rounded-xl p-4">
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded">OPEN</span>
+                          <span className="text-xs font-bold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">K+P</span>
+                          <span className="font-semibold text-gray-900 text-sm">{pos.event.label}</span>
+                          {pos.event.gameDate && (
+                            <span className="text-xs text-gray-500">{pos.event.gameDate}</span>
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-600 space-y-1 mt-2">
+                          <div>
+                            <span className="font-semibold text-gray-700">Kalshi</span>
+                            <span className="ml-2">{kLeg.side} on <strong>{(kLeg.backsTeam || "").toUpperCase()}</strong></span>
+                            <span className="ml-2 font-mono">@ {fmt(kLeg.entryPrice, 1)}</span>
+                            <span className="ml-2 text-gray-400 font-mono">{kLeg.ticker}</span>
+                          </div>
+                          <div>
+                            <span className="font-semibold text-gray-700">Polymarket</span>
+                            <span className="ml-2">{pLeg.side} on <strong>{(pLeg.backsTeam || "").toUpperCase()}</strong></span>
+                            <span className="ml-2 font-mono">@ {fmt(pLeg.entryPrice, 1)}</span>
+                          </div>
+                          <div className="text-gray-500">
+                            {pos.contracts} contracts | size ${pos.positionSize.toFixed(2)} | expected net {fmt(pos.entryNetArb)}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="text-lg font-bold text-blue-700">{fmt(pos.entryNetArb)}</div>
+                        <div className="text-xs text-gray-400">expected</div>
+                        <button
+                          onClick={() => {
+                            if (!confirm("Drop this open position without settling?")) return;
+                            setOpenPositions((prev) => prev.filter((p) => p.id !== pos.id));
+                          }}
+                          className="mt-2 text-xs text-gray-400 hover:text-red-500"
+                        >Drop</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* ── Available Markets Browse ── */}
         {(rawMarkets.kalshi.length > 0 || rawMarkets.polymarket.length > 0) && (
           <details className="border border-gray-200 rounded-xl overflow-hidden mb-6">
@@ -1014,36 +1104,30 @@ function Dashboard() {
           </summary>
           <div className="p-5 space-y-4 text-sm text-gray-600 border-t border-gray-200">
             <p>
-              The bot exploits pricing gaps across prediction markets and sportsbooks. It supports three platforms:
-              <strong> Stake</strong> (sportsbook), <strong>Kalshi</strong> (prediction market), and <strong>Polymarket</strong> (decentralized prediction market).
-              Select any two, and the bot scans for arbitrage between them.
+              The bot scans <strong>Kalshi</strong> and <strong>Polymarket</strong> for the same real-world game, then checks whether the two platforms have priced it inconsistently enough to lock in a risk-free profit.
             </p>
 
             <div className="space-y-3">
               <div className="bg-gray-50 rounded-lg p-4">
-                <p className="font-semibold text-gray-700 text-xs uppercase tracking-wider mb-2">Stake + Kalshi / Stake + Polymarket</p>
-                <div className="font-mono text-xs text-gray-600 space-y-1">
-                  <p>gross_arb = 1.00 - devig_prob_A - market_NO_price</p>
-                  <p>net_arb = gross_arb - slippage_buffer</p>
-                  <p>devig_prob_A = (1/stake_odds_A) / ((1/stake_odds_A) + (1/stake_odds_B))</p>
-                </div>
-                <p className="text-xs text-gray-500 mt-2">Back a team on Stake at devigged odds, buy NO on the prediction market as a hedge.</p>
+                <p className="font-semibold text-gray-700 text-xs uppercase tracking-wider mb-2">1. Reliable matching</p>
+                <p className="text-xs text-gray-600">Each Kalshi event and each Polymarket event is parsed into <code>{`{teamA, teamB, gameDate}`}</code>. Both teams are normalised through a canonical team registry, then events are paired only when <strong>both teams</strong> and the <strong>game date</strong> agree. No single-team fuzzy matching, so we never trade on a mismatched game.</p>
               </div>
 
               <div className="bg-gray-50 rounded-lg p-4">
-                <p className="font-semibold text-gray-700 text-xs uppercase tracking-wider mb-2">Kalshi + Polymarket</p>
+                <p className="font-semibold text-gray-700 text-xs uppercase tracking-wider mb-2">2. Both-direction arb</p>
                 <div className="font-mono text-xs text-gray-600 space-y-1">
-                  <p>gross_arb = 1.00 - platform1_YES - platform2_NO</p>
-                  <p>net_arb = gross_arb - slippage_buffer</p>
+                  <p>gross_arb_1 = 1.00 - kalshi_YES - polymarket_opponent</p>
+                  <p>gross_arb_2 = 1.00 - polymarket_team - kalshi_NO</p>
+                  <p>net_arb     = max(gross_1, gross_2) - slippage_buffer</p>
                 </div>
-                <p className="text-xs text-gray-500 mt-2">Buy YES on the cheaper platform and NO on the other. Both directions are checked automatically.</p>
+                <p className="text-xs text-gray-500 mt-2">For each team in a matched event we check both directions (buy on Kalshi + hedge on Poly, or buy on Poly + hedge on Kalshi) and pick the better one.</p>
+              </div>
+
+              <div className="bg-gray-50 rounded-lg p-4">
+                <p className="font-semibold text-gray-700 text-xs uppercase tracking-wider mb-2">3. Open positions until settlement</p>
+                <p className="text-xs text-gray-600">Paper trades become open positions stored in localStorage. Each scan cycle re-polls Kalshi and Polymarket for resolution. When both legs settle, the position is closed and realised P&amp;L is added to the balance.</p>
               </div>
             </div>
-
-            <p>
-              <strong>Execution order matters:</strong> For Stake+Kalshi, Stake bets are irreversible and placed first; Kalshi orders are cancellable and used as the hedge.
-              Polymarket execution is currently paper-only (requires on-chain transactions).
-            </p>
 
             <div className="grid grid-cols-3 text-center border border-gray-200 rounded-lg overflow-hidden">
               <div className="p-3 border-r border-gray-200 bg-gray-50">
