@@ -110,45 +110,82 @@ async function tryWebScrape(videoId) {
   }
 }
 
+// Supadata uses a residential proxy pool, so it bypasses YouTube's
+// cloud-IP block that hits Vercel/AWS. Used as a final fallback because
+// the free tier is only 100 transcripts/month.
+async function trySupadata(videoId, apiKey) {
+  if (!apiKey) return null;
+  try {
+    const res = await fetch(
+      `https://api.supadata.ai/v1/youtube/transcript?videoId=${videoId}&text=true`,
+      { headers: { "x-api-key": apiKey } }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.content || data?.text || null;
+  } catch {
+    return null;
+  }
+}
+
+function truncateTranscript(text) {
+  const fullText = text.replace(/\s+/g, " ").trim();
+  if (!fullText) return null;
+  const words = fullText.split(" ");
+  return words.length > 5000 ? words.slice(0, 5000).join(" ") + "..." : fullText;
+}
+
 async function fetchTranscript(videoId) {
   // Try each Innertube client variant in sequence - at least one usually works
   let tracks = null;
-  let triedClients = [];
+  const tried = [];
   for (const client of INNERTUBE_CLIENTS) {
-    triedClients.push(client.name);
+    tried.push(client.name);
     tracks = await tryInnertubeClient(videoId, client);
     if (tracks) break;
   }
 
-  // Final fallback: scrape the watch page HTML
+  // Try scraping the watch page HTML
   if (!tracks) {
-    triedClients.push("WEB_SCRAPE");
+    tried.push("WEB_SCRAPE");
     tracks = await tryWebScrape(videoId);
   }
 
-  if (!tracks || tracks.length === 0) {
-    throw new Error(
-      `No captions accessible (tried: ${triedClients.join(", ")}). YouTube may be blocking server-side transcript fetching from this IP, or the video has no captions.`
-    );
+  // Innertube/scrape path: pick a track, fetch and parse the XML
+  if (tracks && tracks.length > 0) {
+    const track =
+      tracks.find((t) => t.languageCode === "en") ||
+      tracks.find((t) => t.languageCode?.startsWith("en")) ||
+      tracks[0];
+
+    if (track?.baseUrl) {
+      try {
+        const capRes = await fetch(track.baseUrl, { headers: { "User-Agent": ANDROID_UA } });
+        if (capRes.ok) {
+          const xml = await capRes.text();
+          const segments = parseTranscriptXml(xml);
+          const result = truncateTranscript(segments.join(" "));
+          if (result) return result;
+        }
+      } catch {
+        // fall through to Supadata
+      }
+    }
   }
 
-  const track =
-    tracks.find((t) => t.languageCode === "en") ||
-    tracks.find((t) => t.languageCode?.startsWith("en")) ||
-    tracks[0];
+  // Final fallback: Supadata (residential proxy, bypasses cloud-IP blocks)
+  if (process.env.SUPADATA_API_KEY) {
+    tried.push("SUPADATA");
+    const supaText = await trySupadata(videoId, process.env.SUPADATA_API_KEY);
+    if (supaText) {
+      const result = truncateTranscript(supaText);
+      if (result) return result;
+    }
+  }
 
-  if (!track?.baseUrl) throw new Error("Caption track has no URL");
-
-  const capRes = await fetch(track.baseUrl, { headers: { "User-Agent": ANDROID_UA } });
-  if (!capRes.ok) throw new Error(`Failed to fetch caption XML: ${capRes.status}`);
-  const xml = await capRes.text();
-
-  const segments = parseTranscriptXml(xml);
-  const fullText = segments.join(" ").replace(/\s+/g, " ").trim();
-  if (!fullText) throw new Error("Transcript XML was empty");
-
-  const words = fullText.split(" ");
-  return words.length > 5000 ? words.slice(0, 5000).join(" ") + "..." : fullText;
+  throw new Error(
+    `No captions accessible (tried: ${tried.join(", ")}). YouTube may be blocking server-side transcript fetching from this IP, or the video has no captions.`
+  );
 }
 
 // ---------- LLM integration ----------
