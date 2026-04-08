@@ -1,9 +1,45 @@
-// ---------- transcript fetching (Android innertube API) ----------
+// ---------- transcript fetching (multi-client innertube + scrape fallback) ----------
 
-const ANDROID_UA = "com.google.android.youtube/20.10.38 (Linux; U; Android 14)";
 const INNERTUBE_PLAYER = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
+const ANDROID_UA = "com.google.android.youtube/20.10.38 (Linux; U; Android 14)";
+const IOS_UA = "com.google.ios.youtube/19.45.4 (iPhone16,2; U; CPU iOS 18_1_0 like Mac OS X)";
 const WEB_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+// Multiple client variants - YouTube serves different responses to each, and at least
+// one usually returns captionTracks even when others get filtered out by IP rules.
+const INNERTUBE_CLIENTS = [
+  {
+    name: "ANDROID",
+    ua: ANDROID_UA,
+    body: { context: { client: { clientName: "ANDROID", clientVersion: "20.10.38", androidSdkVersion: 34, hl: "en", gl: "US" } } },
+  },
+  {
+    name: "IOS",
+    ua: IOS_UA,
+    body: { context: { client: { clientName: "IOS", clientVersion: "19.45.4", deviceMake: "Apple", deviceModel: "iPhone16,2", hl: "en", gl: "US" } } },
+  },
+  {
+    name: "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+    ua: WEB_UA,
+    body: {
+      context: {
+        client: {
+          clientName: "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+          clientVersion: "2.0",
+          hl: "en",
+          gl: "US",
+        },
+        thirdParty: { embedUrl: "https://www.youtube.com" },
+      },
+    },
+  },
+  {
+    name: "WEB",
+    ua: WEB_UA,
+    body: { context: { client: { clientName: "WEB", clientVersion: "2.20240924.00.00", hl: "en", gl: "US" } } },
+  },
+];
 
 function decodeEntities(s) {
   return s
@@ -18,7 +54,6 @@ function decodeEntities(s) {
 }
 
 function parseTranscriptXml(xml) {
-  // Format 3 (Android): <p t="ms" d="ms"><s ac="N">word</s>...</p>
   const pSegments = [];
   const pRegex = /<p\s+t="\d+"[^>]*>([\s\S]*?)<\/p>/g;
   let pm;
@@ -36,7 +71,6 @@ function parseTranscriptXml(xml) {
   }
   if (pSegments.length > 0) return pSegments.map(decodeEntities);
 
-  // Legacy format: <text start="N" dur="N">content</text>
   const textSegments = [];
   const tRegex = /<text[^>]*>([\s\S]*?)<\/text>/g;
   let tm;
@@ -44,54 +78,133 @@ function parseTranscriptXml(xml) {
   return textSegments.map(decodeEntities);
 }
 
-async function fetchTranscript(videoId) {
-  // Primary: Android innertube player API (most reliable server-side)
-  const playerRes = await fetch(INNERTUBE_PLAYER, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "User-Agent": ANDROID_UA },
-    body: JSON.stringify({
-      context: { client: { clientName: "ANDROID", clientVersion: "20.10.38" } },
-      videoId,
-    }),
-  });
+// Hard timeout wrapper - prevents hanging fetches from blowing the
+// Vercel function budget. YouTube's blocked endpoints often hang
+// without erroring, so each call gets its own AbortController.
+function fetchWithTimeout(url, opts = {}, timeoutMs = 3500) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(timer));
+}
 
-  let tracks;
-  if (playerRes.ok) {
-    const data = await playerRes.json();
-    tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+async function tryInnertubeClient(videoId, client) {
+  try {
+    const res = await fetchWithTimeout(INNERTUBE_PLAYER, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "User-Agent": client.ua },
+      body: JSON.stringify({ ...client.body, videoId }),
+    }, 3500);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (tracks && tracks.length > 0) return tracks;
+    return null;
+  } catch {
+    return null;
   }
+}
 
-  // Fallback: web page scraping
-  if (!tracks || tracks.length === 0) {
-    const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+async function tryWebScrape(videoId) {
+  try {
+    const res = await fetchWithTimeout(`https://www.youtube.com/watch?v=${videoId}`, {
       headers: { "User-Agent": WEB_UA, "Accept-Language": "en-US,en;q=0.9" },
-    });
-    if (!pageRes.ok) throw new Error(`YouTube page fetch failed: ${pageRes.status}`);
-    const html = await pageRes.text();
+    }, 4000);
+    if (!res.ok) return null;
+    const html = await res.text();
     const match = html.match(/"captionTracks":\s*(\[.*?\])/);
-    if (!match) throw new Error("No captions available for this video");
-    tracks = JSON.parse(match[1]);
+    if (!match) return null;
+    return JSON.parse(match[1]);
+  } catch {
+    return null;
   }
+}
 
-  if (!tracks || tracks.length === 0) throw new Error("No caption tracks found");
+// Supadata uses a residential proxy pool, so it bypasses YouTube's
+// cloud-IP block that hits Vercel/AWS. When configured, this is the
+// fastest and most reliable path - we try it FIRST on Vercel-like
+// environments where Innertube is dead.
+async function trySupadata(videoId, apiKey) {
+  if (!apiKey) return null;
+  try {
+    // No `lang` parameter - Supadata returns whatever language is
+    // available and forcing lang=en made it 4xx for many videos.
+    const res = await fetchWithTimeout(
+      `https://api.supadata.ai/v1/youtube/transcript?videoId=${videoId}&text=true`,
+      { headers: { "x-api-key": apiKey } },
+      6000
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.content || data?.text || null;
+  } catch {
+    return null;
+  }
+}
 
-  // Prefer English
-  const track =
-    tracks.find((t) => t.languageCode === "en") ||
-    tracks.find((t) => t.languageCode?.startsWith("en")) ||
-    tracks[0];
-
-  const capRes = await fetch(track.baseUrl, { headers: { "User-Agent": ANDROID_UA } });
-  if (!capRes.ok) throw new Error("Failed to fetch captions");
-  const xml = await capRes.text();
-
-  const segments = parseTranscriptXml(xml);
-  const fullText = segments.join(" ").replace(/\s+/g, " ").trim();
-  if (!fullText) throw new Error("Transcript is empty");
-
-  // Truncate to ~5000 words to fit LLM context
+function truncateTranscript(text) {
+  const fullText = text.replace(/\s+/g, " ").trim();
+  if (!fullText) return null;
   const words = fullText.split(" ");
   return words.length > 5000 ? words.slice(0, 5000).join(" ") + "..." : fullText;
+}
+
+async function fetchTranscript(videoId) {
+  const tried = [];
+
+  // Fast path: when Supadata is configured, try it FIRST. On Vercel/AWS
+  // YouTube blocks the Innertube API entirely, so the 4 client attempts
+  // are pure dead time. Supadata succeeds in ~1-2s via residential proxy.
+  if (process.env.SUPADATA_API_KEY) {
+    tried.push("SUPADATA");
+    const supaText = await trySupadata(videoId, process.env.SUPADATA_API_KEY);
+    if (supaText) {
+      const result = truncateTranscript(supaText);
+      if (result) return result;
+    }
+  }
+
+  // Fallback: try each Innertube client variant in sequence
+  let tracks = null;
+  for (const client of INNERTUBE_CLIENTS) {
+    tried.push(client.name);
+    tracks = await tryInnertubeClient(videoId, client);
+    if (tracks) break;
+  }
+
+  // Last resort before giving up: scrape the watch page HTML
+  if (!tracks) {
+    tried.push("WEB_SCRAPE");
+    tracks = await tryWebScrape(videoId);
+  }
+
+  if (tracks && tracks.length > 0) {
+    const track =
+      tracks.find((t) => t.languageCode === "en") ||
+      tracks.find((t) => t.languageCode?.startsWith("en")) ||
+      tracks[0];
+
+    if (track?.baseUrl) {
+      try {
+        const capRes = await fetchWithTimeout(
+          track.baseUrl,
+          { headers: { "User-Agent": ANDROID_UA } },
+          4000
+        );
+        if (capRes.ok) {
+          const xml = await capRes.text();
+          const segments = parseTranscriptXml(xml);
+          const result = truncateTranscript(segments.join(" "));
+          if (result) return result;
+        }
+      } catch {
+        // fall through
+      }
+    }
+  }
+
+  throw new Error(
+    `No captions accessible (tried: ${tried.join(", ")}). YouTube may be blocking server-side transcript fetching from this IP, or the video has no captions.`
+  );
 }
 
 // ---------- LLM integration ----------
@@ -130,7 +243,7 @@ async function callClaude(prompt, apiKey) {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-6",
       max_tokens: 1024,
       messages: [{ role: "user", content: prompt }],
     }),
@@ -145,7 +258,7 @@ async function callClaude(prompt, apiKey) {
 
 async function callGemini(prompt, apiKey) {
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-preview:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -216,6 +329,10 @@ function parseLLMResponse(text, parameterKeys) {
 
 // ---------- handler ----------
 
+// Vercel: bump function timeout from default 10s to 60s. No-op on Hobby
+// (capped at 10s), takes effect on Pro+ where the cap is 60s.
+export const config = { maxDuration: 60 };
+
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
@@ -253,14 +370,22 @@ export default async function handler(req, res) {
     } catch (err) {
       return res
         .status(400)
-        .json({ error: `Could not get transcript for your video: ${err.message}` });
+        .json({
+          error: `Could not get transcript for your video: ${err.message}`,
+          errorType: "user_transcript",
+          fatal: true,
+        });
     }
     try {
       compTranscript = await fetchTranscript(comparisonVideoId);
     } catch (err) {
       return res
         .status(400)
-        .json({ error: `No transcript for comparison video: ${err.message}`, skippable: true });
+        .json({
+          error: `No transcript for comparison video: ${err.message}`,
+          errorType: "comparison_transcript",
+          skippable: true,
+        });
     }
 
     // Sarvam has a smaller context window, truncate more aggressively

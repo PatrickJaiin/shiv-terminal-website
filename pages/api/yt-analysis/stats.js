@@ -1,24 +1,21 @@
-const YT_API = "https://www.googleapis.com/youtube/v3";
+import { getYouTubeKeys, ytFetch } from "../../../lib/youtube-keys";
 
-async function fetchJSON(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`YouTube API error: ${res.status}`);
-  return res.json();
-}
+const YT_API = "https://www.googleapis.com/youtube/v3";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
 
   try {
     const { videoId } = req.body;
-    const apiKey = req.body.youtubeApiKey || process.env.YOUTUBE_API_KEY;
+    const keys = getYouTubeKeys(req.body.youtubeApiKey);
 
-    if (!apiKey) return res.status(400).json({ error: "YouTube API key required" });
+    if (keys.length === 0) return res.status(400).json({ error: "YouTube API key required" });
     if (!videoId) return res.status(400).json({ error: "videoId is required" });
 
     // 1. Fetch video statistics
-    const videoData = await fetchJSON(
-      `${YT_API}/videos?part=statistics,snippet&id=${videoId}&key=${apiKey}`
+    const videoData = await ytFetch(
+      (key) => `${YT_API}/videos?part=statistics,snippet&id=${videoId}&key=${key}`,
+      keys
     );
     if (!videoData.items?.length) {
       return res.status(404).json({ error: "Video not found" });
@@ -33,8 +30,9 @@ export default async function handler(req, res) {
     const title = video.snippet.title;
 
     // 2. Fetch channel statistics + uploads playlist
-    const channelData = await fetchJSON(
-      `${YT_API}/channels?part=statistics,contentDetails&id=${channelId}&key=${apiKey}`
+    const channelData = await ytFetch(
+      (key) => `${YT_API}/channels?part=statistics,contentDetails&id=${channelId}&key=${key}`,
+      keys
     );
     if (!channelData.items?.length) {
       return res.status(404).json({ error: "Channel not found" });
@@ -45,8 +43,9 @@ export default async function handler(req, res) {
     const uploadsPlaylist = channel.contentDetails.relatedPlaylists.uploads;
 
     // 3. Fetch last 10 videos from the channel
-    const playlistData = await fetchJSON(
-      `${YT_API}/playlistItems?part=snippet&playlistId=${uploadsPlaylist}&maxResults=10&key=${apiKey}`
+    const playlistData = await ytFetch(
+      (key) => `${YT_API}/playlistItems?part=snippet&playlistId=${uploadsPlaylist}&maxResults=10&key=${key}`,
+      keys
     );
     const recentVideoIds = (playlistData.items || [])
       .map((item) => item.snippet.resourceId.videoId)
@@ -58,8 +57,9 @@ export default async function handler(req, res) {
     let avgComments = comments;
 
     if (recentVideoIds.length > 0) {
-      const recentStats = await fetchJSON(
-        `${YT_API}/videos?part=statistics&id=${recentVideoIds.join(",")}&key=${apiKey}`
+      const recentStats = await ytFetch(
+        (key) => `${YT_API}/videos?part=statistics&id=${recentVideoIds.join(",")}&key=${key}`,
+        keys
       );
       const recentItems = recentStats.items || [];
       if (recentItems.length > 0) {

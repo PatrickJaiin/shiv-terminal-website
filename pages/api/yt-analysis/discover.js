@@ -1,20 +1,18 @@
 import Graph from "graphology";
 import louvain from "graphology-communities-louvain";
 import forceAtlas2 from "graphology-layout-forceatlas2";
+import { getYouTubeKeys, ytFetch } from "../../../lib/youtube-keys";
 
 const YT_API = "https://www.googleapis.com/youtube/v3";
 
-async function searchYouTube(query, maxResults, apiKey) {
+async function searchYouTube(query, maxResults, keys) {
   const params = new URLSearchParams({
     part: "snippet",
     q: query,
     type: "video",
     maxResults: String(maxResults),
-    key: apiKey,
   });
-  const res = await fetch(`${YT_API}/search?${params}`);
-  if (!res.ok) throw new Error(`YouTube search failed: ${res.status}`);
-  const data = await res.json();
+  const data = await ytFetch((key) => `${YT_API}/search?${params}&key=${key}`, keys);
   return (data.items || []).map((item) => ({
     id: item.id.videoId,
     title: item.snippet.title,
@@ -191,15 +189,15 @@ export default async function handler(req, res) {
 
   try {
     const { searchQuery, depth = 2, maxPerCommunity = 3, maxTotal = 15 } = req.body;
-    const apiKey = req.body.youtubeApiKey || process.env.YOUTUBE_API_KEY;
+    const keys = getYouTubeKeys(req.body.youtubeApiKey);
 
-    if (!apiKey) return res.status(400).json({ error: "YouTube API key required. Set YOUTUBE_API_KEY env var or pass youtubeApiKey." });
+    if (keys.length === 0) return res.status(400).json({ error: "YouTube API key required. Set YOUTUBE_API_KEY env var or pass youtubeApiKey." });
     if (!searchQuery) return res.status(400).json({ error: "searchQuery is required" });
 
     const searchSets = [];
 
     // Phase 1: Main search — get 50 results (max)
-    const mainResults = await searchYouTube(searchQuery, 50, apiKey);
+    const mainResults = await searchYouTube(searchQuery, 50, keys);
     searchSets.push({ query: searchQuery, results: mainResults });
 
     // Phase 2: Depth 1 — search titles of top 10 results
@@ -212,7 +210,7 @@ export default async function handler(req, res) {
         .join(" ");
       if (cleanTitle.length < 5) continue;
       try {
-        const related = await searchYouTube(cleanTitle, 25, apiKey);
+        const related = await searchYouTube(cleanTitle, 25, keys);
         searchSets.push({ query: cleanTitle, results: related });
       } catch {
         // Skip failed searches
@@ -244,7 +242,7 @@ export default async function handler(req, res) {
         if (cleanTitle.length < 5) continue;
         try {
           const resultsPerSearch = { 2: 20, 3: 25, 4: 30, 5: 35 }[d] || 25;
-          const related = await searchYouTube(cleanTitle, resultsPerSearch, apiKey);
+          const related = await searchYouTube(cleanTitle, resultsPerSearch, keys);
           searchSets.push({ query: cleanTitle, results: related });
         } catch {
           // Skip

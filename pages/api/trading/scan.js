@@ -333,6 +333,9 @@ function parsePolyGame(ev, slugPattern) {
     yesPrice: yp, noPrice: np,
     volume: parseFloat(ml.volume || ev.volume || 0),
     liquidity: parseFloat(ml.liquidity || ev.liquidity || 0),
+    startDate: ev.startDate || ml.startDate || null,
+    endDate: ev.endDate || ml.endDate || null,
+    closed: !!(ev.closed || ml.closed),
   };
 }
 
@@ -369,6 +372,237 @@ async function fetchPolymarketMarkets(game, kalshiMarkets) {
   }
 
   return allMarkets;
+}
+
+/* ══════════════════════════════════════════════════════════
+   Structured event matching (Kalshi <-> Polymarket)
+   Goal: identify the SAME real-world game on both platforms
+   before checking prices, so arbitrage signals are reliable.
+   ══════════════════════════════════════════════════════════ */
+
+// Canonical team registry. id is the canonical key used for matching.
+// Aliases include abbreviations, city names, and nicknames.
+const TEAM_REGISTRY = [
+  // ── NBA ──
+  { id: "atl", sport: "nba", names: ["atl", "atlanta", "hawks", "atlanta hawks"] },
+  { id: "bos", sport: "nba", names: ["bos", "boston", "celtics", "boston celtics"] },
+  { id: "bkn", sport: "nba", names: ["bkn", "brooklyn", "nets", "brooklyn nets"] },
+  { id: "cha", sport: "nba", names: ["cha", "charlotte", "hornets", "charlotte hornets"] },
+  { id: "chi", sport: "nba", names: ["chi", "chicago", "bulls", "chicago bulls"] },
+  { id: "cle", sport: "nba", names: ["cle", "cleveland", "cavaliers", "cavs", "cleveland cavaliers"] },
+  { id: "dal", sport: "nba", names: ["dal", "dallas", "mavericks", "mavs", "dallas mavericks"] },
+  { id: "den", sport: "nba", names: ["den", "denver", "nuggets", "denver nuggets"] },
+  { id: "det", sport: "nba", names: ["det", "detroit", "pistons", "detroit pistons"] },
+  { id: "gsw", sport: "nba", names: ["gsw", "golden state", "warriors", "golden state warriors"] },
+  { id: "hou", sport: "nba", names: ["hou", "houston", "rockets", "houston rockets"] },
+  { id: "ind", sport: "nba", names: ["ind", "indiana", "pacers", "indiana pacers"] },
+  { id: "lac", sport: "nba", names: ["lac", "los angeles clippers", "la clippers", "clippers"] },
+  { id: "lal", sport: "nba", names: ["lal", "los angeles lakers", "la lakers", "lakers"] },
+  { id: "mem", sport: "nba", names: ["mem", "memphis", "grizzlies", "memphis grizzlies"] },
+  { id: "mia", sport: "nba", names: ["mia", "miami", "heat", "miami heat"] },
+  { id: "mil", sport: "nba", names: ["mil", "milwaukee", "bucks", "milwaukee bucks"] },
+  { id: "min", sport: "nba", names: ["min", "minnesota", "timberwolves", "wolves", "minnesota timberwolves"] },
+  { id: "nop", sport: "nba", names: ["nop", "no", "new orleans", "pelicans", "new orleans pelicans"] },
+  { id: "nyk", sport: "nba", names: ["nyk", "new york", "knicks", "new york knicks"] },
+  { id: "okc", sport: "nba", names: ["okc", "oklahoma city", "thunder", "oklahoma city thunder"] },
+  { id: "orl", sport: "nba", names: ["orl", "orlando", "magic", "orlando magic"] },
+  { id: "phi", sport: "nba", names: ["phi", "philadelphia", "76ers", "sixers", "philadelphia 76ers"] },
+  { id: "phx", sport: "nba", names: ["phx", "phoenix", "suns", "phoenix suns"] },
+  { id: "por", sport: "nba", names: ["por", "portland", "trail blazers", "blazers", "portland trail blazers"] },
+  { id: "sac", sport: "nba", names: ["sac", "sacramento", "kings", "sacramento kings"] },
+  { id: "sas", sport: "nba", names: ["sas", "san antonio", "spurs", "san antonio spurs"] },
+  { id: "tor", sport: "nba", names: ["tor", "toronto", "raptors", "toronto raptors"] },
+  { id: "uta", sport: "nba", names: ["uta", "utah", "jazz", "utah jazz"] },
+  { id: "was", sport: "nba", names: ["was", "washington", "wizards", "washington wizards"] },
+  // ── IPL ──
+  { id: "csk", sport: "ipl", names: ["csk", "chennai", "super kings", "chennai super kings"] },
+  { id: "mi",  sport: "ipl", names: ["mi", "mumbai", "indians", "mumbai indians"] },
+  { id: "rcb", sport: "ipl", names: ["rcb", "bangalore", "bengaluru", "royal challengers", "royal challengers bangalore"] },
+  { id: "kkr", sport: "ipl", names: ["kkr", "kolkata", "knight riders", "kolkata knight riders"] },
+  { id: "dc",  sport: "ipl", names: ["dc", "delhi", "capitals", "delhi capitals"] },
+  { id: "rr",  sport: "ipl", names: ["rr", "rajasthan", "royals", "rajasthan royals"] },
+  { id: "pbks",sport: "ipl", names: ["pbks", "punjab", "kings", "punjab kings"] },
+  { id: "srh", sport: "ipl", names: ["srh", "hyderabad", "sunrisers", "sunrisers hyderabad"] },
+  { id: "lsg", sport: "ipl", names: ["lsg", "lucknow", "super giants", "lucknow super giants"] },
+  { id: "gt",  sport: "ipl", names: ["gt", "gujarat", "titans", "gujarat titans"] },
+  // ── LoL ──
+  { id: "t1",  sport: "lol", names: ["t1", "sk telecom", "skt"] },
+  { id: "geng",sport: "lol", names: ["geng", "gen.g", "gen g"] },
+  { id: "hle", sport: "lol", names: ["hle", "hanwha", "hanwha life"] },
+  { id: "dk",  sport: "lol", names: ["dk", "dplus", "dplus kia", "dwg", "damwon"] },
+  { id: "kt",  sport: "lol", names: ["kt", "kt rolster"] },
+  { id: "drx", sport: "lol", names: ["drx"] },
+  { id: "fnc", sport: "lol", names: ["fnc", "fnatic"] },
+  { id: "g2",  sport: "lol", names: ["g2", "g2 esports"] },
+  { id: "c9",  sport: "lol", names: ["c9", "cloud9"] },
+  { id: "tl",  sport: "lol", names: ["tl", "team liquid", "liquid"] },
+  { id: "fly", sport: "lol", names: ["fly", "flyquest"] },
+  { id: "100t",sport: "lol", names: ["100t", "100 thieves"] },
+  { id: "nrg", sport: "lol", names: ["nrg", "nrg esports"] },
+  { id: "blg", sport: "lol", names: ["blg", "bilibili", "bilibili gaming"] },
+  { id: "jdg", sport: "lol", names: ["jdg", "jd gaming"] },
+  { id: "wbg", sport: "lol", names: ["wbg", "weibo", "weibo gaming"] },
+  { id: "tes", sport: "lol", names: ["tes", "top esports"] },
+  { id: "lng", sport: "lol", names: ["lng", "lng esports"] },
+  // ── Valorant (overlap with LoL teams handled by id collision is fine) ──
+  { id: "sen", sport: "val", names: ["sen", "sentinels"] },
+  { id: "loud",sport: "val", names: ["loud"] },
+  { id: "prx", sport: "val", names: ["prx", "paper rex"] },
+  { id: "navi",sport: "val", names: ["navi", "natus vincere"] },
+  { id: "eg",  sport: "val", names: ["eg", "evil geniuses"] },
+  { id: "lev", sport: "val", names: ["lev", "leviatan", "leviatán"] },
+  { id: "edg", sport: "val", names: ["edg", "edward gaming"] },
+  { id: "fut", sport: "val", names: ["fut", "fut esports"] },
+  { id: "kc",  sport: "val", names: ["kc", "karmine", "karmine corp"] },
+  { id: "m8",  sport: "val", names: ["m8", "gentle mates"] },
+  { id: "th",  sport: "val", names: ["th", "team heretics", "heretics"] },
+];
+
+// Build alias index: lowercased alias -> { id, sport }
+const ALIAS_INDEX = (() => {
+  const map = new Map();
+  for (const t of TEAM_REGISTRY) {
+    for (const n of t.names) map.set(n.toLowerCase(), { id: t.id, sport: t.sport });
+  }
+  return map;
+})();
+
+/**
+ * Resolve an arbitrary string to a canonical team id.
+ * Tries exact alias match first, then longest substring match (skipping <3 char aliases
+ * to avoid false positives like "no" matching "no team").
+ */
+function canonicalTeamId(input, sportHint) {
+  const s = (input || "").toLowerCase().trim();
+  if (!s) return null;
+  // Exact match
+  const exact = ALIAS_INDEX.get(s);
+  if (exact && (!sportHint || exact.sport === sportHint)) return exact.id;
+  // Tokenized exact match (split on non-letter)
+  const tokens = s.split(/[^a-z0-9]+/).filter(Boolean);
+  for (const tok of tokens) {
+    const hit = ALIAS_INDEX.get(tok);
+    if (hit && (!sportHint || hit.sport === sportHint)) return hit.id;
+  }
+  // Substring: longest alias contained in input
+  let best = null;
+  let bestLen = 0;
+  for (const [alias, info] of ALIAS_INDEX) {
+    if (alias.length < 4) continue; // skip short codes for substring matching
+    if (sportHint && info.sport !== sportHint) continue;
+    if (s.includes(alias) && alias.length > bestLen) {
+      best = info.id;
+      bestLen = alias.length;
+    }
+  }
+  return best;
+}
+
+// Parse Kalshi date code "26APR07" -> "2026-04-07"
+const KALSHI_MONTH_CODES = {
+  JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06",
+  JUL: "07", AUG: "08", SEP: "09", OCT: "10", NOV: "11", DEC: "12",
+};
+function parseKalshiDateCode(s) {
+  const m = (s || "").match(/^(\d{2})([A-Z]{3})(\d{2})/);
+  if (!m) return null;
+  const month = KALSHI_MONTH_CODES[m[2]];
+  if (!month) return null;
+  return `20${m[1]}-${month}-${m[3]}`;
+}
+
+/**
+ * Group flat Kalshi markets into structured events.
+ * Each event has both teams + a game date, ready for cross-platform matching.
+ * Returns: [{ eventTicker, gameDate, teamA: {canon, market}, teamB: {canon, market} }]
+ */
+function structureKalshiEvents(kalshiMarkets, sportHint) {
+  const groups = new Map();
+  for (const m of kalshiMarkets) {
+    const parts = (m.ticker || "").split("-");
+    if (parts.length < 3) continue;
+    const eventTicker = parts.slice(0, -1).join("-");
+    if (!groups.has(eventTicker)) groups.set(eventTicker, []);
+    groups.get(eventTicker).push(m);
+  }
+  const events = [];
+  for (const [eventTicker, markets] of groups) {
+    if (markets.length < 2) continue;
+    // Date: parse from middle ticker segment
+    const middleSeg = eventTicker.split("-")[1] || "";
+    const gameDate = parseKalshiDateCode(middleSeg);
+    // Canonicalize each market's team
+    const seen = new Set();
+    const finalTeams = [];
+    for (const m of markets) {
+      const lastSeg = (m.ticker || "").split("-").pop();
+      const canon =
+        canonicalTeamId(lastSeg, sportHint) ||
+        canonicalTeamId(m.team_name, sportHint) ||
+        canonicalTeamId(m.title, sportHint);
+      if (!canon || seen.has(canon)) continue;
+      seen.add(canon);
+      finalTeams.push({ canon, market: m });
+      if (finalTeams.length === 2) break;
+    }
+    if (finalTeams.length !== 2) continue;
+    events.push({
+      eventTicker,
+      gameDate,
+      teamA: finalTeams[0],
+      teamB: finalTeams[1],
+    });
+  }
+  return events;
+}
+
+/**
+ * Structure Polymarket events for matching.
+ * Pulls a game date from the slug or event start_date.
+ */
+function structurePolymarketEvents(polymarketMarkets, sportHint) {
+  const events = [];
+  for (const pm of polymarketMarkets) {
+    const canonA = canonicalTeamId(pm.teamA, sportHint);
+    const canonB = canonicalTeamId(pm.teamB, sportHint);
+    if (!canonA || !canonB || canonA === canonB) continue;
+    // Date: try slug first, then startDate
+    let gameDate = null;
+    const slugMatch = (pm.slug || "").match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (slugMatch) gameDate = `${slugMatch[1]}-${slugMatch[2]}-${slugMatch[3]}`;
+    else if (pm.startDate) {
+      try { gameDate = new Date(pm.startDate).toISOString().slice(0, 10); } catch {}
+    }
+    events.push({ polyMarket: pm, gameDate, canonA, canonB });
+  }
+  return events;
+}
+
+// Two date strings refer to the same game (allow ±1 day timezone slack).
+function sameGameDate(dA, dB) {
+  if (!dA || !dB) return true; // missing date -> don't reject
+  if (dA === dB) return true;
+  const a = Date.parse(dA);
+  const b = Date.parse(dB);
+  if (isNaN(a) || isNaN(b)) return false;
+  return Math.abs(a - b) <= 36 * 60 * 60 * 1000;
+}
+
+/**
+ * Match Kalshi events to Polymarket events: BOTH teams must canonicalize
+ * to the same pair AND game dates must agree.
+ */
+function matchEventsByTeamsAndDate(kEvents, pEvents) {
+  const pairs = [];
+  for (const ke of kEvents) {
+    const kPair = new Set([ke.teamA.canon, ke.teamB.canon]);
+    for (const pe of pEvents) {
+      if (!kPair.has(pe.canonA) || !kPair.has(pe.canonB)) continue;
+      if (!sameGameDate(ke.gameDate, pe.gameDate)) continue;
+      pairs.push({ kEvent: ke, pEvent: pe });
+    }
+  }
+  return pairs;
 }
 
 /* ── Main handler ── */
@@ -512,83 +746,113 @@ export default async function handler(req, res) {
       }
     }
 
-    /* ── Kalshi + Polymarket ── */
+    /* ── Kalshi + Polymarket (structured event matching) ── */
+    let matchedEventCount = 0;
     if (hasKalshi && hasPoly) {
-      const pairs = matchKalshiPolymarket(kalshiMarkets, polymarketMarkets);
-      for (const { kalshiMarket: km, polyMarket: pm, teamName, polyTeamPrice, polyOpponentPrice } of pairs) {
-        let book;
+      // Step 1: structure both sides into events with both teams + a date
+      const kEvents = structureKalshiEvents(kalshiMarkets, activeGame);
+      const pEvents = structurePolymarketEvents(polymarketMarkets, activeGame);
+
+      // Step 2: match by canonical team pair + game date (no single-team fuzzy)
+      const matchedPairs = matchEventsByTeamsAndDate(kEvents, pEvents);
+      matchedEventCount = matchedPairs.length;
+
+      // Step 3: fetch all needed Kalshi orderbooks in parallel
+      const tickers = new Set();
+      for (const { kEvent } of matchedPairs) {
+        tickers.add(kEvent.teamA.market.ticker);
+        tickers.add(kEvent.teamB.market.ticker);
+      }
+      const orderbookCache = new Map();
+      await Promise.all([...tickers].map(async (t) => {
         try {
-          book = await fetchKalshiOrderbook(km.ticker, kalshiAuth, apiBase);
+          orderbookCache.set(t, await fetchKalshiOrderbook(t, kalshiAuth, apiBase));
         } catch {
-          continue;
+          orderbookCache.set(t, null);
         }
+      }));
 
-        // Kalshi market is for this team winning (YES = team wins)
-        // polyTeamPrice = Polymarket's price for this same team winning
-        // Arb: if Kalshi YES price + Polymarket opponent price < 1.0
-        //   -> buy YES on Kalshi, buy opponent on Polymarket
-        // Or: if Polymarket team price + Kalshi NO price < 1.0
-        //   -> buy team on Polymarket, buy NO on Kalshi
+      // Step 4: for each matched event, compute both-direction arb on each team slot
+      for (const { kEvent, pEvent } of matchedPairs) {
+        const pm = pEvent.polyMarket;
+        const eventLabel = `${kEvent.teamA.canon.toUpperCase()} vs ${kEvent.teamB.canon.toUpperCase()}`;
+        const gameDate = kEvent.gameDate || pEvent.gameDate;
 
-        // Direction 1: Kalshi YES (this team) + Polymarket opponent
-        const kalshiYes = km.yes_price || 0;
-        const grossArb1 = 1.0 - kalshiYes - polyOpponentPrice;
-        // Direction 2: Polymarket team + Kalshi NO
-        const grossArb2 = 1.0 - polyTeamPrice - book.best_no_ask;
+        for (const slot of [kEvent.teamA, kEvent.teamB]) {
+          const km = slot.market;
+          const teamCanon = slot.canon;
+          const book = orderbookCache.get(km.ticker);
+          if (!book) continue;
 
-        // Pick the better direction
-        let grossArb, direction, buyPlatform, buyPrice, sellPlatform, sellPrice;
-        if (grossArb1 >= grossArb2) {
-          grossArb = grossArb1;
-          direction = "kalshi_yes_poly_no";
-          buyPlatform = "Kalshi YES";
-          buyPrice = kalshiYes;
-          sellPlatform = "Poly opponent";
-          sellPrice = polyOpponentPrice;
-        } else {
-          grossArb = grossArb2;
-          direction = "poly_yes_kalshi_no";
-          buyPlatform = "Poly team";
-          buyPrice = polyTeamPrice;
-          sellPlatform = "Kalshi NO";
-          sellPrice = book.best_no_ask;
+          // Polymarket prices: yesPrice belongs to canonA, noPrice belongs to canonB
+          const polyTeamPrice = teamCanon === pEvent.canonA ? pm.yesPrice : pm.noPrice;
+          const polyOppPrice  = teamCanon === pEvent.canonA ? pm.noPrice  : pm.yesPrice;
+          const kalshiYes = km.yes_price || 0;
+
+          // Two arb directions for this team slot:
+          // (1) Buy Kalshi YES (team wins on K) + buy Polymarket opponent (team loses on P)
+          const grossArb1 = 1.0 - kalshiYes - polyOppPrice;
+          // (2) Buy Polymarket team (team wins on P) + buy Kalshi NO (team loses on K)
+          const grossArb2 = 1.0 - polyTeamPrice - book.best_no_ask;
+
+          let grossArb, direction, buyPlatform, buyPrice, sellPlatform, sellPrice;
+          if (grossArb1 >= grossArb2) {
+            grossArb = grossArb1;
+            direction = "kalshi_yes_poly_no";
+            buyPlatform = "Kalshi YES";
+            buyPrice = kalshiYes;
+            sellPlatform = "Polymarket opponent";
+            sellPrice = polyOppPrice;
+          } else {
+            grossArb = grossArb2;
+            direction = "poly_yes_kalshi_no";
+            buyPlatform = "Polymarket team";
+            buyPrice = polyTeamPrice;
+            sellPlatform = "Kalshi NO";
+            sellPrice = book.best_no_ask;
+          }
+
+          const netArb = grossArb - slippageBuffer;
+          const positionSize = bankroll * maxPositionPct;
+
+          let passesThreshold = true;
+          let abortReason = null;
+          if (grossArb < minGrossArb) { passesThreshold = false; abortReason = `Gross arb ${(grossArb*100).toFixed(1)}c < min ${(minGrossArb*100).toFixed(1)}c`; }
+          else if (netArb < minNetArb) { passesThreshold = false; abortReason = `Net arb ${(netArb*100).toFixed(1)}c < min ${(minNetArb*100).toFixed(1)}c`; }
+          else if (book.no_depth < positionSize * kalshiMinDepthMult && direction === "poly_yes_kalshi_no") {
+            passesThreshold = false; abortReason = `Kalshi depth ${book.no_depth} < ${(positionSize * kalshiMinDepthMult).toFixed(0)} required`;
+          }
+
+          opportunities.push({
+            pairType: "kalshi_polymarket",
+            matchName: eventLabel,
+            gameDate,
+            team: teamCanon.toUpperCase(),
+            teamA: kEvent.teamA.canon,
+            teamB: kEvent.teamB.canon,
+            direction,
+            buyPlatform,
+            buyPrice: +buyPrice.toFixed(4),
+            sellPlatform,
+            sellPrice: +sellPrice.toFixed(4),
+            kalshiEventTicker: kEvent.eventTicker,
+            kalshiTicker: km.ticker,
+            kalshiYesPrice: +kalshiYes.toFixed(4),
+            kalshiNoPrice: +book.best_no_ask.toFixed(4),
+            kalshiNoDepth: book.no_depth,
+            polymarketId: pm.id,
+            polymarketSlug: pm.slug,
+            polymarketQuestion: pm.question,
+            polymarketYesPrice: +pm.yesPrice.toFixed(4),
+            polymarketNoPrice: +pm.noPrice.toFixed(4),
+            polymarketLiquidity: pm.liquidity,
+            grossArb: +grossArb.toFixed(4),
+            netArb: +netArb.toFixed(4),
+            positionSize,
+            passesThreshold,
+            abortReason,
+          });
         }
-
-        const netArb = grossArb - slippageBuffer;
-        const positionSize = bankroll * maxPositionPct;
-
-        let passesThreshold = true;
-        let abortReason = null;
-        if (grossArb < minGrossArb) { passesThreshold = false; abortReason = `Gross arb ${(grossArb*100).toFixed(1)}c < min ${(minGrossArb*100).toFixed(1)}c`; }
-        else if (netArb < minNetArb) { passesThreshold = false; abortReason = `Net arb ${(netArb*100).toFixed(1)}c < min ${(minNetArb*100).toFixed(1)}c`; }
-        else if (book.no_depth < positionSize * kalshiMinDepthMult && direction === "poly_yes_kalshi_no") {
-          passesThreshold = false; abortReason = `Kalshi depth ${book.no_depth} < ${(positionSize * kalshiMinDepthMult).toFixed(0)} required`;
-        }
-
-        opportunities.push({
-          pairType: "kalshi_polymarket",
-          matchName: `${km.title || km.team_name} / ${pm.question}`,
-          team: teamName,
-          direction,
-          buyPlatform,
-          buyPrice: +buyPrice.toFixed(4),
-          sellPlatform,
-          sellPrice: +sellPrice.toFixed(4),
-          kalshiTicker: km.ticker,
-          kalshiYesPrice: +km.yes_price.toFixed(4),
-          kalshiNoPrice: +book.best_no_ask.toFixed(4),
-          kalshiNoDepth: book.no_depth,
-          polymarketId: pm.id,
-          polymarketQuestion: pm.question,
-          polymarketYesPrice: +pm.yesPrice.toFixed(4),
-          polymarketNoPrice: +pm.noPrice.toFixed(4),
-          polymarketLiquidity: pm.liquidity,
-          grossArb: +grossArb.toFixed(4),
-          netArb: +netArb.toFixed(4),
-          positionSize,
-          passesThreshold,
-          abortReason,
-        });
       }
     }
 
@@ -597,6 +861,7 @@ export default async function handler(req, res) {
       stakeMatchCount: hasStake ? (stakeMatches || []).length : 0,
       kalshiMarketCount: kalshiMarkets.length,
       polymarketCount: polymarketMarkets.length,
+      matchedEventCount,
       // Return raw markets for browse view when no arbs found
       kalshiRawMarkets: kalshiMarkets.slice(0, 20),
       polymarketRawMarkets: polymarketMarkets.slice(0, 20),
