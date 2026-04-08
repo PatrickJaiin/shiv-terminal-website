@@ -631,7 +631,22 @@ export default function YouTubeAlgorithm() {
               sarvamKey: keys.sarvam || undefined,
             }),
           });
-          const analyzeData = await analyzeRes.json();
+          // Read body as text first - lets us handle Vercel timeouts and
+          // other non-JSON error pages without throwing a cryptic
+          // "string did not match expected pattern" parse error.
+          const rawBody = await analyzeRes.text();
+          let analyzeData;
+          try {
+            analyzeData = JSON.parse(rawBody);
+          } catch {
+            const looksLikeTimeout = analyzeRes.status === 504 || /timeout|FUNCTION_INVOCATION/i.test(rawBody);
+            const msg = looksLikeTimeout
+              ? `Server timeout (status ${analyzeRes.status}). The transcript fetch + LLM call exceeded the function budget.`
+              : `Non-JSON response (status ${analyzeRes.status}): ${rawBody.slice(0, 120)}`;
+            addLog(`  Failed: ${msg}`);
+            failures.push({ kind: "api", error: msg });
+            continue;
+          }
 
           if (!analyzeRes.ok) {
             if (analyzeData.errorType === "user_transcript" || analyzeData.fatal) {

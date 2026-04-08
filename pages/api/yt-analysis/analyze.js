@@ -78,13 +78,22 @@ function parseTranscriptXml(xml) {
   return textSegments.map(decodeEntities);
 }
 
+// Hard timeout wrapper - prevents hanging fetches from blowing the
+// Vercel function budget. YouTube's blocked endpoints often hang
+// without erroring, so each call gets its own AbortController.
+function fetchWithTimeout(url, opts = {}, timeoutMs = 3500) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  return fetch(url, { ...opts, signal: ctrl.signal }).finally(() => clearTimeout(timer));
+}
+
 async function tryInnertubeClient(videoId, client) {
   try {
-    const res = await fetch(INNERTUBE_PLAYER, {
+    const res = await fetchWithTimeout(INNERTUBE_PLAYER, {
       method: "POST",
       headers: { "Content-Type": "application/json", "User-Agent": client.ua },
       body: JSON.stringify({ ...client.body, videoId }),
-    });
+    }, 3500);
     if (!res.ok) return null;
     const data = await res.json();
     const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
@@ -97,9 +106,9 @@ async function tryInnertubeClient(videoId, client) {
 
 async function tryWebScrape(videoId) {
   try {
-    const res = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+    const res = await fetchWithTimeout(`https://www.youtube.com/watch?v=${videoId}`, {
       headers: { "User-Agent": WEB_UA, "Accept-Language": "en-US,en;q=0.9" },
-    });
+    }, 4000);
     if (!res.ok) return null;
     const html = await res.text();
     const match = html.match(/"captionTracks":\s*(\[.*?\])/);
@@ -111,14 +120,16 @@ async function tryWebScrape(videoId) {
 }
 
 // Supadata uses a residential proxy pool, so it bypasses YouTube's
-// cloud-IP block that hits Vercel/AWS. Used as a final fallback because
-// the free tier is only 100 transcripts/month.
+// cloud-IP block that hits Vercel/AWS. When configured, this is the
+// fastest and most reliable path - we try it FIRST on Vercel-like
+// environments where Innertube is dead.
 async function trySupadata(videoId, apiKey) {
   if (!apiKey) return null;
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://api.supadata.ai/v1/youtube/transcript?videoId=${videoId}&text=true`,
-      { headers: { "x-api-key": apiKey } }
+      { headers: { "x-api-key": apiKey } },
+      6000
     );
     if (!res.ok) return null;
     const data = await res.json();
@@ -136,22 +147,34 @@ function truncateTranscript(text) {
 }
 
 async function fetchTranscript(videoId) {
-  // Try each Innertube client variant in sequence - at least one usually works
-  let tracks = null;
   const tried = [];
+
+  // Fast path: when Supadata is configured, try it FIRST. On Vercel/AWS
+  // YouTube blocks the Innertube API entirely, so the 4 client attempts
+  // are pure dead time. Supadata succeeds in ~1-2s via residential proxy.
+  if (process.env.SUPADATA_API_KEY) {
+    tried.push("SUPADATA");
+    const supaText = await trySupadata(videoId, process.env.SUPADATA_API_KEY);
+    if (supaText) {
+      const result = truncateTranscript(supaText);
+      if (result) return result;
+    }
+  }
+
+  // Fallback: try each Innertube client variant in sequence
+  let tracks = null;
   for (const client of INNERTUBE_CLIENTS) {
     tried.push(client.name);
     tracks = await tryInnertubeClient(videoId, client);
     if (tracks) break;
   }
 
-  // Try scraping the watch page HTML
+  // Last resort before giving up: scrape the watch page HTML
   if (!tracks) {
     tried.push("WEB_SCRAPE");
     tracks = await tryWebScrape(videoId);
   }
 
-  // Innertube/scrape path: pick a track, fetch and parse the XML
   if (tracks && tracks.length > 0) {
     const track =
       tracks.find((t) => t.languageCode === "en") ||
@@ -160,7 +183,11 @@ async function fetchTranscript(videoId) {
 
     if (track?.baseUrl) {
       try {
-        const capRes = await fetch(track.baseUrl, { headers: { "User-Agent": ANDROID_UA } });
+        const capRes = await fetchWithTimeout(
+          track.baseUrl,
+          { headers: { "User-Agent": ANDROID_UA } },
+          4000
+        );
         if (capRes.ok) {
           const xml = await capRes.text();
           const segments = parseTranscriptXml(xml);
@@ -168,18 +195,8 @@ async function fetchTranscript(videoId) {
           if (result) return result;
         }
       } catch {
-        // fall through to Supadata
+        // fall through
       }
-    }
-  }
-
-  // Final fallback: Supadata (residential proxy, bypasses cloud-IP blocks)
-  if (process.env.SUPADATA_API_KEY) {
-    tried.push("SUPADATA");
-    const supaText = await trySupadata(videoId, process.env.SUPADATA_API_KEY);
-    if (supaText) {
-      const result = truncateTranscript(supaText);
-      if (result) return result;
     }
   }
 
@@ -309,6 +326,10 @@ function parseLLMResponse(text, parameterKeys) {
 }
 
 // ---------- handler ----------
+
+// Vercel: bump function timeout from default 10s to 60s. No-op on Hobby
+// (capped at 10s), takes effect on Pro+ where the cap is 60s.
+export const config = { maxDuration: 60 };
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
