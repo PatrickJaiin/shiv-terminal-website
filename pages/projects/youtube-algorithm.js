@@ -598,6 +598,8 @@ export default function YouTubeAlgorithm() {
       setPhase("analyzing");
       const comparisons = discoverData.selectedVideos;
       const results = [];
+      const failures = []; // collect per-comparison errors for diagnostics
+      let skipCount = 0;
 
       for (let i = 0; i < comparisons.length; i++) {
         const comp = comparisons[i];
@@ -634,9 +636,12 @@ export default function YouTubeAlgorithm() {
           if (!analyzeRes.ok) {
             if (analyzeData.skippable) {
               addLog(`  Skipped (no transcript available)`);
+              skipCount++;
+              failures.push({ kind: "transcript", error: analyzeData.error || "no transcript" });
               continue;
             }
             addLog(`  Error: ${analyzeData.error}`);
+            failures.push({ kind: "api", error: analyzeData.error || "unknown error" });
             continue;
           }
 
@@ -644,11 +649,28 @@ export default function YouTubeAlgorithm() {
           addLog(`  Done -${Object.keys(analyzeData.text1).length} parameters scored`);
         } catch (err) {
           addLog(`  Failed: ${err.message}`);
+          failures.push({ kind: "network", error: err.message });
         }
       }
 
       if (results.length === 0) {
-        throw new Error("No comparison videos could be analyzed. Check that transcripts and LLM API key are available.");
+        // Surface the actual underlying error rather than a generic message
+        const transcriptFails = failures.filter((f) => f.kind === "transcript").length;
+        const apiFails = failures.filter((f) => f.kind === "api");
+        const netFails = failures.filter((f) => f.kind === "network");
+
+        let detail;
+        if (transcriptFails === failures.length && transcriptFails > 0) {
+          detail = `All ${transcriptFails} comparison videos had no fetchable transcripts. YouTube often blocks server-side transcript fetching from cloud IPs (Vercel/AWS). Try a different topic with English-captioned videos, or run locally.`;
+        } else if (apiFails.length > 0) {
+          // Show the first actual API error - this is the most diagnostic
+          detail = `LLM/API call failed for ${apiFails.length}/${failures.length} comparisons. First error: "${apiFails[0].error}"`;
+        } else if (netFails.length > 0) {
+          detail = `Network errors on ${netFails.length}/${failures.length} comparisons. First error: "${netFails[0].error}"`;
+        } else {
+          detail = "No comparison videos could be analyzed. Check the analysis log above for details.";
+        }
+        throw new Error(detail);
       }
 
       setAnalysisResults(results);
