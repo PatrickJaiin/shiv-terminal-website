@@ -1,5 +1,6 @@
 import Head from "next/head";
 import Link from "next/link";
+import Script from "next/script";
 import { useEffect, useRef, useState, useCallback } from "react";
 
 const ARENA = 10000;
@@ -52,6 +53,25 @@ function dist(a, b) { return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2); }
 function simToLatLng(x, y, b) { return [b.south + (y / ARENA) * (b.north - b.south), b.west + (x / ARENA) * (b.east - b.west)]; }
 function latLngToSim(lat, lng, b) { return [((lng - b.west) / (b.east - b.west)) * ARENA, ((lat - b.south) / (b.north - b.south)) * ARENA]; }
 
+// Generate random resource deposit spawn points across the map.
+// Each map gets ~6 of each type spread across the arena.
+// Player can only place refineries/farms/factories on matching deposits.
+function generateResourceDeposits() {
+  const deposits = [];
+  const types = ["oil", "solar", "arms"];
+  const PER_TYPE = 6;
+  let id = 0;
+  for (const key of types) {
+    for (let i = 0; i < PER_TYPE; i++) {
+      // Spread across the whole map, avoid edges
+      const x = 800 + Math.random() * (ARENA - 1600);
+      const y = 800 + Math.random() * (ARENA - 1600);
+      deposits.push({ id: id++, key, x, y, claimed: false });
+    }
+  }
+  return deposits;
+}
+
 function generateAISetup() {
   const hqX = 5000 + (Math.random() - 0.5) * 2000;
   const hqY = 2000 + Math.random() * 1000;
@@ -62,26 +82,40 @@ function generateAISetup() {
       { key: "solar", x: hqX + 600, y: hqY + 400, alive: true },
       { key: "arms", x: hqX, y: hqY + 800, alive: true },
     ],
-    interceptors: Array.from({ length: 8 }, (_, i) => ({
+    // 16 interceptors instead of 8, faster
+    interceptors: Array.from({ length: 16 }, (_, i) => ({
       id: 5000 + i, x: hqX + (Math.random() - 0.5) * 800, y: hqY + 1200 + Math.random() * 400,
-      speed: 2.0, status: "active", targetId: null, destroyOnKill: i < 6, survivalRate: 0.73,
+      speed: 2.4, status: "active", targetId: null, destroyOnKill: i < 12, survivalRate: 0.75,
     })),
+    // Real AD coverage: Pantsir-S1 at HQ (mid range, high pK), 2 Gepards on flanks, NASAMS forward
     adUnits: [
-      { key: "gepard", x: hqX, y: hqY + 600, health: 1, ammo: 680 },
-      { key: "gepard", x: hqX + 500, y: hqY + 900, health: 1, ammo: 680 },
+      { key: "pantsir", x: hqX, y: hqY + 400, health: 1, ammo: 12 },
+      { key: "gepard", x: hqX - 700, y: hqY + 700, health: 1, ammo: 680 },
+      { key: "gepard", x: hqX + 700, y: hqY + 700, health: 1, ammo: 680 },
+      { key: "nasams", x: hqX, y: hqY + 1100, health: 1, ammo: 6 },
     ],
   };
 }
 
 function generateAIAttack(round) {
   const r = round + 1;
+  // Much harder scaling - exponential drone counts and earlier high-tier units
   return {
-    fpv: 8 + r * 5,
-    shahed: 3 + r * 3,
-    ...(r > 2 ? { lancet: r * 2 } : {}),
-    ...(r > 4 ? { mohajer: Math.floor(r * 0.8) } : {}),
+    fpv: 15 + r * 12,
+    shahed: 6 + r * 6,
+    ...(r > 1 ? { lancet: 2 + r * 3 } : {}),
+    ...(r > 3 ? { mohajer: Math.floor(1 + r * 1.2) } : {}),
   };
 }
+
+// ── Multiplayer helpers ──
+const ROOM_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous 0/O/I/1
+function generateRoomCode() {
+  let code = "";
+  for (let i = 0; i < 5; i++) code += ROOM_CODE_CHARS[Math.floor(Math.random() * ROOM_CODE_CHARS.length)];
+  return code;
+}
+function getPeerId(code) { return `swarm1v1-${code}`; }
 
 // Create flying drones from a wave config
 function spawnDrones(wave, originX, originY, targetX, targetY, idStart) {
@@ -131,6 +165,33 @@ export default function Swarm1v1() {
   const [aiSetup, setAiSetup] = useState(null);
   const [aiBudget, setAiBudget] = useState(STARTING_BUDGET);
 
+  // Resource deposits (per match, shared map)
+  const [resourceDeposits, setResourceDeposits] = useState([]);
+
+  // ── Multiplayer state ──
+  const [gameMode, setGameMode] = useState("bot"); // "bot" | "host" | "guest"
+  const [lobbyView, setLobbyView] = useState("main"); // "main" | "create" | "join"
+  const [roomCode, setRoomCode] = useState("");
+  const [joinCode, setJoinCode] = useState("");
+  const [connectionStatus, setConnectionStatus] = useState("idle"); // idle | creating | waiting | connecting | connected | error
+  const [connectionError, setConnectionError] = useState("");
+  const [peerLoaded, setPeerLoaded] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const peerRef = useRef(null);
+  const connRef = useRef(null);
+  const intentionalCloseRef = useRef(false); // suppress "opponent disconnected" when local user tears down
+  const joinTimeoutRef = useRef(null); // for join handshake timeout
+  const createRetryRef = useRef(0); // retry count for unavailable-id collisions
+  const createRetryTimerRef = useRef(null); // pending retry setTimeout id (so cancel can clear it)
+  const gameModeRef = useRef("bot"); // mirror gameMode for use in stable callbacks
+  const startGuestBattleLoopRef = useRef(null); // forward ref to break circular dep with handleNetMessage
+  // Phase 4 matchmaking
+  const mmPollRef = useRef(null); // setInterval id for polling
+  const mmDeadlineRef = useRef(null); // overall timeout deadline
+  // Phase 2 ready handshake
+  const [meReady, setMeReady] = useState(false);
+  const [opponentReady, setOpponentReady] = useState(false);
+
   // Combat
   const [currentRound, setCurrentRound] = useState(0);
   const [combatLog, setCombatLog] = useState([]);
@@ -154,8 +215,30 @@ export default function Swarm1v1() {
   const showADRangeRef = useRef(true);
   const frameRef = useRef(null);
 
+  // Reset match-level state (used by all 3 modes when a match starts)
+  const resetMatchState = useCallback(() => {
+    setPlayerHQ(null); setPlayerResources([]); setPlayerInterceptors([]); setPlayerAD([]);
+    setPlayerBudget(STARTING_BUDGET); setAiBudget(STARTING_BUDGET);
+    setCurrentRound(0); setCombatLog([]); setGameOver(null); setTotalIncome(0);
+    setBattleActive(false); setBattleDrones({ playerAttackers: [], aiAttackers: [], playerInts: [], aiInts: [] });
+    setMeReady(false); setOpponentReady(false);
+    setPlayerAttack({ fpv: 10, shahed: 3 });
+    setPlayerAirspace(2000);
+    setAttackPriority("hq");
+    setDefPosture("pursuing");
+    // Reset Phase 2 broadcast sentinels so a fresh match re-broadcasts current values
+    if (lastBroadcastRef.current) {
+      lastBroadcastRef.current.airspace = null;
+      lastBroadcastRef.current.attack = null;
+      lastBroadcastRef.current.priority = null;
+      lastBroadcastRef.current.posture = null;
+      lastBroadcastRef.current.ready = null;
+    }
+  }, []);
+
   const findMatch = useCallback(() => {
     if (!username.trim()) return;
+    setGameMode("bot");
     setPhase(PHASE.MATCHMAKING);
     setOpponentName(AI_NAMES[Math.floor(Math.random() * AI_NAMES.length)]);
     let t = 0;
@@ -164,14 +247,575 @@ export default function Swarm1v1() {
       if (t >= 3) {
         clearInterval(iv);
         setPhase(PHASE.SETUP);
-        setPlayerHQ(null); setPlayerResources([]); setPlayerInterceptors([]); setPlayerAD([]);
-        setPlayerBudget(STARTING_BUDGET); setAiBudget(STARTING_BUDGET);
-        setCurrentRound(0); setCombatLog([]); setGameOver(null); setTotalIncome(0);
-        setBattleActive(false); setBattleDrones({ playerAttackers: [], aiAttackers: [], playerInts: [], aiInts: [] });
-        setAiSetup(generateAISetup());
+        resetMatchState();
+        // Generate match: deposits first, then AI setup that claims nearby deposits
+        const deposits = generateResourceDeposits();
+        const newAi = generateAISetup();
+        // AI auto-claims one deposit of each type closest to its HQ
+        const aiResources = [];
+        for (const key of ["oil", "solar", "arms"]) {
+          const candidates = deposits
+            .filter((d) => d.key === key && !d.claimed)
+            .map((d) => ({ d, dist: Math.hypot(d.x - newAi.hqX, d.y - newAi.hqY) }))
+            .sort((a, b) => a.dist - b.dist);
+          if (candidates.length > 0) {
+            const claimed = candidates[0].d;
+            claimed.claimed = true;
+            aiResources.push({ key, x: claimed.x, y: claimed.y, alive: true, depositId: claimed.id });
+          }
+        }
+        newAi.resources = aiResources;
+        setResourceDeposits(deposits);
+        setAiSetup(newAi);
       }
     }, 1000);
-  }, [username]);
+  }, [username, resetMatchState]);
+
+  // ── Multiplayer: broadcast a message to peer (no-op in bot mode) ──
+  const broadcast = useCallback((msg) => {
+    if (gameModeRef.current === "bot") return;
+    const conn = connRef.current;
+    if (conn && conn.open) {
+      try { conn.send(msg); } catch {}
+    }
+  }, []);
+
+  // ── Multiplayer: dispatch incoming network messages and apply to local state ──
+  // The opponent's setup is mirrored into the existing aiSetup slot so that the
+  // map renderer + combat code can read it just like in bot mode.
+  const handleNetMessage = useCallback((msg) => {
+    if (typeof msg !== "object" || !msg || typeof msg.type !== "string") return;
+    switch (msg.type) {
+      case "deposits": {
+        // Host pushes the canonical deposit list to guest on connect
+        if (Array.isArray(msg.deposits)) setResourceDeposits(msg.deposits);
+        break;
+      }
+      case "place_hq": {
+        setAiSetup((prev) => ({ ...(prev || {}), hqX: msg.x, hqY: msg.y, airspace: prev?.airspace ?? 2000, resources: prev?.resources || [], interceptors: prev?.interceptors || [], adUnits: prev?.adUnits || [] }));
+        break;
+      }
+      case "airspace": {
+        setAiSetup((prev) => ({ ...(prev || {}), airspace: msg.radius, hqX: prev?.hqX ?? 5000, hqY: prev?.hqY ?? 2500, resources: prev?.resources || [], interceptors: prev?.interceptors || [], adUnits: prev?.adUnits || [] }));
+        break;
+      }
+      case "place_resource": {
+        setAiSetup((prev) => {
+          const next = prev ? { ...prev } : { hqX: 5000, hqY: 2500, airspace: 2000, resources: [], interceptors: [], adUnits: [] };
+          next.resources = [...(next.resources || []), { key: msg.key, x: msg.x, y: msg.y, alive: true, depositId: msg.depositId }];
+          return next;
+        });
+        if (msg.depositId !== undefined) {
+          setResourceDeposits((prev) => prev.map((d) => d.id === msg.depositId ? { ...d, claimed: true } : d));
+        }
+        break;
+      }
+      case "remove_resource": {
+        setAiSetup((prev) => {
+          if (!prev) return prev;
+          const next = { ...prev, resources: (prev.resources || []).filter((r) => !(r.x === msg.x && r.y === msg.y)) };
+          return next;
+        });
+        if (msg.depositId !== undefined) {
+          setResourceDeposits((prev) => prev.map((d) => d.id === msg.depositId ? { ...d, claimed: false } : d));
+        }
+        break;
+      }
+      case "place_ad": {
+        setAiSetup((prev) => {
+          const next = prev ? { ...prev } : { hqX: 5000, hqY: 2500, airspace: 2000, resources: [], interceptors: [], adUnits: [] };
+          const sys = AD_SYSTEMS_1V1.find((s) => s.key === msg.key);
+          next.adUnits = [...(next.adUnits || []), { key: msg.key, x: msg.x, y: msg.y, health: 1, ammo: sys?.missiles || 100 }];
+          return next;
+        });
+        break;
+      }
+      case "remove_ad": {
+        setAiSetup((prev) => {
+          if (!prev) return prev;
+          return { ...prev, adUnits: (prev.adUnits || []).filter((a) => !(a.x === msg.x && a.y === msg.y)) };
+        });
+        break;
+      }
+      case "place_interceptor_group": {
+        // Opponent places a group of N interceptors. We expand into individual entities
+        // so the existing static-draw code (which expects individual interceptors) renders them.
+        setAiSetup((prev) => {
+          const next = prev ? { ...prev } : { hqX: 5000, hqY: 2500, airspace: 2000, resources: [], interceptors: [], adUnits: [] };
+          const expanded = [];
+          let baseId = (next.interceptors?.length || 0) + 90000;
+          for (let i = 0; i < (msg.count || 4); i++) {
+            expanded.push({
+              id: baseId++, x: msg.x + (Math.random() - 0.5) * 200, y: msg.y + (Math.random() - 0.5) * 200,
+              speed: 2.4, status: "active", targetId: null,
+              destroyOnKill: msg.key === "kamikaze", survivalRate: msg.key === "armed" ? 0.73 : 0,
+              groupX: msg.x, groupY: msg.y, // for remove matching
+            });
+          }
+          next.interceptors = [...(next.interceptors || []), ...expanded];
+          return next;
+        });
+        break;
+      }
+      case "remove_interceptor_group": {
+        setAiSetup((prev) => {
+          if (!prev) return prev;
+          return { ...prev, interceptors: (prev.interceptors || []).filter((i) => !(i.groupX === msg.x && i.groupY === msg.y)) };
+        });
+        break;
+      }
+      case "attack_wave": {
+        setAiSetup((prev) => ({ ...(prev || {}), _attackWave: msg.wave }));
+        break;
+      }
+      case "attack_priority": {
+        setAiSetup((prev) => ({ ...(prev || {}), _priority: msg.value }));
+        break;
+      }
+      case "def_posture": {
+        setAiSetup((prev) => ({ ...(prev || {}), _posture: msg.value }));
+        break;
+      }
+      case "ready": {
+        setOpponentReady(!!msg.ready);
+        break;
+      }
+      case "start_combat": {
+        // Host initiated combat - guest transitions to combat phase
+        setPhase(PHASE.COMBAT);
+        break;
+      }
+      case "round_start": {
+        // Host launched a round. Guest sees the income log and starts the render loop.
+        // From the guest's perspective, host is the "opponent" and guest is "you", so swap.
+        if (msg.aIncome != null) setPlayerBudget((p) => p + msg.aIncome);
+        if (msg.pIncome != null) setAiBudget((p) => p + msg.pIncome);
+        if (msg.aIncome != null) setTotalIncome((p) => p + msg.aIncome);
+        setCombatLog((prev) => [...prev, `Round ${(msg.round || 0) + 1}: You +$${formatUSD(msg.aIncome || 0)} | ${opponentName} +$${formatUSD(msg.pIncome || 0)}`]);
+        if (startGuestBattleLoopRef.current) startGuestBattleLoopRef.current();
+        break;
+      }
+      case "combat_snapshot": {
+        // Apply incoming snapshot to battleRef. Swap p/a fields because the
+        // host's "player" is the guest's "opponent" and vice versa.
+        if (!battleRef.current && startGuestBattleLoopRef.current) {
+          // Snapshot arrived before round_start - lazily start the loop
+          startGuestBattleLoopRef.current();
+        }
+        const b = battleRef.current;
+        if (!b) break;
+        b.step = msg.step || 0;
+        // Swap: host's "p" → guest's "a", host's "a" → guest's "p"
+        b.aAttackers = (msg.pAtt || []).map((a) => ({ id: a.id, x: a.x, y: a.y, status: a.s, threat: "cheap" }));
+        b.pAttackers = (msg.aAtt || []).map((a) => ({ id: a.id, x: a.x, y: a.y, status: a.s, threat: "cheap" }));
+        b.aInts = (msg.pInt || []).map((i) => ({ id: i.id, x: i.x, y: i.y, status: i.s }));
+        b.pInts = (msg.aInt || []).map((i) => ({ id: i.id, x: i.x, y: i.y, status: i.s }));
+        b.aAD = (msg.pAD || []).map((a) => ({ key: a.key, x: a.x, y: a.y, health: a.h, ammo: a.ammo }));
+        b.pAD = (msg.aAD || []).map((a) => ({ key: a.key, x: a.x, y: a.y, health: a.h, ammo: a.ammo }));
+        b.flashes = msg.flashes || [];
+        b.playerAirBreaches = msg.aAirBreaches || []; // swapped
+        b.aiAirBreaches = msg.pAirBreaches || []; // swapped
+        break;
+      }
+      case "round_end": {
+        // Host computed round results. Apply to guest's local state, swapping perspectives.
+        const b = battleRef.current;
+        if (b) { b._guestRoundOver = true; }
+        // Apply budget deltas (swap: guest's loss is host's "a" delta, etc.)
+        if (msg.aBudgetDelta != null) setPlayerBudget((p) => p + msg.aBudgetDelta);
+        if (msg.pBudgetDelta != null) setAiBudget((p) => p + msg.pBudgetDelta);
+        // C3 fix: apply guest's surviving resources and interceptor counts from host's view
+        if (Array.isArray(msg.aResourcesAfter)) setPlayerResources(msg.aResourcesAfter);
+        if (Array.isArray(msg.aInterceptorsAfter)) setPlayerInterceptors(msg.aInterceptorsAfter);
+        // Append log lines (already from host perspective, leave as-is for now)
+        if (Array.isArray(msg.endLog)) setCombatLog((prev) => [...prev, ...msg.endLog]);
+        setCurrentRound((r) => Math.max(r, (msg.round || 0) + 1));
+        setBattleActive(false);
+        if (battleLayerRef.current) battleLayerRef.current.clearLayers();
+        if (frameRef.current) { cancelAnimationFrame(frameRef.current); frameRef.current = null; }
+        // C1 fix: use role tag instead of names. winnerRole = "host" | "guest"
+        if (msg.gameOver) {
+          // Guest wins iff host says "guest" won
+          const winnerIsMe = msg.gameOver.winnerRole === "guest";
+          setGameOver({
+            winner: winnerIsMe ? username : opponentName,
+            reason: msg.gameOver.reason || "Match ended",
+          });
+        }
+        break;
+      }
+      default:
+        // Unknown message types are ignored (forward compat)
+        break;
+    }
+  }, [opponentName, username]);
+
+  // ── Multiplayer: cleanup peer & connection ──
+  // intentional=true suppresses the "opponent disconnected" message in handleDisconnect
+  const teardownPeer = useCallback((intentional = false) => {
+    intentionalCloseRef.current = !!intentional;
+    if (joinTimeoutRef.current) { clearTimeout(joinTimeoutRef.current); joinTimeoutRef.current = null; }
+    if (createRetryTimerRef.current) { clearTimeout(createRetryTimerRef.current); createRetryTimerRef.current = null; }
+    if (mmPollRef.current) { clearInterval(mmPollRef.current); mmPollRef.current = null; }
+    mmDeadlineRef.current = null;
+    if (connRef.current) { try { connRef.current.close(); } catch {} connRef.current = null; }
+    if (peerRef.current) { try { peerRef.current.destroy(); } catch {} peerRef.current = null; }
+  }, []);
+
+  const handleDisconnect = useCallback(() => {
+    const wasIntentional = intentionalCloseRef.current;
+    intentionalCloseRef.current = false;
+    teardownPeer();
+    setConnectionStatus("idle");
+    if (!wasIntentional) setConnectionError("Opponent disconnected");
+    setRoomCode(""); setJoinCode(""); setLobbyView("main");
+    setGameMode("bot");
+    setCopied(false);
+    createRetryRef.current = 0;
+    // H1 fix: cancel any in-flight battle render loop
+    if (frameRef.current) { cancelAnimationFrame(frameRef.current); frameRef.current = null; }
+    if (battleRef.current) { battleRef.current._guestRoundOver = true; battleRef.current = null; }
+    resetMatchState();
+    setPhase(PHASE.LOBBY);
+    setMapReady(false);
+    if (mapInstanceRef.current) { try { mapInstanceRef.current.remove(); } catch {} mapInstanceRef.current = null; layerRef.current = null; battleLayerRef.current = null; LRef.current = null; }
+  }, [teardownPeer, resetMatchState]);
+
+  const cancelConnection = useCallback(() => {
+    teardownPeer(true); // intentional - don't flash "opponent disconnected"
+    setConnectionStatus("idle");
+    setConnectionError("");
+    setRoomCode(""); setJoinCode("");
+    setLobbyView("main");
+    setGameMode("bot");
+    createRetryRef.current = 0;
+  }, [teardownPeer]);
+
+  // ── Multiplayer: create room (host) ──
+  const createRoom = useCallback(() => {
+    if (!username.trim()) return;
+    if (typeof window === "undefined" || !window.Peer) {
+      setConnectionError("Network library not loaded yet, try again in a moment");
+      setConnectionStatus("error");
+      return;
+    }
+    teardownPeer(true);
+    const code = generateRoomCode();
+    setRoomCode(code);
+    setJoinCode("");
+    setConnectionError("");
+    setConnectionStatus("creating");
+    setGameMode("host");
+    setLobbyView("create");
+
+    const peer = new window.Peer(getPeerId(code), { debug: 0 });
+    const thisPeer = peer; // captured for stale-closure guards
+    peerRef.current = peer;
+
+    peer.on("open", () => {
+      if (peerRef.current !== thisPeer) return; // user cancelled or replaced
+      createRetryRef.current = 0; // success: reset retry counter
+      setConnectionStatus("waiting");
+    });
+    peer.on("connection", (conn) => {
+      if (peerRef.current !== thisPeer) { try { conn.close(); } catch {} return; }
+      // C3: reject second incoming connection - we already have one
+      if (connRef.current) { try { conn.close(); } catch {} return; }
+      connRef.current = conn;
+      conn.on("open", () => {
+        if (connRef.current !== conn) return;
+        setConnectionStatus("connected");
+        setOpponentName("Player 2");
+        setPhase(PHASE.SETUP);
+        resetMatchState();
+        setMeReady(false); setOpponentReady(false);
+        // Host generates the canonical deposit list and broadcasts it to guest
+        const deposits = generateResourceDeposits();
+        setResourceDeposits(deposits);
+        // Empty opponent placeholder (filled via guest's messages)
+        setAiSetup({ hqX: 5000, hqY: 2500, airspace: 2000, resources: [], interceptors: [], adUnits: [] });
+        // Send deposits to guest as soon as conn is open
+        try { conn.send({ type: "deposits", deposits }); } catch {}
+      });
+      conn.on("close", () => { if (connRef.current === conn) handleDisconnect(); });
+      conn.on("error", () => { if (connRef.current === conn) handleDisconnect(); });
+      conn.on("data", handleNetMessage);
+    });
+    peer.on("error", (err) => {
+      if (peerRef.current !== thisPeer) return;
+      // H3: auto-retry on code collision (very rare but possible)
+      if (err?.type === "unavailable-id" && createRetryRef.current < 3) {
+        createRetryRef.current++;
+        try { peer.destroy(); } catch {}
+        peerRef.current = null;
+        // try again with a new code (cancellable via teardownPeer/cancelConnection)
+        if (createRetryTimerRef.current) clearTimeout(createRetryTimerRef.current);
+        createRetryTimerRef.current = setTimeout(() => { createRetryTimerRef.current = null; createRoom(); }, 50);
+        return;
+      }
+      // Friendlier messages for common error types
+      let msg = err?.message || String(err) || "Connection error";
+      if (err?.type === "network") msg = "Network error - check your connection";
+      else if (err?.type === "server-error") msg = "PeerJS broker unavailable - try again";
+      setConnectionError(msg);
+      setConnectionStatus("error");
+      // H2: clean up the failed peer
+      try { peer.destroy(); } catch {}
+      if (peerRef.current === thisPeer) peerRef.current = null;
+    });
+  }, [username, teardownPeer, resetMatchState, handleNetMessage, handleDisconnect]);
+
+  // ── Multiplayer: join room (guest) ──
+  const joinRoom = useCallback(() => {
+    if (!username.trim() || !joinCode.trim() || joinCode.length !== 5) return;
+    if (typeof window === "undefined" || !window.Peer) {
+      setConnectionError("Network library not loaded yet, try again in a moment");
+      setConnectionStatus("error");
+      return;
+    }
+    teardownPeer(true);
+    setConnectionError("");
+    setConnectionStatus("connecting");
+    setGameMode("guest");
+    setLobbyView("join");
+
+    const peer = new window.Peer({ debug: 0 });
+    const thisPeer = peer;
+    peerRef.current = peer;
+
+    // H4: 10s timeout for the whole handshake
+    if (joinTimeoutRef.current) clearTimeout(joinTimeoutRef.current);
+    joinTimeoutRef.current = setTimeout(() => {
+      if (peerRef.current !== thisPeer) return;
+      setConnectionError("Connection timed out - check the code or try again");
+      setConnectionStatus("error");
+      try { peer.destroy(); } catch {}
+      if (peerRef.current === thisPeer) peerRef.current = null;
+    }, 10000);
+
+    peer.on("open", () => {
+      if (peerRef.current !== thisPeer) return;
+      const conn = peer.connect(getPeerId(joinCode), { reliable: true });
+      connRef.current = conn;
+      conn.on("open", () => {
+        if (connRef.current !== conn) return;
+        if (joinTimeoutRef.current) { clearTimeout(joinTimeoutRef.current); joinTimeoutRef.current = null; }
+        setConnectionStatus("connected");
+        setOpponentName("Host");
+        setPhase(PHASE.SETUP);
+        resetMatchState();
+        // Deposits will arrive from host in Phase 2; empty for now
+        setResourceDeposits([]);
+        setAiSetup({ hqX: 5000, hqY: 2500, airspace: 2000, resources: [], interceptors: [], adUnits: [] });
+      });
+      conn.on("close", () => { if (connRef.current === conn) handleDisconnect(); });
+      conn.on("error", () => { if (connRef.current === conn) handleDisconnect(); });
+      conn.on("data", handleNetMessage);
+    });
+    peer.on("error", (err) => {
+      if (peerRef.current !== thisPeer) return;
+      if (joinTimeoutRef.current) { clearTimeout(joinTimeoutRef.current); joinTimeoutRef.current = null; }
+      let msg = err?.message || String(err) || "Connection error";
+      if (err?.type === "peer-unavailable") msg = "Room not found - check the code";
+      else if (err?.type === "network") msg = "Network error - check your connection";
+      else if (err?.type === "server-error") msg = "PeerJS broker unavailable - try again";
+      setConnectionError(msg);
+      setConnectionStatus("error");
+      try { peer.destroy(); } catch {}
+      if (peerRef.current === thisPeer) peerRef.current = null;
+    });
+  }, [username, joinCode, teardownPeer, resetMatchState, handleNetMessage, handleDisconnect]);
+
+  // ── Phase 4: Cancel matchmaking polling and remove from server queue ──
+  const cancelMatchmaking = useCallback(() => {
+    if (mmPollRef.current) { clearInterval(mmPollRef.current); mmPollRef.current = null; }
+    mmDeadlineRef.current = null;
+    // Best-effort: remove from server queue
+    const myPeerId = peerRef.current?.id;
+    if (myPeerId) {
+      try { fetch(`/api/match/check?peerId=${encodeURIComponent(myPeerId)}`, { method: "DELETE" }).catch(() => {}); } catch {}
+    }
+  }, []);
+
+  // ── Phase 4: Find a random online match via Vercel Edge + Upstash Redis ──
+  const findOnlineMatch = useCallback(() => {
+    if (!username.trim()) return;
+    if (typeof window === "undefined" || !window.Peer) {
+      setConnectionError("Network library not loaded yet, try again in a moment");
+      setConnectionStatus("error");
+      return;
+    }
+    teardownPeer(true);
+    setConnectionError("");
+    setRoomCode("");
+    setJoinCode("");
+    setLobbyView("matchmaking");
+    setConnectionStatus("creating"); // we'll progress: creating → waiting → connecting → connected
+
+    // Create our peer with a random ID (PeerJS generates one)
+    const peer = new window.Peer({ debug: 0 });
+    const thisPeer = peer;
+    peerRef.current = peer;
+
+    let myPeerId = null;
+    let role = null; // "host" | "guest" - decided after queue response
+    let pollDeadline = Date.now() + 60000; // 60s overall timeout
+    mmDeadlineRef.current = pollDeadline;
+
+    const finishAsHost = () => {
+      // Host: stay registered with PeerJS, accept incoming connection from guest.
+      // Existing peer.on("connection") handler is wired below.
+      setGameMode("host");
+      setConnectionStatus("waiting");
+    };
+
+    const finishAsGuest = (opponentPeerId) => {
+      // Guest: connect to opponent's peer ID via PeerJS
+      setGameMode("guest");
+      setConnectionStatus("connecting");
+      const conn = peer.connect(opponentPeerId, { reliable: true });
+      connRef.current = conn;
+      // H1 fix: 10s timeout for the WebRTC handshake
+      if (joinTimeoutRef.current) clearTimeout(joinTimeoutRef.current);
+      joinTimeoutRef.current = setTimeout(() => {
+        if (peerRef.current !== thisPeer || connRef.current !== conn) return;
+        setConnectionError("Opponent went offline before connection - try again");
+        setConnectionStatus("error");
+        try { peer.destroy(); } catch {}
+        if (peerRef.current === thisPeer) peerRef.current = null;
+      }, 10000);
+      conn.on("open", () => {
+        if (connRef.current !== conn) return;
+        if (joinTimeoutRef.current) { clearTimeout(joinTimeoutRef.current); joinTimeoutRef.current = null; }
+        setConnectionStatus("connected");
+        setOpponentName("Opponent");
+        setPhase(PHASE.SETUP);
+        resetMatchState();
+        setResourceDeposits([]);
+        setAiSetup({ hqX: 5000, hqY: 2500, airspace: 2000, resources: [], interceptors: [], adUnits: [] });
+      });
+      conn.on("close", () => { if (connRef.current === conn) handleDisconnect(); });
+      conn.on("error", () => { if (connRef.current === conn) handleDisconnect(); });
+      conn.on("data", handleNetMessage);
+    };
+
+    peer.on("open", async (id) => {
+      if (peerRef.current !== thisPeer) return;
+      myPeerId = id;
+      // Wire the host-side connection handler in case we end up as host
+      // This must be done BEFORE the queue request so we don't miss an incoming connection
+      peer.on("connection", (conn) => {
+        if (peerRef.current !== thisPeer) { try { conn.close(); } catch {} return; }
+        if (connRef.current) { try { conn.close(); } catch {} return; }
+        connRef.current = conn;
+        conn.on("open", () => {
+          if (connRef.current !== conn) return;
+          setConnectionStatus("connected");
+          setOpponentName("Opponent");
+          setPhase(PHASE.SETUP);
+          resetMatchState();
+          setMeReady(false); setOpponentReady(false);
+          const deposits = generateResourceDeposits();
+          setResourceDeposits(deposits);
+          setAiSetup({ hqX: 5000, hqY: 2500, airspace: 2000, resources: [], interceptors: [], adUnits: [] });
+          try { conn.send({ type: "deposits", deposits }); } catch {}
+        });
+        conn.on("close", () => { if (connRef.current === conn) handleDisconnect(); });
+        conn.on("error", () => { if (connRef.current === conn) handleDisconnect(); });
+        conn.on("data", handleNetMessage);
+      });
+
+      // POST to queue endpoint
+      let queueResp;
+      try {
+        const r = await fetch("/api/match/queue", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ peerId: myPeerId }),
+        });
+        queueResp = await r.json();
+        if (r.status === 503 && queueResp?.configured === false) {
+          setConnectionError("Matchmaking is not configured on the server. Use Create/Join Room instead.");
+          setConnectionStatus("error");
+          try { peer.destroy(); } catch {}
+          if (peerRef.current === thisPeer) peerRef.current = null;
+          return;
+        }
+      } catch (e) {
+        setConnectionError("Could not reach matchmaking server: " + (e?.message || "network"));
+        setConnectionStatus("error");
+        try { peer.destroy(); } catch {}
+        if (peerRef.current === thisPeer) peerRef.current = null;
+        return;
+      }
+
+      if (peerRef.current !== thisPeer) return;
+
+      if (queueResp?.matched && queueResp.role === "guest" && queueResp.opponent) {
+        role = "guest";
+        finishAsGuest(queueResp.opponent);
+        return;
+      }
+      // Otherwise we're queued - poll for match
+      role = "host"; // we'll be the one accepting an incoming connection
+      finishAsHost();
+      // H2 fix: reset deadline now that polling actually starts (don't burn budget on broker latency)
+      pollDeadline = Date.now() + 60000;
+      mmDeadlineRef.current = pollDeadline;
+      const poll = async () => {
+        if (peerRef.current !== thisPeer) return;
+        if (Date.now() > pollDeadline) {
+          if (mmPollRef.current) { clearInterval(mmPollRef.current); mmPollRef.current = null; }
+          setConnectionError("No match found in 60 seconds. Try again or use Create/Join Room.");
+          setConnectionStatus("error");
+          try { peer.destroy(); } catch {}
+          if (peerRef.current === thisPeer) peerRef.current = null;
+          return;
+        }
+        try {
+          const r = await fetch(`/api/match/check?peerId=${encodeURIComponent(myPeerId)}`);
+          if (peerRef.current !== thisPeer) return;
+          const data = await r.json();
+          if (data?.matched && data.role === "host") {
+            // We're matched - just wait for incoming PeerJS connection
+            if (mmPollRef.current) { clearInterval(mmPollRef.current); mmPollRef.current = null; }
+            setConnectionStatus("waiting");
+            // H3 fix: 20s timeout for the guest's incoming PeerJS connection. If the guest crashed
+            // between matching and dialing, this surfaces an error instead of hanging forever.
+            if (joinTimeoutRef.current) clearTimeout(joinTimeoutRef.current);
+            joinTimeoutRef.current = setTimeout(() => {
+              if (peerRef.current !== thisPeer) return;
+              if (connRef.current) return; // already connected
+              setConnectionError("Opponent never connected - try again");
+              setConnectionStatus("error");
+              try { peer.destroy(); } catch {}
+              if (peerRef.current === thisPeer) peerRef.current = null;
+            }, 20000);
+          }
+        } catch {}
+      };
+      // Poll every 2s
+      mmPollRef.current = setInterval(poll, 2000);
+      poll(); // immediate first check
+    });
+
+    peer.on("error", (err) => {
+      if (peerRef.current !== thisPeer) return;
+      let msg = err?.message || String(err) || "Connection error";
+      if (err?.type === "peer-unavailable") msg = "Opponent disconnected before match could start";
+      else if (err?.type === "network") msg = "Network error - check your connection";
+      else if (err?.type === "server-error") msg = "PeerJS broker unavailable - try again";
+      setConnectionError(msg);
+      setConnectionStatus("error");
+      if (mmPollRef.current) { clearInterval(mmPollRef.current); mmPollRef.current = null; }
+      try { peer.destroy(); } catch {}
+      if (peerRef.current === thisPeer) peerRef.current = null;
+    });
+  }, [username, teardownPeer, resetMatchState, handleNetMessage, handleDisconnect]);
+
+  // ── Cleanup peer on unmount only (intentionally omit deps to avoid mid-match cleanup if teardownPeer ref changes) ──
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => () => { teardownPeer(true); }, []);
 
   // Attack wave cost (computed live for display, deducted on launch)
   const attackWaveCost = Object.entries(playerAttack).reduce((s, [k, n]) => {
@@ -199,6 +843,7 @@ export default function Swarm1v1() {
 
     if (placingWhat === "hq") {
       setPlayerHQ({ x, y }); setPlacingWhat(null);
+      broadcast({ type: "place_hq", x, y });
     } else if (placingWhat === "sell") {
       // Sell: find closest unit within 200 and remove with 42% refund
       let bestD = 200, bestType = null, bestIdx = -1;
@@ -208,15 +853,21 @@ export default function Swarm1v1() {
       if (bestType === "res") {
         const r = playerResources[bestIdx]; const res = RESOURCES.find((rr) => rr.key === r.key);
         setPlayerBudget((p) => p + Math.floor((res?.cost || 0) * 0.42));
+        if (r.depositId !== undefined) {
+          setResourceDeposits((prev) => prev.map((d) => d.id === r.depositId ? { ...d, claimed: false } : d));
+        }
         setPlayerResources((prev) => prev.filter((_, i) => i !== bestIdx));
+        broadcast({ type: "remove_resource", x: r.x, y: r.y, depositId: r.depositId });
       } else if (bestType === "int") {
         const d = playerInterceptors[bestIdx]; const def = DEFENSE_UNITS.find((dd) => dd.key === d.key);
         setPlayerBudget((p) => p + Math.floor((def?.cost || 0) * d.count * 0.42));
         setPlayerInterceptors((prev) => prev.filter((_, i) => i !== bestIdx));
+        broadcast({ type: "remove_interceptor_group", x: d.x, y: d.y });
       } else if (bestType === "ad") {
         const ad = playerAD[bestIdx]; const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
         setPlayerBudget((p) => p + Math.floor((sys?.cost || 0) * 0.42));
         setPlayerAD((prev) => prev.filter((_, i) => i !== bestIdx));
+        broadcast({ type: "remove_ad", x: ad.x, y: ad.y });
       }
     } else if (placingWhat === "delete") {
       // Delete during prep: full refund, find closest
@@ -224,9 +875,22 @@ export default function Swarm1v1() {
       playerResources.forEach((r, i) => { if (r.alive) { const d2 = dist({ x, y }, r); if (d2 < bestD) { bestD = d2; bestType = "res"; bestIdx = i; } } });
       playerInterceptors.forEach((d, i) => { const d2 = dist({ x, y }, d); if (d2 < bestD) { bestD = d2; bestType = "int"; bestIdx = i; } });
       playerAD.forEach((ad, i) => { if (ad.health > 0) { const d2 = dist({ x, y }, ad); if (d2 < bestD) { bestD = d2; bestType = "ad"; bestIdx = i; } } });
-      if (bestType === "res") setPlayerResources((prev) => prev.filter((_, i) => i !== bestIdx));
-      else if (bestType === "int") setPlayerInterceptors((prev) => prev.filter((_, i) => i !== bestIdx));
-      else if (bestType === "ad") setPlayerAD((prev) => prev.filter((_, i) => i !== bestIdx));
+      if (bestType === "res") {
+        const r = playerResources[bestIdx];
+        if (r.depositId !== undefined) {
+          setResourceDeposits((prev) => prev.map((d) => d.id === r.depositId ? { ...d, claimed: false } : d));
+        }
+        setPlayerResources((prev) => prev.filter((_, i) => i !== bestIdx));
+        broadcast({ type: "remove_resource", x: r.x, y: r.y, depositId: r.depositId });
+      } else if (bestType === "int") {
+        const d = playerInterceptors[bestIdx];
+        setPlayerInterceptors((prev) => prev.filter((_, i) => i !== bestIdx));
+        broadcast({ type: "remove_interceptor_group", x: d.x, y: d.y });
+      } else if (bestType === "ad") {
+        const ad = playerAD[bestIdx];
+        setPlayerAD((prev) => prev.filter((_, i) => i !== bestIdx));
+        broadcast({ type: "remove_ad", x: ad.x, y: ad.y });
+      }
     } else if (placingWhat.startsWith("def_")) {
       const defKey = placingWhat.replace("def_", "");
       if (!playerHQ || dist({ x, y }, playerHQ) > playerAirspace + 500) return;
@@ -235,6 +899,7 @@ export default function Swarm1v1() {
       if (!canAfford(defCost)) { triggerShake(); return; }
       setPlayerBudget((p) => p - defCost);
       setPlayerInterceptors((prev) => [...prev, { key: defKey, x, y, count: 4 }]);
+      broadcast({ type: "place_interceptor_group", key: defKey, x, y, count: 4 });
     } else if (placingWhat.startsWith("ad_")) {
       const adKey = placingWhat.replace("ad_", "");
       if (!playerHQ || dist({ x, y }, playerHQ) > playerAirspace + 300) return;
@@ -242,20 +907,78 @@ export default function Swarm1v1() {
       if (!sys || !canAfford(sys.cost)) { triggerShake(); return; }
       setPlayerBudget((p) => p - sys.cost);
       setPlayerAD((prev) => [...prev, { key: adKey, x, y, health: 1, ammo: sys.missiles }]);
+      broadcast({ type: "place_ad", key: adKey, x, y });
     } else {
-      if (!playerHQ || dist({ x, y }, playerHQ) > playerAirspace) return;
+      // Resource placement: snap to nearest unclaimed matching deposit within tolerance
+      if (!playerHQ) return;
       const res = RESOURCES.find((rr) => rr.key === placingWhat);
-      if (!res || !canAfford(res.cost)) { triggerShake(); return; }
+      if (!res) return;
+      // Find nearest unclaimed deposit of this type within click tolerance
+      const SNAP_DIST = 600;
+      let bestD = SNAP_DIST, bestDeposit = null;
+      for (const dep of resourceDeposits) {
+        if (dep.key !== placingWhat || dep.claimed) continue;
+        const d2 = dist({ x, y }, dep);
+        if (d2 < bestD) { bestD = d2; bestDeposit = dep; }
+      }
+      if (!bestDeposit) {
+        setInfoPopup({ text: `No unclaimed ${res.name.toLowerCase()} deposit nearby. Click on a glowing ${res.icon} marker.` });
+        setTimeout(() => setInfoPopup(null), 2500);
+        return;
+      }
+      if (dist(bestDeposit, playerHQ) > playerAirspace) {
+        setInfoPopup({ text: `Deposit is outside your airspace. Expand airspace or pick another deposit.` });
+        setTimeout(() => setInfoPopup(null), 2500);
+        return;
+      }
+      if (!canAfford(res.cost)) { triggerShake(); return; }
       setPlayerBudget((p) => p - res.cost);
-      setPlayerResources((prev) => [...prev, { key: placingWhat, x, y, alive: true }]);
-      // Stay in placement mode
+      setResourceDeposits((prev) => prev.map((d) => d.id === bestDeposit.id ? { ...d, claimed: true } : d));
+      setPlayerResources((prev) => [...prev, { key: placingWhat, x: bestDeposit.x, y: bestDeposit.y, alive: true, depositId: bestDeposit.id }]);
+      broadcast({ type: "place_resource", key: placingWhat, x: bestDeposit.x, y: bestDeposit.y, depositId: bestDeposit.id });
     }
-  }, [phase, placingWhat, playerHQ, playerAirspace, battleActive, playerResources, playerInterceptors, playerAD, canAfford, triggerShake]);
+  }, [phase, placingWhat, playerHQ, playerAirspace, battleActive, playerResources, playerInterceptors, playerAD, resourceDeposits, canAfford, triggerShake, broadcast]);
 
   handleMapClickRef.current = handleMapClick;
   theaterRef.current = theater;
   battleSpeedRef.current = battleSpeed;
   showADRangeRef.current = showADRange;
+  gameModeRef.current = gameMode;
+
+  // ── Phase 2: broadcast state changes for fields not handled by handleMapClick ──
+  // Skip broadcast on first render via a "mounted" sentinel per field.
+  const lastBroadcastRef = useRef({ airspace: null, attack: null, priority: null, posture: null, ready: null });
+  useEffect(() => {
+    if (gameMode === "bot") return;
+    if (lastBroadcastRef.current.airspace === playerAirspace) return;
+    lastBroadcastRef.current.airspace = playerAirspace;
+    if (connRef.current?.open) broadcast({ type: "airspace", radius: playerAirspace });
+  }, [playerAirspace, gameMode, broadcast]);
+  useEffect(() => {
+    if (gameMode === "bot") return;
+    const json = JSON.stringify(playerAttack);
+    if (lastBroadcastRef.current.attack === json) return;
+    lastBroadcastRef.current.attack = json;
+    if (connRef.current?.open) broadcast({ type: "attack_wave", wave: playerAttack });
+  }, [playerAttack, gameMode, broadcast]);
+  useEffect(() => {
+    if (gameMode === "bot") return;
+    if (lastBroadcastRef.current.priority === attackPriority) return;
+    lastBroadcastRef.current.priority = attackPriority;
+    if (connRef.current?.open) broadcast({ type: "attack_priority", value: attackPriority });
+  }, [attackPriority, gameMode, broadcast]);
+  useEffect(() => {
+    if (gameMode === "bot") return;
+    if (lastBroadcastRef.current.posture === defPosture) return;
+    lastBroadcastRef.current.posture = defPosture;
+    if (connRef.current?.open) broadcast({ type: "def_posture", value: defPosture });
+  }, [defPosture, gameMode, broadcast]);
+  useEffect(() => {
+    if (gameMode === "bot") return;
+    if (lastBroadcastRef.current.ready === meReady) return;
+    lastBroadcastRef.current.ready = meReady;
+    if (connRef.current?.open) broadcast({ type: "ready", ready: meReady });
+  }, [meReady, gameMode, broadcast]);
 
   // Init map
   useEffect(() => {
@@ -322,6 +1045,31 @@ export default function Swarm1v1() {
     // Divider
     L.polyline([toLL(0, 5000), toLL(ARENA, 5000)], { color: "#fff", weight: 1, opacity: 0.15, dashArray: "8 8", interactive: false }).addTo(layer);
 
+    // Resource deposits - shown as faint icons. Highlighted when in matching placement mode.
+    for (const dep of resourceDeposits) {
+      if (dep.claimed) continue;
+      const res = RESOURCES.find((rr) => rr.key === dep.key);
+      if (!res) continue;
+      const isHighlighted = placingWhat === dep.key;
+      const inPlayerAirspace = playerHQ && dist(dep, playerHQ) <= playerAirspace;
+      const inAiAirspace = aiSetup && dist(dep, { x: aiSetup.hqX, y: aiSetup.hqY }) <= aiSetup.airspace;
+      // Draw deposit marker - bright if highlighted matching type, dim otherwise
+      L.circleMarker(toLL(dep.x, dep.y), {
+        radius: isHighlighted ? 9 : 5,
+        color: isHighlighted ? "#ffffff" : res.color,
+        fillColor: res.color,
+        fillOpacity: isHighlighted ? 0.7 : 0.25,
+        weight: isHighlighted ? 2 : 1,
+        opacity: isHighlighted ? 1 : 0.55,
+      }).addTo(layer);
+      // Icon label
+      L.marker(toLL(dep.x, dep.y), {
+        icon: L.divIcon({ className: "", iconSize: [16, 16], iconAnchor: [8, 8],
+          html: `<div style="color:${isHighlighted ? '#fff' : res.color};font-size:${isHighlighted ? 12 : 9}px;font-weight:800;font-family:monospace;text-align:center;line-height:16px;text-shadow:0 0 4px #000;opacity:${isHighlighted ? 1 : 0.7}">${res.icon}</div>` }),
+        interactive: false,
+      }).addTo(layer);
+    }
+
     // Player airspace with breach gaps
     if (playerHQ) {
       const breachAngles = battleRef.current?.playerAirBreaches || [];
@@ -359,20 +1107,171 @@ export default function Swarm1v1() {
       L.circleMarker(toLL(ad.x, ad.y), { radius: 6, color: ad.health > 0 ? sys.color : "#444", fillColor: ad.health > 0 ? sys.color : "#333", fillOpacity: 0.8, weight: 2 }).addTo(layer);
     }
 
-    // AI
+    // AI - show full enemy intel: HQ, airspace, resources, AD systems with range, interceptor positions
     if (aiSetup) {
-      L.circle(toLL(aiSetup.hqX, aiSetup.hqY), { radius: aiSetup.airspace * mpu, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 0.04, weight: 1, opacity: 0.4, dashArray: "10 6" }).addTo(layer);
+      // Airspace
+      const airBreaches = battleRef.current?.aiAirBreaches || [];
+      if (airBreaches.length === 0) {
+        L.circle(toLL(aiSetup.hqX, aiSetup.hqY), { radius: aiSetup.airspace * mpu, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 0.04, weight: 1, opacity: 0.4, dashArray: "10 6" }).addTo(layer);
+      } else {
+        const SEG = 24; const segArc = (Math.PI * 2) / SEG; const GAP = 0.15;
+        for (let i = 0; i < SEG; i++) {
+          const mid = -Math.PI + (i + 0.5) * segArc;
+          const inGap = airBreaches.some((ba) => { let d = mid - ba; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return Math.abs(d) < GAP; });
+          if (inGap) continue;
+          const pts = [];
+          for (let j = 0; j <= 3; j++) { const a = -Math.PI + i * segArc + (j / 3) * segArc; pts.push(toLL(aiSetup.hqX + Math.cos(a) * aiSetup.airspace, aiSetup.hqY + Math.sin(a) * aiSetup.airspace)); }
+          L.polyline(pts, { color: "#ff5555", weight: 1, opacity: 0.4, dashArray: "10 6", interactive: false }).addTo(layer);
+        }
+      }
+      // HQ
       L.circleMarker(toLL(aiSetup.hqX, aiSetup.hqY), { radius: 8, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 1, weight: 2 }).addTo(layer);
+      // Resources
       for (const r of aiSetup.resources) {
         const res = RESOURCES.find((rr) => rr.key === r.key);
         if (res) L.circleMarker(toLL(r.x, r.y), { radius: 5, color: r.alive ? res.color : "#444", fillColor: r.alive ? res.color : "#333", fillOpacity: 0.6, weight: 1 }).addTo(layer);
       }
+      // Enemy AD systems with range circles (red-tinted)
+      for (const ad of (aiSetup.adUnits || [])) {
+        const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
+        if (!sys) continue;
+        if (ad.health > 0) {
+          L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: "#ff7777", fillColor: "#ff5555", fillOpacity: 0.05, weight: 1.5, opacity: 0.45, dashArray: "6 4", interactive: false }).addTo(layer);
+        }
+        L.circleMarker(toLL(ad.x, ad.y), { radius: 6, color: ad.health > 0 ? "#ff7777" : "#444", fillColor: ad.health > 0 ? "#cc4444" : "#333", fillOpacity: 0.85, weight: 2 }).addTo(layer);
+      }
+      // Enemy interceptors at base
+      for (const i of (aiSetup.interceptors || [])) {
+        if (i.status !== "active") continue;
+        L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 0.55, weight: 1 }).addTo(layer);
+      }
     }
-  }, [mapReady, theater, playerHQ, playerAirspace, playerResources, playerInterceptors, playerAD, aiSetup, phase, battleDrones]);
+  }, [mapReady, theater, playerHQ, playerAirspace, playerResources, playerInterceptors, playerAD, aiSetup, phase, battleDrones, resourceDeposits, placingWhat]);
+
+  // ── Phase 3: Render battle frame to leaflet (used by host tick + guest render loop) ──
+  const renderBattleFrame = useCallback((b) => {
+    const L = LRef.current; const bl = battleLayerRef.current;
+    if (!L || !bl || !b) return;
+    bl.clearLayers();
+    const th = THEATERS[theaterRef.current]; if (!th) return;
+    const toLL = (x, y) => simToLatLng(x, y, th.bounds);
+    const mpu = ((th.bounds.north - th.bounds.south) * 111000) / ARENA;
+    if (showADRangeRef.current) {
+      for (const ad of (b.pAD || [])) {
+        if (ad.health <= 0) continue;
+        const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
+        if (sys) L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.06, weight: 1.5, opacity: 0.4, dashArray: "6 4", interactive: false }).addTo(bl);
+      }
+      for (const ad of (b.aAD || [])) {
+        if (ad.health <= 0) continue;
+        const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
+        if (sys) L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.04, weight: 1.5, opacity: 0.3, dashArray: "6 4", interactive: false }).addTo(bl);
+      }
+    }
+    for (const ad of (b.pAD || [])) {
+      const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
+      if (!sys) continue;
+      const alive = ad.health > 0;
+      L.circleMarker(toLL(ad.x, ad.y), { radius: 9, color: alive ? "#ffffff" : "#222", fillColor: alive ? sys.color : "#1a1a1a", fillOpacity: alive ? 0.95 : 0.3, weight: 2.5 }).addTo(bl);
+      L.circleMarker(toLL(ad.x, ad.y), { radius: 2, color: "#ffffff", fillColor: "#ffffff", fillOpacity: alive ? 1 : 0.3, weight: 0 }).addTo(bl);
+      if (alive) L.marker(toLL(ad.x, ad.y - 180), { icon: L.divIcon({ className: "", iconSize: [60, 14], iconAnchor: [30, 7], html: `<div style="color:${sys.color};font-size:9px;font-weight:700;font-family:monospace;text-align:center;text-shadow:0 0 4px #000;white-space:nowrap">${sys.name.split(" ")[0]} ${ad.ammo}</div>` }), interactive: false }).addTo(bl);
+    }
+    for (const ad of (b.aAD || [])) {
+      const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
+      if (!sys) continue;
+      const alive = ad.health > 0;
+      L.circleMarker(toLL(ad.x, ad.y), { radius: 9, color: alive ? "#ff7777" : "#222", fillColor: alive ? "#cc4444" : "#1a1a1a", fillOpacity: alive ? 0.95 : 0.3, weight: 2.5 }).addTo(bl);
+      L.circleMarker(toLL(ad.x, ad.y), { radius: 2, color: "#ffffff", fillColor: "#ffffff", fillOpacity: alive ? 1 : 0.3, weight: 0 }).addTo(bl);
+      if (alive) L.marker(toLL(ad.x, ad.y - 180), { icon: L.divIcon({ className: "", iconSize: [60, 14], iconAnchor: [30, 7], html: `<div style="color:#ff7777;font-size:9px;font-weight:700;font-family:monospace;text-align:center;text-shadow:0 0 4px #000;white-space:nowrap">${sys.name.split(" ")[0]} ${ad.ammo}</div>` }), interactive: false }).addTo(bl);
+    }
+    for (const a of (b.aAttackers || [])) { if (a.status === "active") L.circleMarker(toLL(a.x, a.y), { radius: 3, color: "#ff4444", fillColor: "#ff4444", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
+    for (const a of (b.pAttackers || [])) { if (a.status === "active") L.circleMarker(toLL(a.x, a.y), { radius: 3, color: "#00ddff", fillColor: "#00ddff", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
+    for (const i of (b.pInts || [])) {
+      if (i.status === "active") L.circleMarker(toLL(i.x, i.y), { radius: 5, color: "#ffffff", fillColor: "#4a9eff", fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
+      else if (i.status === "landed") L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#336699", fillColor: "#336699", fillOpacity: 0.5, weight: 1 }).addTo(bl);
+    }
+    for (const i of (b.aInts || [])) {
+      if (i.status === "active") L.circleMarker(toLL(i.x, i.y), { radius: 5, color: "#880000", fillColor: "#ff5555", fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
+      else if (i.status === "landed") L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#663333", fillColor: "#663333", fillOpacity: 0.5, weight: 1 }).addTo(bl);
+    }
+    if (b.flashes) {
+      b.flashes = b.flashes.filter((f) => b.step - f.time < (f.type === "dmgtext" ? 120 : 30));
+      for (const f of b.flashes) {
+        const age = b.step - f.time;
+        const maxAge = f.type === "dmgtext" ? 120 : 30;
+        const p = age / maxAge;
+        const ll = toLL(f.x, f.y);
+        if (f.type === "adshot") {
+          if (age < 20) {
+            const ll2 = toLL(f.x2, f.y2);
+            const fade = 1 - age / 20;
+            L.polyline([ll, ll2], { color: "#ffffff", weight: 4, opacity: fade * 0.3, interactive: false }).addTo(bl);
+            L.polyline([ll, ll2], { color: f.color || "#ffaa00", weight: 2, opacity: fade * 0.9, interactive: false }).addTo(bl);
+            L.circleMarker(ll, { radius: 4 * fade, color: "#ffffff", fillColor: "#ffffff", fillOpacity: fade * 0.6, weight: 0 }).addTo(bl);
+            L.circleMarker(ll2, { radius: 4 * fade, color: f.color || "#ffaa00", fillColor: f.color || "#ffaa00", fillOpacity: fade * 0.8, weight: 0 }).addTo(bl);
+          }
+        } else if (f.type === "dmgtext") {
+          const drift = age * 3;
+          const driftLL = toLL(f.x, f.y + drift);
+          L.marker(driftLL, { icon: L.divIcon({ className: "", iconSize: [80, 16], iconAnchor: [40, 8], html: `<div style="color:${f.color || "#ff5555"};font-size:12px;font-weight:800;font-family:monospace;text-align:center;text-shadow:0 0 6px #000;opacity:${1 - p}">${f.text}</div>` }), interactive: false }).addTo(bl);
+        } else if (f.type === "kill") {
+          L.circleMarker(ll, { radius: 5 + p * 12, color: "#ff8800", fillColor: "#ff8800", fillOpacity: (1 - p) * 0.5, weight: 1.5, opacity: 1 - p }).addTo(bl);
+        } else if (f.type === "breach") {
+          L.circleMarker(ll, { radius: 6 + p * 10, color: "#ff0000", fillColor: "#ff0000", fillOpacity: (1 - p) * 0.6, weight: 2, opacity: 1 - p }).addTo(bl);
+        }
+      }
+    }
+  }, []);
+
+  // ── Phase 3: Serialize battle state for network transmission (~10Hz) ──
+  const serializeBattleSnapshot = useCallback((b) => ({
+    type: "combat_snapshot",
+    step: b.step,
+    pAtt: b.pAttackers.map((a) => ({ id: a.id, x: Math.round(a.x), y: Math.round(a.y), s: a.status })),
+    aAtt: b.aAttackers.map((a) => ({ id: a.id, x: Math.round(a.x), y: Math.round(a.y), s: a.status })),
+    pInt: b.pInts.map((i) => ({ id: i.id, x: Math.round(i.x), y: Math.round(i.y), s: i.status })),
+    aInt: b.aInts.map((i) => ({ id: i.id, x: Math.round(i.x), y: Math.round(i.y), s: i.status })),
+    pAD: b.pAD.map((a) => ({ key: a.key, x: a.x, y: a.y, h: a.health, ammo: a.ammo })),
+    aAD: b.aAD.map((a) => ({ key: a.key, x: a.x, y: a.y, h: a.health, ammo: a.ammo })),
+    flashes: (b.flashes || []).slice(-30),
+    pAirBreaches: b.playerAirBreaches || [],
+    aAirBreaches: b.aiAirBreaches || [],
+  }), []);
+
+  // ── Phase 3: Guest render-only loop (host streams snapshots, guest renders them) ──
+  const startGuestBattleLoop = useCallback(() => {
+    // Initialize empty battleRef - filled by combat_snapshot messages
+    battleRef.current = {
+      pAttackers: [], aAttackers: [], pInts: [], aInts: [], pAD: [], aAD: [],
+      step: 0, flashes: [], playerAirBreaches: [], aiAirBreaches: [],
+      pKills: 0, aKills: 0, pBreaches: 0, aBreaches: 0,
+      _guestRoundOver: false,
+    };
+    setBattleActive(true);
+    setPlacingWhat(null);
+    function guestTick() {
+      const b = battleRef.current;
+      if (!b || b._guestRoundOver) return;
+      renderBattleFrame(b);
+      setBattleDrones({
+        playerAttackers: [...(b.pAttackers || [])],
+        aiAttackers: [...(b.aAttackers || [])],
+        playerInts: [...(b.pInts || [])],
+        aiInts: [...(b.aInts || [])],
+      });
+      frameRef.current = requestAnimationFrame(guestTick);
+    }
+    frameRef.current = requestAnimationFrame(guestTick);
+  }, [renderBattleFrame]);
+
+  // Wire forward ref so handleNetMessage (defined earlier) can call into us
+  startGuestBattleLoopRef.current = startGuestBattleLoop;
 
   // ── Launch round with animated battle ──
   const launchRound = useCallback(() => {
     if (!playerHQ || !aiSetup || gameOver || battleActive) return;
+    // Guest never initiates the sim - only host does (or bot mode)
+    if (gameMode === "guest") return;
     // Deduct attack wave cost
     const waveCost = Object.entries(playerAttack).reduce((s, [k, n]) => { const u = ATTACK_UNITS.find((a) => a.key === k); return s + (u ? u.cost * n : 0); }, 0);
     if (waveCost > playerBudget) { triggerShake(); return; }
@@ -394,10 +1293,18 @@ export default function Swarm1v1() {
     setTotalIncome((p) => p + pIncome);
     log.push(`Round ${round + 1}: You +$${formatUSD(pIncome)} | ${opponentName} +$${formatUSD(aIncome)}`);
 
+    // In MP host mode, broadcast round-start so guest enters battle phase
+    if (gameMode === "host") {
+      broadcast({ type: "round_start", round, pIncome, aIncome });
+    }
+
     // Spawn player's attack drones flying toward AI HQ
     const pAttackers = spawnDrones(playerAttack, playerHQ.x, playerHQ.y - 500, aiSetup.hqX, aiSetup.hqY, 10000 + round * 1000);
-    // Spawn AI's attack drones flying toward player HQ
-    const aiWave = generateAIAttack(round);
+    // In MP host mode, opponent's attack wave comes from network (aiSetup._attackWave)
+    // In bot mode, generate via AI logic
+    const aiWave = gameMode === "host" && aiSetup._attackWave
+      ? aiSetup._attackWave
+      : generateAIAttack(round);
     const aAttackers = spawnDrones(aiWave, aiSetup.hqX, aiSetup.hqY + 500, playerHQ.x, playerHQ.y, 20000 + round * 1000);
 
     // Player interceptors with spawn positions for RTB
@@ -630,6 +1537,16 @@ export default function Swarm1v1() {
 
       } // end speed loop
 
+      // Phase 3: host streams combat snapshots to guest at 10Hz (wall-clock, not step-based,
+      // so high-speedup modes don't accidentally fire 60+ snapshots/sec)
+      if (gameModeRef.current === "host") {
+        const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
+        if (!b.lastSnapshotTs || now - b.lastSnapshotTs >= 100) {
+          b.lastSnapshotTs = now;
+          broadcast(serializeBattleSnapshot(b));
+        }
+      }
+
       // Draw battle - distinct visuals per drone type
       const L = LRef.current; const bl = battleLayerRef.current;
       if (L && bl) {
@@ -647,6 +1564,38 @@ export default function Swarm1v1() {
             if (ad.health <= 0) continue;
             const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
             if (sys) L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.04, weight: 1.5, opacity: 0.3, dashArray: "6 4", interactive: false }).addTo(bl);
+          }
+        }
+        // AD unit markers - drawn prominently so you can see the source of tracers
+        for (const ad of b.pAD) {
+          const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
+          if (!sys) continue;
+          const alive = ad.health > 0;
+          // Outer ring (square-ish look via large weight)
+          L.circleMarker(toLL(ad.x, ad.y), { radius: 9, color: alive ? "#ffffff" : "#222", fillColor: alive ? sys.color : "#1a1a1a", fillOpacity: alive ? 0.95 : 0.3, weight: 2.5 }).addTo(bl);
+          // Inner crosshair dot
+          L.circleMarker(toLL(ad.x, ad.y), { radius: 2, color: "#ffffff", fillColor: "#ffffff", fillOpacity: alive ? 1 : 0.3, weight: 0 }).addTo(bl);
+          // Ammo indicator label
+          if (alive) {
+            L.marker(toLL(ad.x, ad.y - 180), {
+              icon: L.divIcon({ className: "", iconSize: [60, 14], iconAnchor: [30, 7],
+                html: `<div style="color:${sys.color};font-size:9px;font-weight:700;font-family:monospace;text-align:center;text-shadow:0 0 4px #000;white-space:nowrap">${sys.name.split(" ")[0]} ${ad.ammo}</div>` }),
+              interactive: false,
+            }).addTo(bl);
+          }
+        }
+        for (const ad of b.aAD) {
+          const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
+          if (!sys) continue;
+          const alive = ad.health > 0;
+          L.circleMarker(toLL(ad.x, ad.y), { radius: 9, color: alive ? "#ff7777" : "#222", fillColor: alive ? "#cc4444" : "#1a1a1a", fillOpacity: alive ? 0.95 : 0.3, weight: 2.5 }).addTo(bl);
+          L.circleMarker(toLL(ad.x, ad.y), { radius: 2, color: "#ffffff", fillColor: "#ffffff", fillOpacity: alive ? 1 : 0.3, weight: 0 }).addTo(bl);
+          if (alive) {
+            L.marker(toLL(ad.x, ad.y - 180), {
+              icon: L.divIcon({ className: "", iconSize: [60, 14], iconAnchor: [30, 7],
+                html: `<div style="color:#ff7777;font-size:9px;font-weight:700;font-family:monospace;text-align:center;text-shadow:0 0 4px #000;white-space:nowrap">${sys.name.split(" ")[0]} ${ad.ammo}</div>` }),
+              interactive: false,
+            }).addTo(bl);
           }
         }
 
@@ -710,25 +1659,15 @@ export default function Swarm1v1() {
       const allAttackersGone = aAtk === 0 && pAtk === 0;
 
       if (allAttackersGone) {
-        // Player interceptors RTB
+        // Instant RTB - no animation, drones snap home and land immediately.
+        // Animation was pointless filler since combat is over.
         for (const int of b.pInts) {
           if (int.status !== "active") continue;
-          const dx = int.spawnX - int.x, dy = int.spawnY - int.y;
-          if (Math.sqrt(dx * dx + dy * dy) < 30) { int.status = "landed"; continue; }
-          int.heading = Math.atan2(dy, dx);
-          int.x += Math.cos(int.heading) * int.speed;
-          int.y += Math.sin(int.heading) * int.speed;
-          int.targetId = null;
+          int.x = int.spawnX; int.y = int.spawnY; int.status = "landed"; int.targetId = null;
         }
-        // AI interceptors RTB
         for (const int of b.aInts) {
           if (int.status !== "active") continue;
-          const dx = int.spawnX - int.x, dy = int.spawnY - int.y;
-          if (Math.sqrt(dx * dx + dy * dy) < 30) { int.status = "landed"; continue; }
-          int.heading = Math.atan2(dy, dx);
-          int.x += Math.cos(int.heading) * int.speed;
-          int.y += Math.sin(int.heading) * int.speed;
-          int.targetId = null;
+          int.x = int.spawnX; int.y = int.spawnY; int.status = "landed"; int.targetId = null;
         }
       }
 
@@ -743,6 +1682,8 @@ export default function Swarm1v1() {
 
         // Apply breach damage
         let pDmg = 0, aDmg = 0;
+        // C2 fix: collect all gameOver candidates locally so they're broadcast to guest
+        let earlyGameOver = null;
         if (b.aBreaches > 0) {
           pDmg = b.aBreaches * 500000;
           for (let i = 0; i < Math.min(b.aBreaches, 3); i++) {
@@ -754,7 +1695,8 @@ export default function Swarm1v1() {
               endLog.push(`Your ${res?.name} destroyed!`);
             }
           }
-          if (b.aBreaches > 8) { setGameOver({ winner: opponentName, reason: "HQ overwhelmed" }); endLog.push("YOUR HQ DESTROYED!"); }
+          // Use winnerRole tag instead of name (works in MP)
+          if (b.aBreaches > 8) { earlyGameOver = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: "HQ overwhelmed" }; endLog.push("YOUR HQ DESTROYED!"); }
         }
         if (b.pBreaches > 0) {
           aDmg = b.pBreaches * 500000;
@@ -768,8 +1710,9 @@ export default function Swarm1v1() {
               endLog.push(`Enemy ${res?.name} destroyed!`);
             }
           }
-          if (b.pBreaches > 8) { setGameOver({ winner: username, reason: "Enemy HQ overwhelmed" }); endLog.push("ENEMY HQ DESTROYED!"); }
+          if (b.pBreaches > 8) { earlyGameOver = { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: "Enemy HQ overwhelmed" }; endLog.push("ENEMY HQ DESTROYED!"); }
         }
+        if (earlyGameOver) setGameOver(earlyGameOver);
 
         const pAirCost = b.airspaceCost || 0;
         const aAirCost = b.aiAirspaceCost || 0;
@@ -804,11 +1747,54 @@ export default function Swarm1v1() {
         if (battleLayerRef.current) battleLayerRef.current.clearLayers();
 
         // Game over if either budget goes below -$50M
-        if (!gameOver) {
+        let endGameOver = earlyGameOver;
+        if (!gameOver && !endGameOver) {
           const pFinal = playerBudget - pDmg - pAirCost;
           const aFinal = aiBudget - aDmg - aAirCost;
-          if (pFinal < -50000000) setGameOver({ winner: opponentName, reason: "You went bankrupt" });
-          else if (aFinal < -50000000) setGameOver({ winner: username, reason: "Enemy went bankrupt" });
+          if (pFinal < -50000000) endGameOver = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: "You went bankrupt" };
+          else if (aFinal < -50000000) endGameOver = { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: "Enemy went bankrupt" };
+          if (endGameOver) setGameOver(endGameOver);
+        }
+
+        // Phase 3: host broadcasts the round-end results to guest
+        if (gameModeRef.current === "host") {
+          // Send a final snapshot so guest sees the last frame, then results
+          broadcast(serializeBattleSnapshot(b));
+          // C3 fix: send guest's surviving resources and interceptor counts (host's view of "ai" side)
+          // The host's aiSetup.resources/interceptors have been mutated by the sim. Translate to a
+          // playerResources/playerInterceptors-shaped payload so guest can apply directly.
+          const aResourcesAfter = (aiSetup.resources || []).map((r) => ({ key: r.key, x: r.x, y: r.y, alive: r.alive, depositId: r.depositId }));
+          // Group surviving aInts back into the per-group structure the guest knows about.
+          // Each guest interceptor placement created a group at (groupX, groupY). Recount survivors per group.
+          const groupCounts = new Map();
+          for (const i of (b.aInts || [])) {
+            if (i.status !== "active" && i.status !== "landed") continue;
+            const key = `${i.groupX || i.spawnX},${i.groupY || i.spawnY}`;
+            groupCounts.set(key, (groupCounts.get(key) || 0) + 1);
+          }
+          // Reconstruct via the guest's existing playerInterceptors order is impossible from host side,
+          // so just send the groups as fresh entries. Guest will replace its full list.
+          const aInterceptorsAfter = [];
+          for (const [key, count] of groupCounts.entries()) {
+            const [gx, gy] = key.split(",").map(Number);
+            // Look up the original key (kamikaze/armed) by finding any aInt at this group
+            const sample = (b.aInts || []).find((i) => (i.groupX === gx && i.groupY === gy));
+            const intKey = sample?.destroyOnKill ? "kamikaze" : "armed";
+            aInterceptorsAfter.push({ key: intKey, x: gx, y: gy, count });
+          }
+          broadcast({
+            type: "round_end",
+            round,
+            pKills: b.pKills, aKills: b.aKills,
+            pBreaches: b.pBreaches, aBreaches: b.aBreaches,
+            pDmg, aDmg, pAirCost, aAirCost,
+            pBudgetDelta: -(pDmg + pAirCost),
+            aBudgetDelta: -(aDmg + aAirCost),
+            aResourcesAfter,
+            aInterceptorsAfter,
+            endLog,
+            gameOver: endGameOver,
+          });
         }
         return;
       }
@@ -817,7 +1803,7 @@ export default function Swarm1v1() {
     }
 
     frameRef.current = requestAnimationFrame(tick);
-  }, [playerHQ, aiSetup, currentRound, playerResources, playerInterceptors, playerAD, playerAttack, playerBudget, aiBudget, gameOver, battleActive, username, opponentName, attackPriority, defPosture, playerAirspace]);
+  }, [playerHQ, aiSetup, currentRound, playerResources, playerInterceptors, playerAD, playerAttack, playerBudget, aiBudget, gameOver, battleActive, username, opponentName, attackPriority, defPosture, playerAirspace, gameMode, broadcast, serializeBattleSnapshot]);
 
   useEffect(() => () => { if (frameRef.current) cancelAnimationFrame(frameRef.current); }, []);
 
@@ -830,6 +1816,12 @@ export default function Swarm1v1() {
         <title>Swarm 1v1 - Shiv Gupta</title>
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
       </Head>
+      <Script
+        src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"
+        strategy="afterInteractive"
+        onLoad={() => setPeerLoaded(true)}
+        onError={() => setConnectionError("Failed to load network library - reload the page")}
+      />
       <style jsx global>{`
         .leaflet-container { background: #0a0a0f; }
         @keyframes fadeUp { 0% { opacity: 1; transform: translate(-50%, -50%); } 100% { opacity: 0; transform: translate(-50%, -120%); } }
@@ -854,21 +1846,121 @@ export default function Swarm1v1() {
         {/* Lobby */}
         {phase === PHASE.LOBBY && (
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <div style={{ textAlign: "center", maxWidth: 400 }}>
+            <div style={{ textAlign: "center", maxWidth: 420, width: "100%", padding: 16 }}>
               <div style={{ fontSize: 48, fontWeight: 800, color: "#ff6688", marginBottom: 8 }}>SWARM 1v1</div>
-              <div style={{ fontSize: 14, color: "#666", marginBottom: 4 }}>Defend your base. Destroy theirs.</div>
-              <div style={{ fontSize: 11, color: "#444", marginBottom: 24 }}>vs AI opponent</div>
-              <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Enter callsign..."
-                style={{ ...inputStyle, width: "100%", fontSize: 16, textAlign: "center", marginBottom: 12 }}
-                onKeyDown={(e) => e.key === "Enter" && findMatch()} />
-              <select value={theater} onChange={(e) => setTheater(e.target.value)}
-                style={{ ...inputStyle, width: "100%", marginBottom: 16 }}>
-                {Object.entries(THEATERS).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
-              </select>
-              <button onClick={findMatch} disabled={!username.trim()}
-                style={{ ...btnStyle, width: "100%", background: username.trim() ? "#4a1a2a" : "#1a1a24", borderColor: username.trim() ? "#ff6688" : "#333", color: username.trim() ? "#ff6688" : "#555" }}>
-                START vs AI
-              </button>
+              <div style={{ fontSize: 14, color: "#666", marginBottom: 24 }}>Defend your base. Destroy theirs.</div>
+
+              {lobbyView === "main" && (
+                <>
+                  <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Enter callsign..."
+                    style={{ ...inputStyle, width: "100%", fontSize: 16, textAlign: "center", marginBottom: 12 }}
+                    onKeyDown={(e) => e.key === "Enter" && findMatch()} />
+                  <select value={theater} onChange={(e) => setTheater(e.target.value)}
+                    style={{ ...inputStyle, width: "100%", marginBottom: 16 }}>
+                    {Object.entries(THEATERS).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
+                  </select>
+
+                  <button onClick={findMatch} disabled={!username.trim()}
+                    style={{ ...btnStyle, width: "100%", marginBottom: 8, background: username.trim() ? "#1a2a4a" : "#1a1a24", borderColor: username.trim() ? "#4a9eff" : "#333", color: username.trim() ? "#4a9eff" : "#555" }}>
+                    Play vs Bot
+                  </button>
+
+                  <button onClick={createRoom} disabled={!username.trim() || !peerLoaded}
+                    style={{ ...btnStyle, width: "100%", marginBottom: 8, background: username.trim() && peerLoaded ? "#4a1a2a" : "#1a1a24", borderColor: username.trim() && peerLoaded ? "#ff6688" : "#333", color: username.trim() && peerLoaded ? "#ff6688" : "#555" }}>
+                    Create Room
+                  </button>
+
+                  <button onClick={() => { setLobbyView("join"); setConnectionError(""); }} disabled={!username.trim() || !peerLoaded}
+                    style={{ ...btnStyle, width: "100%", marginBottom: 8, background: username.trim() && peerLoaded ? "#2a1a4a" : "#1a1a24", borderColor: username.trim() && peerLoaded ? "#aa88ff" : "#333", color: username.trim() && peerLoaded ? "#aa88ff" : "#555" }}>
+                    Join Room
+                  </button>
+
+                  <button onClick={findOnlineMatch} disabled={!username.trim() || !peerLoaded}
+                    style={{ ...btnStyle, width: "100%", background: username.trim() && peerLoaded ? "#1a4a2a" : "#1a1a24", borderColor: username.trim() && peerLoaded ? "#4caf50" : "#333", color: username.trim() && peerLoaded ? "#4caf50" : "#555" }}>
+                    Find Match (random)
+                  </button>
+
+                  {!peerLoaded && (
+                    <div style={{ fontSize: 10, color: "#666", marginTop: 8 }}>Loading network library...</div>
+                  )}
+                </>
+              )}
+
+              {lobbyView === "create" && (
+                <>
+                  <div style={{ fontSize: 11, color: "#888", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>Your Room Code</div>
+                  <div style={{ fontSize: 56, fontWeight: 800, color: "#ff6688", marginBottom: 4, fontFamily: "monospace", letterSpacing: 6, userSelect: "all" }}>
+                    {roomCode || "....."}
+                  </div>
+                  <div style={{ fontSize: 11, color: "#666", marginBottom: 16 }}>Share this code with your friend</div>
+                  <button onClick={() => {
+                    if (!roomCode) return;
+                    try {
+                      const p = navigator.clipboard?.writeText(roomCode);
+                      if (p && typeof p.then === "function") {
+                        p.then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }).catch(() => {});
+                      } else {
+                        setCopied(true); setTimeout(() => setCopied(false), 1500);
+                      }
+                    } catch {}
+                  }}
+                    style={{ ...inputStyle, width: "100%", marginBottom: 12, cursor: "pointer", textAlign: "center", fontSize: 12, color: copied ? "#4caf50" : undefined }}>
+                    {copied ? "Copied!" : "Copy Code"}
+                  </button>
+                  <div style={{ fontSize: 12, color: connectionStatus === "connected" ? "#4caf50" : connectionStatus === "error" ? "#ff5555" : "#ff9800", marginBottom: 16, padding: 12, background: "rgba(255,152,0,0.08)", border: "1px solid rgba(255,152,0,0.25)", borderRadius: 6 }}>
+                    {connectionStatus === "creating" && "Initializing..."}
+                    {connectionStatus === "waiting" && "Waiting for opponent to join..."}
+                    {connectionStatus === "connected" && "Connected. Loading match..."}
+                    {connectionStatus === "error" && `Error: ${connectionError}`}
+                  </div>
+                  <button onClick={cancelConnection}
+                    style={{ ...inputStyle, width: "100%", cursor: "pointer", textAlign: "center", fontSize: 12, color: "#888" }}>
+                    Cancel
+                  </button>
+                </>
+              )}
+
+              {lobbyView === "join" && (
+                <>
+                  <div style={{ fontSize: 11, color: "#888", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>Enter Room Code</div>
+                  <input value={joinCode}
+                    onChange={(e) => setJoinCode(e.target.value.toUpperCase().replace(/[^A-HJ-NP-Z2-9]/g, "").slice(0, 5))}
+                    placeholder="ABCDE" maxLength={5}
+                    onKeyDown={(e) => { if (e.key === "Enter" && joinCode.length === 5) joinRoom(); }}
+                    style={{ ...inputStyle, width: "100%", fontSize: 32, textAlign: "center", letterSpacing: 8, fontFamily: "monospace", marginBottom: 12, padding: "16px 12px" }} />
+                  <button onClick={joinRoom} disabled={joinCode.length !== 5 || connectionStatus === "connecting"}
+                    style={{ ...btnStyle, width: "100%", marginBottom: 8, background: joinCode.length === 5 && connectionStatus !== "connecting" ? "#2a1a4a" : "#1a1a24", borderColor: joinCode.length === 5 && connectionStatus !== "connecting" ? "#aa88ff" : "#333", color: joinCode.length === 5 && connectionStatus !== "connecting" ? "#aa88ff" : "#555" }}>
+                    {connectionStatus === "connecting" ? "Connecting..." : connectionStatus === "connected" ? "Connected" : "Join"}
+                  </button>
+                  {connectionStatus === "error" && (
+                    <div style={{ fontSize: 11, color: "#ff5555", marginBottom: 8 }}>{connectionError}</div>
+                  )}
+                  <button onClick={cancelConnection}
+                    style={{ ...inputStyle, width: "100%", cursor: "pointer", textAlign: "center", fontSize: 12, color: "#888" }}>
+                    Back
+                  </button>
+                </>
+              )}
+
+              {lobbyView === "matchmaking" && (
+                <>
+                  <div style={{ fontSize: 11, color: "#888", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>Finding Opponent</div>
+                  <div style={{ fontSize: 56, marginBottom: 16, color: "#4caf50" }}>
+                    {connectionStatus === "error" ? "✕" : "⟳"}
+                  </div>
+                  <div style={{ fontSize: 12, color: connectionStatus === "connected" ? "#4caf50" : connectionStatus === "error" ? "#ff5555" : "#4caf50", marginBottom: 16, padding: 12, background: "rgba(76,175,80,0.08)", border: "1px solid rgba(76,175,80,0.25)", borderRadius: 6 }}>
+                    {connectionStatus === "creating" && "Initializing..."}
+                    {connectionStatus === "waiting" && "Waiting for an opponent..."}
+                    {connectionStatus === "connecting" && "Opponent found! Connecting..."}
+                    {connectionStatus === "connected" && "Connected. Loading match..."}
+                    {connectionStatus === "error" && (connectionError || "Error")}
+                  </div>
+                  <button onClick={() => { cancelMatchmaking(); cancelConnection(); }}
+                    style={{ ...inputStyle, width: "100%", cursor: "pointer", textAlign: "center", fontSize: 12, color: "#888" }}>
+                    Cancel
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -1015,10 +2107,39 @@ export default function Swarm1v1() {
                         </button>
                       )}
 
-                      <button onClick={() => { setPlacingWhat(null); setPhase(PHASE.COMBAT); }} disabled={remaining < 0}
-                        style={{ ...btnStyle, width: "100%", marginTop: 8, background: remaining >= 0 ? "#4a1a2a" : "#1a1a24", borderColor: remaining >= 0 ? "#ff6688" : "#333", color: remaining >= 0 ? "#ff6688" : "#555", fontSize: 12 }}>
-                        READY FOR BATTLE
-                      </button>
+                      {gameMode === "bot" ? (
+                        <button onClick={() => { setPlacingWhat(null); setPhase(PHASE.COMBAT); }} disabled={remaining < 0}
+                          style={{ ...btnStyle, width: "100%", marginTop: 8, background: remaining >= 0 ? "#4a1a2a" : "#1a1a24", borderColor: remaining >= 0 ? "#ff6688" : "#333", color: remaining >= 0 ? "#ff6688" : "#555", fontSize: 12 }}>
+                          READY FOR BATTLE
+                        </button>
+                      ) : (
+                        <>
+                          <button onClick={() => {
+                            if (remaining < 0) return;
+                            setPlacingWhat(null);
+                            setMeReady((r) => !r);
+                          }} disabled={remaining < 0}
+                            style={{ ...btnStyle, width: "100%", marginTop: 8, background: meReady ? "#1a4a2a" : (remaining >= 0 ? "#4a1a2a" : "#1a1a24"), borderColor: meReady ? "#4caf50" : (remaining >= 0 ? "#ff6688" : "#333"), color: meReady ? "#4caf50" : (remaining >= 0 ? "#ff6688" : "#555"), fontSize: 12 }}>
+                            {meReady ? "✓ READY (click to unready)" : "MARK READY"}
+                          </button>
+                          <div style={{ fontSize: 9, color: "#888", marginTop: 4, textAlign: "center" }}>
+                            You: <span style={{ color: meReady ? "#4caf50" : "#666" }}>{meReady ? "Ready" : "Not ready"}</span>
+                            {" | "}
+                            {opponentName}: <span style={{ color: opponentReady ? "#4caf50" : "#666" }}>{opponentReady ? "Ready" : "Not ready"}</span>
+                          </div>
+                          {gameMode === "host" && meReady && opponentReady && (
+                            <button onClick={() => { broadcast({ type: "start_combat" }); setPhase(PHASE.COMBAT); }}
+                              style={{ ...btnStyle, width: "100%", marginTop: 6, background: "#1a4a2a", borderColor: "#4caf50", color: "#4caf50", fontSize: 12 }}>
+                              START COMBAT
+                            </button>
+                          )}
+                          {gameMode === "guest" && meReady && opponentReady && (
+                            <div style={{ fontSize: 10, color: "#4caf50", marginTop: 6, textAlign: "center" }}>
+                              Both ready - waiting for host to start...
+                            </div>
+                          )}
+                        </>
+                      )}
                     </>
                   )}
                 </>
@@ -1139,7 +2260,7 @@ export default function Swarm1v1() {
                     <div style={{ padding: 8, background: "#1a1a24", borderRadius: 6, marginBottom: 8 }}>
                       <div style={{ fontSize: 11, color: "#ff9800", marginBottom: 6 }}>Battle in progress...</div>
                       <div style={{ display: "flex", gap: 3, marginBottom: 6 }}>
-                        {[1, 2, 4].map((s) => (
+                        {[1, 2, 4, 8, 16].map((s) => (
                           <button key={s} onClick={() => setBattleSpeed(s)}
                             style={{ flex: 1, padding: "4px", fontSize: 10, borderRadius: 3, cursor: "pointer",
                               border: battleSpeed === s ? "1px solid #ff9800" : "1px solid #2a2a35",
