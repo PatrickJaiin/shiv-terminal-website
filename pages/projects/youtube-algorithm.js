@@ -655,7 +655,7 @@ export default function YouTubeAlgorithm() {
               break;
             }
             if (analyzeData.skippable) {
-              addLog(`  Skipped (no transcript available)`);
+              addLog(`  Skipped: ${analyzeData.error || "no transcript"}`);
               skipCount++;
               failures.push({ kind: "transcript", error: analyzeData.error || "no transcript" });
               continue;

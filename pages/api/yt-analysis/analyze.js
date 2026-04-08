@@ -127,7 +127,7 @@ async function trySupadata(videoId, apiKey) {
   if (!apiKey) return null;
   try {
     const res = await fetchWithTimeout(
-      `https://api.supadata.ai/v1/youtube/transcript?videoId=${videoId}&text=true`,
+      `https://api.supadata.ai/v1/youtube/transcript?videoId=${videoId}&text=true&lang=en`,
       { headers: { "x-api-key": apiKey } },
       6000
     );
