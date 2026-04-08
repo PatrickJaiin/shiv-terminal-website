@@ -117,8 +117,9 @@ function generateRoomCode() {
 }
 function getPeerId(code) { return `swarm1v1-${code}`; }
 
-// Create flying drones from a wave config
-function spawnDrones(wave, originX, originY, targetX, targetY, idStart) {
+// Create flying drones from a wave config. If `trajectory` is provided (array of {x,y}),
+// drones will fly through each waypoint before falling through to their assigned target.
+function spawnDrones(wave, originX, originY, targetX, targetY, idStart, trajectory = null) {
   const drones = [];
   let id = idStart;
   for (const [key, count] of Object.entries(wave)) {
@@ -127,9 +128,13 @@ function spawnDrones(wave, originX, originY, targetX, targetY, idStart) {
     for (let i = 0; i < count; i++) {
       const ox = originX + (Math.random() - 0.5) * 1500;
       const oy = originY + (Math.random() - 0.5) * 800;
+      // If trajectory exists, head to first waypoint instead of final target
+      const firstTarget = trajectory && trajectory.length > 0 ? trajectory[0] : { x: targetX, y: targetY };
       drones.push({
         id: id++, x: ox, y: oy, speed: u.speed, threat: u.threat, cost: u.cost,
-        status: "active", heading: Math.atan2(targetY - oy, targetX - ox) + (Math.random() - 0.5) * 0.3,
+        status: "active", heading: Math.atan2(firstTarget.y - oy, firstTarget.x - ox) + (Math.random() - 0.5) * 0.3,
+        trajectory: trajectory && trajectory.length > 0 ? trajectory.map((w) => ({ x: w.x, y: w.y })) : null,
+        waypointIdx: 0,
       });
     }
   }
@@ -150,6 +155,7 @@ export default function Swarm1v1() {
   const [playerInterceptors, setPlayerInterceptors] = useState([]);
   const [playerAD, setPlayerAD] = useState([]);
   const [playerAttack, setPlayerAttack] = useState({ fpv: 10, shahed: 3 });
+  const [playerTrajectory, setPlayerTrajectory] = useState([]); // waypoints for attack drones
   const [attackPriority, setAttackPriority] = useState("hq");
   const [defPosture, setDefPosture] = useState("pursuing"); // "insane" | "pursuing" | "defensive"
   const [budgetShake, setBudgetShake] = useState(false);
@@ -223,6 +229,7 @@ export default function Swarm1v1() {
     setBattleActive(false); setBattleDrones({ playerAttackers: [], aiAttackers: [], playerInts: [], aiInts: [] });
     setMeReady(false); setOpponentReady(false);
     setPlayerAttack({ fpv: 10, shahed: 3 });
+    setPlayerTrajectory([]);
     setPlayerAirspace(2000);
     setAttackPriority("hq");
     setDefPosture("pursuing");
@@ -844,6 +851,9 @@ export default function Swarm1v1() {
     if (placingWhat === "hq") {
       setPlayerHQ({ x, y }); setPlacingWhat(null);
       broadcast({ type: "place_hq", x, y });
+    } else if (placingWhat === "trajectory") {
+      // Add a waypoint to the attack drone trajectory. Stay in placement mode for chaining waypoints.
+      setPlayerTrajectory((prev) => [...prev, { x, y }]);
     } else if (placingWhat === "sell") {
       // Sell: find closest unit within 200 and remove with 42% refund
       let bestD = 200, bestType = null, bestIdx = -1;
@@ -1070,6 +1080,23 @@ export default function Swarm1v1() {
       }).addTo(layer);
     }
 
+    // Player attack trajectory waypoints (only shown during setup/between rounds)
+    if (playerTrajectory.length > 0 && playerHQ) {
+      const pathPts = [toLL(playerHQ.x, playerHQ.y - 500)];
+      for (const wp of playerTrajectory) pathPts.push(toLL(wp.x, wp.y));
+      // Final segment to AI HQ if known (visualizes the full intended path)
+      if (aiSetup) pathPts.push(toLL(aiSetup.hqX, aiSetup.hqY));
+      L.polyline(pathPts, { color: "#00ddff", weight: 2.5, opacity: 0.7, dashArray: "8 6", interactive: false }).addTo(layer);
+      playerTrajectory.forEach((wp, idx) => {
+        L.circleMarker(toLL(wp.x, wp.y), { radius: 6, color: "#ffffff", fillColor: "#00ddff", fillOpacity: 0.9, weight: 2 }).addTo(layer);
+        L.marker(toLL(wp.x, wp.y), {
+          icon: L.divIcon({ className: "", iconSize: [16, 16], iconAnchor: [8, 8],
+            html: `<div style="color:#fff;font-size:9px;font-weight:800;font-family:monospace;text-align:center;line-height:16px">${idx + 1}</div>` }),
+          interactive: false,
+        }).addTo(layer);
+      });
+    }
+
     // Player airspace with breach gaps
     if (playerHQ) {
       const breachAngles = battleRef.current?.playerAirBreaches || [];
@@ -1146,7 +1173,7 @@ export default function Swarm1v1() {
         L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 0.55, weight: 1 }).addTo(layer);
       }
     }
-  }, [mapReady, theater, playerHQ, playerAirspace, playerResources, playerInterceptors, playerAD, aiSetup, phase, battleDrones, resourceDeposits, placingWhat]);
+  }, [mapReady, theater, playerHQ, playerAirspace, playerResources, playerInterceptors, playerAD, aiSetup, phase, battleDrones, resourceDeposits, placingWhat, playerTrajectory]);
 
   // ── Phase 3: Render battle frame to leaflet (used by host tick + guest render loop) ──
   const renderBattleFrame = useCallback((b) => {
@@ -1298,8 +1325,8 @@ export default function Swarm1v1() {
       broadcast({ type: "round_start", round, pIncome, aIncome });
     }
 
-    // Spawn player's attack drones flying toward AI HQ
-    const pAttackers = spawnDrones(playerAttack, playerHQ.x, playerHQ.y - 500, aiSetup.hqX, aiSetup.hqY, 10000 + round * 1000);
+    // Spawn player's attack drones flying toward AI HQ (via trajectory waypoints if defined)
+    const pAttackers = spawnDrones(playerAttack, playerHQ.x, playerHQ.y - 500, aiSetup.hqX, aiSetup.hqY, 10000 + round * 1000, playerTrajectory.length > 0 ? playerTrajectory : null);
     // In MP host mode, opponent's attack wave comes from network (aiSetup._attackWave)
     // In bot mode, generate via AI logic
     const aiWave = gameMode === "host" && aiSetup._attackWave
@@ -1371,11 +1398,34 @@ export default function Swarm1v1() {
           a.status = "breached"; b.aBreaches++;
           b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "breach" });
           b.flashes.push({ x: a.x, y: a.y + 100, time: b.step, type: "dmgtext", text: "-$500K", color: "#ff5555" });
+          // Immediate HQ overwhelm: pop game over right now instead of waiting for round end
+          if (b.aBreaches > 8 && !b.hqOverwhelmDeclared) {
+            b.hqOverwhelmDeclared = true;
+            const go = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: "HQ overwhelmed" };
+            setGameOver(go);
+            // Show big damage popup
+            setDamagePopup({ text: "HQ DESTROYED", color: "#ff0000" });
+            setTimeout(() => setDamagePopup(null), 3000);
+          }
         }
       }
-      // Move player attackers - target based on priority
+      // Move player attackers - follow trajectory waypoints first, then target by priority
       for (const a of b.pAttackers) {
         if (a.status !== "active") continue;
+        // Trajectory waypoint following: head to current waypoint until close, then advance
+        if (a.trajectory && a.waypointIdx < a.trajectory.length) {
+          const wp = a.trajectory[a.waypointIdx];
+          const tx = wp.x, ty = wp.y;
+          if (dist(a, wp) < 180) { a.waypointIdx++; }
+          const dx = tx - a.x, dy = ty - a.y;
+          let diff = Math.atan2(dy, dx) - a.heading;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          a.heading += diff * 0.06;
+          a.x += Math.cos(a.heading) * a.speed;
+          a.y += Math.sin(a.heading) * a.speed;
+          continue;
+        }
         let tx = aiSetup.hqX, ty = aiSetup.hqY;
         if (attackPriority === "ad" && b.aAD.some((ad) => ad.health > 0)) {
           const alive = b.aAD.filter((ad) => ad.health > 0);
@@ -1417,6 +1467,14 @@ export default function Swarm1v1() {
           a.status = "breached"; b.pBreaches++;
           b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "breach" });
           b.flashes.push({ x: a.x, y: a.y - 100, time: b.step, type: "dmgtext", text: "-$500K", color: "#ff5555" });
+          // Immediate game-win on enemy HQ overwhelm
+          if (b.pBreaches > 8 && !b.enemyOverwhelmDeclared) {
+            b.enemyOverwhelmDeclared = true;
+            const go = { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: "Enemy HQ overwhelmed" };
+            setGameOver(go);
+            setDamagePopup({ text: "ENEMY HQ DESTROYED", color: "#4caf50" });
+            setTimeout(() => setDamagePopup(null), 3000);
+          }
         }
       }
 
@@ -1829,7 +1887,7 @@ export default function Swarm1v1() {
     }
 
     frameRef.current = requestAnimationFrame(tick);
-  }, [playerHQ, aiSetup, currentRound, playerResources, playerInterceptors, playerAD, playerAttack, playerBudget, aiBudget, gameOver, battleActive, username, opponentName, attackPriority, defPosture, playerAirspace, gameMode, broadcast, serializeBattleSnapshot]);
+  }, [playerHQ, aiSetup, currentRound, playerResources, playerInterceptors, playerAD, playerAttack, playerTrajectory, playerBudget, aiBudget, gameOver, battleActive, username, opponentName, attackPriority, defPosture, playerAirspace, gameMode, broadcast, serializeBattleSnapshot]);
 
   useEffect(() => () => { if (frameRef.current) cancelAnimationFrame(frameRef.current); }, []);
 
@@ -2097,6 +2155,26 @@ export default function Swarm1v1() {
                             style={{ width: "100%", height: 14, margin: 0, padding: 0 }} />
                         </div>
                       ))}
+                      <div style={{ fontSize: 10, textTransform: "uppercase", color: "#00ddff", margin: "8px 0 4px" }}>
+                        Attack Trajectory {playerTrajectory.length > 0 && <span style={{ color: "#666" }}>({playerTrajectory.length} waypoints)</span>}
+                      </div>
+                      <div style={{ display: "flex", gap: 3, marginBottom: 4 }}>
+                        <button onClick={() => setPlacingWhat(placingWhat === "trajectory" ? null : "trajectory")}
+                          style={{ ...inputStyle, flex: 1, fontSize: 9, padding: "5px 4px", textAlign: "center", cursor: "pointer",
+                            border: placingWhat === "trajectory" ? "1px solid #00ddff" : "1px solid #2a2a35",
+                            color: placingWhat === "trajectory" ? "#00ddff" : "#666" }}>
+                          {placingWhat === "trajectory" ? "Click map to add..." : "Plan Trajectory"}
+                        </button>
+                        {playerTrajectory.length > 0 && (
+                          <button onClick={() => { setPlayerTrajectory([]); if (placingWhat === "trajectory") setPlacingWhat(null); }}
+                            style={{ ...inputStyle, fontSize: 9, padding: "5px 8px", textAlign: "center", cursor: "pointer", color: "#ff5555" }}>
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 8, color: "#555", marginBottom: 4 }}>
+                        Drones fly through your waypoints in order, then attack the priority target.
+                      </div>
                       <div style={{ fontSize: 10, textTransform: "uppercase", color: "#ff9800", margin: "8px 0 4px" }}>Attack Priority</div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3 }}>
                         {[["hq", "HQ"], ["ad", "Ground AD"], ["resources", "Resources"], ["interceptors", "Interceptors"]].map(([k, label]) => (
@@ -2262,6 +2340,23 @@ export default function Swarm1v1() {
                             style={{ width: "100%", height: 14, margin: 0, padding: 0 }} />
                         </div>
                       ))}
+                      <div style={{ fontSize: 9, textTransform: "uppercase", color: "#00ddff", margin: "6px 0 3px" }}>
+                        Trajectory {playerTrajectory.length > 0 && <span style={{ color: "#666" }}>({playerTrajectory.length})</span>}
+                      </div>
+                      <div style={{ display: "flex", gap: 3, marginBottom: 6 }}>
+                        <button onClick={() => setPlacingWhat(placingWhat === "trajectory" ? null : "trajectory")}
+                          style={{ ...inputStyle, flex: 1, fontSize: 8, padding: "4px 3px", textAlign: "center", cursor: "pointer",
+                            border: placingWhat === "trajectory" ? "1px solid #00ddff" : "1px solid #2a2a35",
+                            color: placingWhat === "trajectory" ? "#00ddff" : "#666" }}>
+                          {placingWhat === "trajectory" ? "Click map..." : "Plan Trajectory"}
+                        </button>
+                        {playerTrajectory.length > 0 && (
+                          <button onClick={() => { setPlayerTrajectory([]); if (placingWhat === "trajectory") setPlacingWhat(null); }}
+                            style={{ ...inputStyle, fontSize: 8, padding: "4px 6px", textAlign: "center", cursor: "pointer", color: "#ff5555" }}>
+                            Clear
+                          </button>
+                        )}
+                      </div>
                       <div style={{ fontSize: 9, textTransform: "uppercase", color: "#ff9800", margin: "4px 0 3px" }}>Priority Target</div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2, marginBottom: 6 }}>
                         {[["hq", "HQ"], ["ad", "Ground AD"], ["resources", "Resources"], ["interceptors", "Interceptors"]].map(([k, label]) => (
