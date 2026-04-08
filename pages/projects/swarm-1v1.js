@@ -1501,36 +1501,62 @@ export default function Swarm1v1() {
         }
       }
 
-      // AD units fire with reload cooldown
+      // AD units fire with reload cooldown.
+      // Target priority: enemy attackers first (existential threat), then enemy interceptors (air-to-air).
+      // Player AD targets enemy attackers + enemy interceptors
       for (const ad of b.pAD) {
         if (ad.health <= 0 || ad.ammo <= 0) continue;
         const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
         if (!sys) continue;
         const cooldown = Math.max(3, Math.round(sys.engageRate * 5));
         if (ad.lastFired && b.step - ad.lastFired < cooldown) continue;
+        // Build prioritized target list: attackers first, then interceptors
+        let target = null, targetKind = null;
         for (const a of b.aAttackers) {
           if (a.status !== "active") continue;
-          if (dist(ad, a) < sys.range) {
-            ad.ammo--; ad.lastFired = b.step;
-            b.flashes.push({ x: ad.x, y: ad.y, x2: a.x, y2: a.y, time: b.step, type: "adshot", color: sys.color });
-            if (Math.random() < sys.pk) { a.status = "destroyed"; b.aKills++; b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" }); }
-            break;
+          if (dist(ad, a) < sys.range) { target = a; targetKind = "attacker"; break; }
+        }
+        if (!target) {
+          for (const i of b.aInts) {
+            if (i.status !== "active") continue;
+            if (dist(ad, i) < sys.range) { target = i; targetKind = "interceptor"; break; }
+          }
+        }
+        if (target) {
+          ad.ammo--; ad.lastFired = b.step;
+          b.flashes.push({ x: ad.x, y: ad.y, x2: target.x, y2: target.y, time: b.step, type: "adshot", color: sys.color });
+          if (Math.random() < sys.pk) {
+            target.status = "destroyed";
+            b.aKills++;
+            b.flashes.push({ x: target.x, y: target.y, time: b.step, type: "kill" });
           }
         }
       }
+      // Enemy AD targets player attackers + player interceptors
       for (const ad of b.aAD) {
         if (ad.health <= 0 || ad.ammo <= 0) continue;
         const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
         if (!sys) continue;
         const cooldown = Math.max(3, Math.round(sys.engageRate * 5));
         if (ad.lastFired && b.step - ad.lastFired < cooldown) continue;
+        let target = null;
         for (const a of b.pAttackers) {
           if (a.status !== "active") continue;
-          if (dist(ad, a) < sys.range) {
-            ad.ammo--; ad.lastFired = b.step;
-            b.flashes.push({ x: ad.x, y: ad.y, x2: a.x, y2: a.y, time: b.step, type: "adshot", color: sys.color });
-            if (Math.random() < sys.pk) { a.status = "destroyed"; b.pKills++; b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" }); }
-            break;
+          if (dist(ad, a) < sys.range) { target = a; break; }
+        }
+        if (!target) {
+          for (const i of b.pInts) {
+            if (i.status !== "active") continue;
+            if (dist(ad, i) < sys.range) { target = i; break; }
+          }
+        }
+        if (target) {
+          ad.ammo--; ad.lastFired = b.step;
+          b.flashes.push({ x: ad.x, y: ad.y, x2: target.x, y2: target.y, time: b.step, type: "adshot", color: sys.color });
+          if (Math.random() < sys.pk) {
+            target.status = "destroyed";
+            b.pKills++;
+            b.flashes.push({ x: target.x, y: target.y, time: b.step, type: "kill" });
           }
         }
       }
@@ -2296,10 +2322,22 @@ export default function Swarm1v1() {
                       <div style={{ fontSize: 10, color: "#666", marginTop: 8 }}>
                         You: ${formatUSD(Math.max(0, playerBudget))} | {opponentName}: ${formatUSD(Math.max(0, aiBudget))}
                       </div>
+                      {gameMode === "bot" && (
+                        <button onClick={() => {
+                          // Replay: tear down map, then start a new bot match with same theater/username
+                          setPhase(PHASE.LOBBY); setMapReady(false);
+                          if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; layerRef.current = null; battleLayerRef.current = null; LRef.current = null; }
+                          setTimeout(() => findMatch(), 50);
+                        }} style={{ ...inputStyle, marginTop: 12, cursor: "pointer", fontSize: 11, color: "#4caf50", borderColor: "#4caf50" }}>
+                          ↻ Replay Match
+                        </button>
+                      )}
                       <button onClick={() => {
+                        if (gameMode !== "bot") teardownPeer(true);
                         setPhase(PHASE.LOBBY); setMapReady(false);
+                        setGameMode("bot"); setLobbyView("main");
                         if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; layerRef.current = null; battleLayerRef.current = null; LRef.current = null; }
-                      }} style={{ ...inputStyle, marginTop: 12, cursor: "pointer", fontSize: 11 }}>
+                      }} style={{ ...inputStyle, marginTop: 8, cursor: "pointer", fontSize: 11 }}>
                         Back to Lobby
                       </button>
                     </div>
