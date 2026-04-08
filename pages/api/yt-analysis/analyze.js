@@ -126,8 +126,10 @@ async function tryWebScrape(videoId) {
 async function trySupadata(videoId, apiKey) {
   if (!apiKey) return null;
   try {
+    // No `lang` parameter - Supadata returns whatever language is
+    // available and forcing lang=en made it 4xx for many videos.
     const res = await fetchWithTimeout(
-      `https://api.supadata.ai/v1/youtube/transcript?videoId=${videoId}&text=true&lang=en`,
+      `https://api.supadata.ai/v1/youtube/transcript?videoId=${videoId}&text=true`,
       { headers: { "x-api-key": apiKey } },
       6000
     );
