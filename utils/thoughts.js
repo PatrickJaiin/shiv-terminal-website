@@ -19,6 +19,10 @@ export const thoughts = [
         text: "A man can do what he wants, but can't want what he wants.",
         source: "Arthur Schopenhauer",
       },
+      {
+        text: "You have the right to work only but never to its fruits.",
+        source: "Bhagavad Gita 2.47",
+      },
     ],
   },
   {
