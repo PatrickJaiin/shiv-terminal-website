@@ -13,8 +13,11 @@ const THEATERS = {
   taiwan_strait: { name: "Taiwan Strait", bounds: { south: 23.0, north: 26.0, west: 119.0, east: 122.0 }, mapCenter: [24.5, 120.5], mapZoom: 7 },
 };
 
+// Repriced per game economics audit (Apr 2026):
+// FPV bumped from $500 → $15K to match Kamikaze interceptor cost (1:1 economics).
+// 100 FPVs now costs $1.5M (5% of starting budget) vs $50K previously - prevents round-1 rush exploit.
 const ATTACK_UNITS = [
-  { key: "fpv", name: "FPV Drone", cost: 500, speed: 1.5, threat: "cheap" },
+  { key: "fpv", name: "FPV Drone", cost: 15000, speed: 1.5, threat: "cheap" },
   { key: "shahed", name: "Shahed-136", cost: 20000, speed: 1.0, threat: "cheap" },
   { key: "lancet", name: "Lancet-3", cost: 35000, speed: 1.8, threat: "medium" },
   { key: "mohajer", name: "Mohajer-6", cost: 500000, speed: 0.8, threat: "expensive" },
@@ -25,10 +28,13 @@ const DEFENSE_UNITS = [
   { key: "armed", name: "Armed Interceptor", cost: 180000, speed: 1.8, destroyOnKill: false, survivalRate: 0.73 },
 ];
 
+// Rebalanced per economics audit:
+// Iron Dome: 20 → 60 missiles (was $51M for 17 expected kills; now $51M for 51 expected kills, viable vs swarms)
+// NASAMS: $100M → $40M, 6 → 20 missiles (was strictly worst purchase; now the long-range premium option)
 const AD_SYSTEMS_1V1 = [
-  { key: "iron_dome", name: "Iron Dome", cost: 50000000, range: 2000, missiles: 20, missileCost: 50000, pk: 0.85, engageRate: 3, color: "#44bbff" },
+  { key: "iron_dome", name: "Iron Dome", cost: 50000000, range: 2000, missiles: 60, missileCost: 50000, pk: 0.85, engageRate: 3, color: "#44bbff" },
   { key: "gepard", name: "Gepard", cost: 5000000, range: 800, missiles: 680, missileCost: 100, pk: 0.2, engageRate: 1, color: "#88aa44" },
-  { key: "nasams", name: "NASAMS 3", cost: 100000000, range: 2500, missiles: 6, missileCost: 500000, pk: 0.8, engageRate: 4, color: "#4488ff" },
+  { key: "nasams", name: "NASAMS 3", cost: 40000000, range: 2500, missiles: 20, missileCost: 500000, pk: 0.8, engageRate: 4, color: "#4488ff" },
   { key: "pantsir", name: "Pantsir-S1", cost: 15000000, range: 1500, missiles: 12, missileCost: 60000, pk: 0.65, engageRate: 3, color: "#cc8800" },
 ];
 
@@ -40,7 +46,8 @@ const AD_SYSTEMS_1V1 = [
 //        ROI ~6 rounds. Best return-per-slot but biggest single-point-of-failure.
 const RESOURCES = [
   { key: "solar", name: "Solar Farm", cost: 2000000, income: 600000, breachDmg: 4000000, color: "#44bb44", icon: "S" },
-  { key: "arms", name: "Arms Factory", cost: 5000000, income: 900000, breachDmg: 9000000, color: "#8888cc", icon: "A" },
+  // Arms income buffed 0.9M → 1.5M (matches solar's 30% income/cost ratio, no longer dominated)
+  { key: "arms", name: "Arms Factory", cost: 5000000, income: 1500000, breachDmg: 9000000, color: "#8888cc", icon: "A" },
   { key: "oil", name: "Oil Refinery", cost: 8000000, income: 2200000, breachDmg: 16000000, color: "#cc8800", icon: "O" },
   { key: "hydro", name: "Hydropower Plant", cost: 14000000, income: 3600000, breachDmg: 22000000, color: "#44aadd", icon: "H" },
 ];
@@ -247,6 +254,8 @@ export default function Swarm1v1() {
   const frameRef = useRef(null);
 
   // Reset match-level state (used by all 3 modes when a match starts)
+  // NOTE: per audit fix #4, the player should NOT be defenseless on round 1.
+  // Free starting interceptors are granted *after* HQ is placed, in a separate effect below.
   const resetMatchState = useCallback(() => {
     setPlayerHQ(null); setPlayerExtraHQs([]); setPlayerResources([]); setPlayerInterceptors([]); setPlayerAD([]);
     setPlayerBudget(STARTING_BUDGET); setAiBudget(STARTING_BUDGET);
@@ -1460,7 +1469,12 @@ export default function Swarm1v1() {
 
     // Snapshot all of player's HQs (main + extras) into battleRef so the sim can read them
     const allPlayerHQs = [{ x: playerHQ.x, y: playerHQ.y }, ...playerExtraHQs.map((h) => ({ x: h.x, y: h.y }))];
-    battleRef.current = { pAttackers, aAttackers, pInts, aInts, pAD, aAD, step: 0, pKills: 0, aKills: 0, pBreaches: 0, aBreaches: 0, flashes: [], playerAirBreaches: [], aiAirBreaches: [], playerHQs: allPlayerHQs };
+    // Dynamic HQ overwhelm threshold per economics audit fix #2:
+    // overwhelm at max(8, 20% of wave size) prevents "tiny breach % of giant wave = insta-loss" degeneracy.
+    // Each HQ adds +6 to threshold to make multi-HQ feel meaningful.
+    const aOverwhelmThreshold = Math.max(8, Math.floor(aAttackers.length * 0.2)) + (allPlayerHQs.length - 1) * 6;
+    const pOverwhelmThreshold = Math.max(8, Math.floor(pAttackers.length * 0.2));
+    battleRef.current = { pAttackers, aAttackers, pInts, aInts, pAD, aAD, step: 0, pKills: 0, aKills: 0, pBreaches: 0, aBreaches: 0, flashes: [], playerAirBreaches: [], aiAirBreaches: [], playerHQs: allPlayerHQs, aOverwhelmThreshold, pOverwhelmThreshold };
 
     // Animate
     function tick() {
@@ -1508,10 +1522,14 @@ export default function Swarm1v1() {
         for (const h of hqList) { if (dist(a, h) < 200) { breachedHQ = h; break; } }
         if (breachedHQ) {
           a.status = "breached"; b.aBreaches++;
+          // Per audit fix #3: breach damage scales with attacker cost (max($100K, cost × 2))
+          // Track total damage on battleRef so round-end uses real numbers, not flat $500K
+          const breachCost = Math.max(100000, (a.cost || 500000) * 2);
+          b.aBreachDmg = (b.aBreachDmg || 0) + breachCost;
           b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "breach" });
-          b.flashes.push({ x: a.x, y: a.y + 100, time: b.step, type: "dmgtext", text: "-$500K", color: "#ff5555" });
-          // Immediate HQ overwhelm: pop game over right now instead of waiting for round end
-          if (b.aBreaches > 8 && !b.hqOverwhelmDeclared) {
+          b.flashes.push({ x: a.x, y: a.y + 100, time: b.step, type: "dmgtext", text: `-$${breachCost >= 1e6 ? (breachCost / 1e6).toFixed(1) + "M" : (breachCost / 1e3).toFixed(0) + "K"}`, color: "#ff5555" });
+          // Immediate HQ overwhelm: pop game over right now (per audit fix #2: dynamic threshold)
+          if (b.aBreaches > (b.aOverwhelmThreshold || 8) && !b.hqOverwhelmDeclared) {
             b.hqOverwhelmDeclared = true;
             const go = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: "HQ overwhelmed" };
             setGameOver(go);
@@ -1577,10 +1595,13 @@ export default function Swarm1v1() {
         a.y += Math.sin(a.heading) * a.speed;
         if (dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) < 200) {
           a.status = "breached"; b.pBreaches++;
+          // Per audit fix #3: scale breach damage with attacker cost
+          const breachCost = Math.max(100000, (a.cost || 500000) * 2);
+          b.pBreachDmg = (b.pBreachDmg || 0) + breachCost;
           b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "breach" });
-          b.flashes.push({ x: a.x, y: a.y - 100, time: b.step, type: "dmgtext", text: "-$500K", color: "#ff5555" });
-          // Immediate game-win on enemy HQ overwhelm
-          if (b.pBreaches > 8 && !b.enemyOverwhelmDeclared) {
+          b.flashes.push({ x: a.x, y: a.y - 100, time: b.step, type: "dmgtext", text: `-$${breachCost >= 1e6 ? (breachCost / 1e6).toFixed(1) + "M" : (breachCost / 1e3).toFixed(0) + "K"}`, color: "#ff5555" });
+          // Immediate game-win on enemy HQ overwhelm (dynamic threshold per fix #2)
+          if (b.pBreaches > (b.pOverwhelmThreshold || 8) && !b.enemyOverwhelmDeclared) {
             b.enemyOverwhelmDeclared = true;
             const go = { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: "Enemy HQ overwhelmed" };
             setGameOver(go);
@@ -1876,12 +1897,12 @@ export default function Swarm1v1() {
         const endLog = [];
         endLog.push(`Battle ${round + 1} done: You killed ${b.aKills}, lost ${b.pBreaches} breaches | AI killed ${b.pKills}, lost ${b.aBreaches} breaches`);
 
-        // Apply breach damage
+        // Apply breach damage (per audit fix #3: cost-scaled, accumulated during sim)
         let pDmg = 0, aDmg = 0;
         // C2 fix: collect all gameOver candidates locally so they're broadcast to guest
         let earlyGameOver = null;
         if (b.aBreaches > 0) {
-          pDmg = b.aBreaches * 500000;
+          pDmg = b.aBreachDmg || (b.aBreaches * 500000); // use accumulated damage
           for (let i = 0; i < Math.min(b.aBreaches, 3); i++) {
             const alive = playerResources.filter((r) => r.alive);
             if (alive.length > 0 && Math.random() < 0.35) {
@@ -1891,11 +1912,10 @@ export default function Swarm1v1() {
               endLog.push(`Your ${res?.name} destroyed!`);
             }
           }
-          // Use winnerRole tag instead of name (works in MP)
-          if (b.aBreaches > 8) { earlyGameOver = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: "HQ overwhelmed" }; endLog.push("YOUR HQ DESTROYED!"); }
+          if (b.aBreaches > (b.aOverwhelmThreshold || 8)) { earlyGameOver = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: "HQ overwhelmed" }; endLog.push("YOUR HQ DESTROYED!"); }
         }
         if (b.pBreaches > 0) {
-          aDmg = b.pBreaches * 500000;
+          aDmg = b.pBreachDmg || (b.pBreaches * 500000);
           for (let i = 0; i < Math.min(b.pBreaches, 3); i++) {
             const alive = aiSetup.resources.filter((r) => r.alive);
             if (alive.length > 0 && Math.random() < 0.35) {
@@ -1906,7 +1926,7 @@ export default function Swarm1v1() {
               endLog.push(`Enemy ${res?.name} destroyed!`);
             }
           }
-          if (b.pBreaches > 8) { earlyGameOver = { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: "Enemy HQ overwhelmed" }; endLog.push("ENEMY HQ DESTROYED!"); }
+          if (b.pBreaches > (b.pOverwhelmThreshold || 8)) { earlyGameOver = { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: "Enemy HQ overwhelmed" }; endLog.push("ENEMY HQ DESTROYED!"); }
         }
         if (earlyGameOver) setGameOver(earlyGameOver);
 
@@ -2005,6 +2025,22 @@ export default function Swarm1v1() {
   launchRoundRef.current = launchRound;
 
   useEffect(() => () => { if (frameRef.current) cancelAnimationFrame(frameRef.current); }, []);
+
+  // ── Audit fix #4: grant free starting kamikaze interceptors after HQ placement ──
+  // Player gets 10 free kamikazes positioned just south of their HQ so round 1 isn't an auto-loss.
+  // Only fires once per match (when going from no HQ → HQ placed and no interceptors yet).
+  const startingDronesGrantedRef = useRef(false);
+  useEffect(() => {
+    if (!playerHQ || phase === PHASE.LOBBY) return;
+    if (startingDronesGrantedRef.current) return;
+    if (playerInterceptors.length > 0) { startingDronesGrantedRef.current = true; return; }
+    startingDronesGrantedRef.current = true;
+    setPlayerInterceptors([{ key: "kamikaze", x: playerHQ.x, y: playerHQ.y + 600, count: 10 }]);
+  }, [playerHQ, phase, playerInterceptors.length]);
+  // Reset the grant flag when match resets
+  useEffect(() => {
+    if (phase === PHASE.LOBBY) startingDronesGrantedRef.current = false;
+  }, [phase]);
 
   // ── Per-turn timer: counts down between rounds, auto-launches on 0 ──
   // Active only when in COMBAT phase, not battling, no game over.
