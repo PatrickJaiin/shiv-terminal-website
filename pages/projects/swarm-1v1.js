@@ -711,8 +711,8 @@ export default function Swarm1v1() {
         b.pAttackers = (msg.aAtt || []).map((a) => ({ id: a.id, x: a.x, y: a.y, status: a.s, threat: "cheap" }));
         b.aInts = (msg.pInt || []).map((i) => ({ id: i.id, x: i.x, y: i.y, status: i.s }));
         b.pInts = (msg.aInt || []).map((i) => ({ id: i.id, x: i.x, y: i.y, status: i.s }));
-        b.aAD = (msg.pAD || []).map((a) => ({ key: a.key, x: a.x, y: a.y, health: a.h, ammo: a.ammo }));
-        b.pAD = (msg.aAD || []).map((a) => ({ key: a.key, x: a.x, y: a.y, health: a.h, ammo: a.ammo }));
+        b.aAD = (msg.pAD || []).map((a) => ({ key: a.key, x: a.x, y: a.y, health: a.h, ammo: a.ammo, lastFired: a.lf }));
+        b.pAD = (msg.aAD || []).map((a) => ({ key: a.key, x: a.x, y: a.y, health: a.h, ammo: a.ammo, lastFired: a.lf }));
         b.flashes = msg.flashes || [];
         b.playerAirBreaches = msg.aAirBreaches || []; // swapped
         b.aiAirBreaches = msg.pAirBreaches || []; // swapped
@@ -1896,8 +1896,10 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     aAtt: b.aAttackers.map((a) => ({ id: a.id, x: Math.round(a.x), y: Math.round(a.y), s: a.status })),
     pInt: b.pInts.map((i) => ({ id: i.id, x: Math.round(i.x), y: Math.round(i.y), s: i.status })),
     aInt: b.aInts.map((i) => ({ id: i.id, x: Math.round(i.x), y: Math.round(i.y), s: i.status })),
-    pAD: b.pAD.map((a) => ({ key: a.key, x: a.x, y: a.y, h: a.health, ammo: a.ammo })),
-    aAD: b.aAD.map((a) => ({ key: a.key, x: a.x, y: a.y, h: a.health, ammo: a.ammo })),
+    // lf = lastFired step. Required for the guest's reload pie chart to cycle correctly
+    // (without it, ad.lastFired is undefined → reloadPct stays at 1 → pie chart is stuck green).
+    pAD: b.pAD.map((a) => ({ key: a.key, x: a.x, y: a.y, h: a.health, ammo: a.ammo, lf: a.lastFired })),
+    aAD: b.aAD.map((a) => ({ key: a.key, x: a.x, y: a.y, h: a.health, ammo: a.ammo, lf: a.lastFired })),
     flashes: (b.flashes || []).slice(-30),
     pAirBreaches: b.playerAirBreaches || [],
     aAirBreaches: b.aiAirBreaches || [],
@@ -2303,109 +2305,10 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
         }
       }
 
-      // Draw battle - distinct visuals per drone type
-      const L = LRef.current; const bl = battleLayerRef.current;
-      if (L && bl) {
-        bl.clearLayers();
-        const th = THEATERS[theaterRef.current]; const toLL = (x, y) => simToLatLng(x, y, th.bounds);
-        const mpu = getProjection(th.bounds).mpu;
-        // AD range circles during battle (toggleable)
-        if (showADRangeRef.current) {
-          for (const ad of b.pAD) {
-            if (ad.health <= 0) continue;
-            const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
-            if (sys) L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.06, weight: 1.5, opacity: 0.4, dashArray: "6 4", interactive: false }).addTo(bl);
-          }
-          for (const ad of b.aAD) {
-            if (ad.health <= 0) continue;
-            const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
-            if (sys) L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.04, weight: 1.5, opacity: 0.3, dashArray: "6 4", interactive: false }).addTo(bl);
-          }
-        }
-        // AD unit markers - drawn prominently so you can see the source of tracers
-        for (const ad of b.pAD) {
-          const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
-          if (!sys) continue;
-          const alive = ad.health > 0;
-          // Outer ring (square-ish look via large weight)
-          L.circleMarker(toLL(ad.x, ad.y), { radius: 9, color: alive ? "#ffffff" : "#222", fillColor: alive ? sys.color : "#1a1a1a", fillOpacity: alive ? 0.95 : 0.3, weight: 2.5 }).addTo(bl);
-          // Inner crosshair dot
-          L.circleMarker(toLL(ad.x, ad.y), { radius: 2, color: "#ffffff", fillColor: "#ffffff", fillOpacity: alive ? 1 : 0.3, weight: 0 }).addTo(bl);
-          // Ammo indicator label
-          if (alive) {
-            L.marker(toLL(ad.x, ad.y - 180), {
-              icon: L.divIcon({ className: "", iconSize: [60, 14], iconAnchor: [30, 7],
-                html: `<div style="color:${sys.color};font-size:9px;font-weight:700;font-family:monospace;text-align:center;text-shadow:0 0 4px #000;white-space:nowrap">${sys.name.split(" ")[0]} ${ad.ammo}</div>` }),
-              interactive: false,
-            }).addTo(bl);
-          }
-        }
-        for (const ad of b.aAD) {
-          const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
-          if (!sys) continue;
-          const alive = ad.health > 0;
-          L.circleMarker(toLL(ad.x, ad.y), { radius: 9, color: alive ? "#ff7777" : "#222", fillColor: alive ? "#cc4444" : "#1a1a1a", fillOpacity: alive ? 0.95 : 0.3, weight: 2.5 }).addTo(bl);
-          L.circleMarker(toLL(ad.x, ad.y), { radius: 2, color: "#ffffff", fillColor: "#ffffff", fillOpacity: alive ? 1 : 0.3, weight: 0 }).addTo(bl);
-          if (alive) {
-            L.marker(toLL(ad.x, ad.y - 180), {
-              icon: L.divIcon({ className: "", iconSize: [60, 14], iconAnchor: [30, 7],
-                html: `<div style="color:#ff7777;font-size:9px;font-weight:700;font-family:monospace;text-align:center;text-shadow:0 0 4px #000;white-space:nowrap">${sys.name.split(" ")[0]} ${ad.ammo}</div>` }),
-              interactive: false,
-            }).addTo(bl);
-          }
-        }
-
-        // Enemy attack drones
-        for (const a of b.aAttackers) { if (a.status === "active") L.circleMarker(toLL(a.x, a.y), { radius: 3, color: "#ff4444", fillColor: "#ff4444", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
-        // Your attack drones: cyan small (heading north->south)
-        for (const a of b.pAttackers) { if (a.status === "active") L.circleMarker(toLL(a.x, a.y), { radius: 3, color: "#00ddff", fillColor: "#00ddff", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
-        // Your interceptors: blue with white border (active), dimmer when returning/landed
-        for (const i of b.pInts) {
-          if (i.status === "active") L.circleMarker(toLL(i.x, i.y), { radius: 5, color: "#ffffff", fillColor: "#4a9eff", fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
-          else if (i.status === "landed") L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#336699", fillColor: "#336699", fillOpacity: 0.5, weight: 1 }).addTo(bl);
-        }
-        // Enemy interceptors
-        for (const i of b.aInts) {
-          if (i.status === "active") L.circleMarker(toLL(i.x, i.y), { radius: 5, color: "#880000", fillColor: "#ff5555", fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
-          else if (i.status === "landed") L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#663333", fillColor: "#663333", fillOpacity: 0.5, weight: 1 }).addTo(bl);
-        }
-        // Kill, breach, and AD shot flashes
-        b.flashes = b.flashes.filter((f) => b.step - f.time < (f.type === "dmgtext" ? 120 : 30));
-        for (const f of b.flashes) {
-          const age = b.step - f.time;
-          const maxAge = f.type === "dmgtext" ? 120 : 30;
-          const p = age / maxAge;
-          const ll = toLL(f.x, f.y);
-          if (f.type === "adshot") {
-            // Bright tracer line from AD to target
-            if (age < 20) {
-              const ll2 = toLL(f.x2, f.y2);
-              const fade = 1 - age / 20;
-              // Outer glow
-              L.polyline([ll, ll2], { color: "#ffffff", weight: 4, opacity: fade * 0.3, interactive: false }).addTo(bl);
-              // Core tracer
-              L.polyline([ll, ll2], { color: f.color || "#ffaa00", weight: 2, opacity: fade * 0.9, interactive: false }).addTo(bl);
-              // Muzzle flash at AD
-              L.circleMarker(ll, { radius: 4 * fade, color: "#ffffff", fillColor: "#ffffff", fillOpacity: fade * 0.6, weight: 0 }).addTo(bl);
-              // Impact at target
-              L.circleMarker(ll2, { radius: 4 * fade, color: f.color || "#ffaa00", fillColor: f.color || "#ffaa00", fillOpacity: fade * 0.8, weight: 0 }).addTo(bl);
-            }
-          } else if (f.type === "dmgtext") {
-            // Floating damage text that drifts up slowly
-            const drift = age * 3;
-            const driftLL = toLL(f.x, f.y + drift);
-            L.marker(driftLL, {
-              icon: L.divIcon({ className: "", iconSize: [80, 16], iconAnchor: [40, 8],
-                html: `<div style="color:${f.color || "#ff5555"};font-size:12px;font-weight:800;font-family:monospace;text-align:center;text-shadow:0 0 6px #000;opacity:${1 - p}">${f.text}</div>` }),
-              interactive: false,
-            }).addTo(bl);
-          } else if (f.type === "kill") {
-            L.circleMarker(ll, { radius: 5 + p * 12, color: "#ff8800", fillColor: "#ff8800", fillOpacity: (1 - p) * 0.5, weight: 1.5, opacity: 1 - p }).addTo(bl);
-          } else if (f.type === "breach") {
-            L.circleMarker(ll, { radius: 6 + p * 10, color: "#ff0000", fillColor: "#ff0000", fillOpacity: (1 - p) * 0.6, weight: 2, opacity: 1 - p }).addTo(bl);
-          }
-        }
-      }
+      // Draw battle via the shared render path. Using renderBattleFrame here (instead of
+      // a duplicate inline render block) keeps host and guest visuals identical - including
+      // the reload pie chart on AD units, which previously only existed on the guest's path.
+      renderBattleFrame(b);
 
       setBattleDrones({ playerAttackers: [...b.pAttackers], aiAttackers: [...b.aAttackers], playerInts: [...b.pInts], aiInts: [...b.aInts] });
 
@@ -2592,7 +2495,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     }
 
     frameRef.current = requestAnimationFrame(tick);
-  }, [playerHQ, playerExtraHQs, aiSetup, currentRound, playerResources, playerInterceptors, playerAD, playerAttack, playerTrajectory, playerBudget, aiBudget, gameOver, battleActive, username, opponentName, attackPriority, defPosture, playerAirspace, gameMode, broadcast, serializeBattleSnapshot]);
+  }, [playerHQ, playerExtraHQs, aiSetup, currentRound, playerResources, playerInterceptors, playerAD, playerAttack, playerTrajectory, playerBudget, aiBudget, gameOver, battleActive, username, opponentName, attackPriority, defPosture, playerAirspace, gameMode, broadcast, serializeBattleSnapshot, renderBattleFrame]);
 
   // Wire forward ref so the per-turn timer effect can call into us without a TDZ issue
   launchRoundRef.current = launchRound;
