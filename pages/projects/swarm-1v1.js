@@ -256,11 +256,19 @@ function getPeerId(code) { return `swarm1v1-${code}`; }
 let _audioCtx = null;
 const _audioThrottle = {};
 function _initAudio() {
-  if (_audioCtx) return _audioCtx;
   if (typeof window === "undefined") return null;
-  try {
-    _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  } catch { _audioCtx = null; }
+  if (!_audioCtx) {
+    try {
+      _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch { _audioCtx = null; }
+  }
+  // Browsers create AudioContext in "suspended" state until a user gesture calls resume().
+  // Without this, every playSfx() call is silently dropped. Safe to call repeatedly -
+  // resume() is idempotent on running contexts. iOS Safari also re-suspends on tab hide,
+  // so the global pointerdown/keydown listener below acts as a re-arm safety net.
+  if (_audioCtx && _audioCtx.state === "suspended") {
+    try { _audioCtx.resume(); } catch {}
+  }
   return _audioCtx;
 }
 function playSfx(name, throttleMs = 40) {
@@ -268,7 +276,10 @@ function playSfx(name, throttleMs = 40) {
   if (_audioThrottle[name] && now - _audioThrottle[name] < throttleMs) return;
   _audioThrottle[name] = now;
   const ctx = _audioCtx;
-  if (!ctx) return;
+  // ctx.state can be "suspended" / "running" / "closed". Only "running" produces sound;
+  // calling oscillator methods on a suspended context schedules them but they don't fire,
+  // so we'd get silent "ghost" sfx instead of bailing out.
+  if (!ctx || ctx.state !== "running") return;
   const t = ctx.currentTime;
   try {
     if (name === "ad_fire") {
@@ -740,7 +751,30 @@ export default function Swarm1v1() {
         b.pInts = (msg.aInt || []).map((i) => ({ id: i.id, x: i.x, y: i.y, status: i.s, heading: i.hd, speed: i.spd }));
         b.aAD = (msg.pAD || []).map((a) => ({ key: a.key, x: a.x, y: a.y, health: a.h, ammo: a.ammo, lastFired: a.lf }));
         b.pAD = (msg.aAD || []).map((a) => ({ key: a.key, x: a.x, y: a.y, health: a.h, ammo: a.ammo, lastFired: a.lf }));
-        b.flashes = msg.flashes || [];
+        // Flashes carry wallTime from the HOST's performance.now() which is per-page-load
+        // and unrelated to the guest's clock. If we trust host wallTime, the guest's age
+        // calculation is wildly off: lasers either get filtered out instantly (host loaded
+        // earlier - their clock is ahead) or never expire and accumulate (host loaded later -
+        // their clock is behind). Both manifest as bugs the user sees. Fix: dedup by host
+        // wallTime as an ID, re-stamp wallTime to guest-local performance.now() once per
+        // unique flash, and merge into b.flashes so they age normally on the guest's clock.
+        if (Array.isArray(msg.flashes) && msg.flashes.length > 0) {
+          if (!b._seenFlashIds) b._seenFlashIds = new Set();
+          if (!Array.isArray(b.flashes)) b.flashes = [];
+          const guestNow = performance.now();
+          for (const f of msg.flashes) {
+            const id = f.wallTime; // host's wallTime as a stable per-flash ID
+            if (id == null || b._seenFlashIds.has(id)) continue;
+            b._seenFlashIds.add(id);
+            b.flashes.push({ ...f, wallTime: guestNow });
+          }
+          // Cap the seen set so it doesn't grow unbounded across long rounds.
+          if (b._seenFlashIds.size > 2000) {
+            // Drop the oldest half by recreating the set from the most recent.
+            const arr = Array.from(b._seenFlashIds);
+            b._seenFlashIds = new Set(arr.slice(arr.length / 2));
+          }
+        }
         b.playerAirBreaches = msg.aAirBreaches || []; // swapped
         b.aiAirBreaches = msg.pAirBreaches || []; // swapped
         break;
@@ -1023,6 +1057,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
       setConnectionStatus("error");
       return;
     }
+    _initAudio(); // unlock Web Audio on first user gesture
     teardownPeer(true);
     setConnectionError("");
     setRoomCode("");
@@ -1206,6 +1241,22 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
   // ── Cleanup peer on unmount only (intentionally omit deps to avoid mid-match cleanup if teardownPeer ref changes) ──
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => () => { teardownPeer(true); }, []);
+
+  // ── Audio safety net: unlock Web Audio on ANY user gesture ──
+  // Not every entry path hits createRoom/joinRoom/findOnlineMatch (e.g. hot-reload, returning
+  // from a tab switch, bot mode entry), and iOS Safari re-suspends the AudioContext on tab
+  // hide. Listen for any gesture and resume the context whenever it gets suspended.
+  useEffect(() => {
+    const unlock = () => { _initAudio(); };
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    window.addEventListener("touchstart", unlock, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+      window.removeEventListener("touchstart", unlock);
+    };
+  }, []);
 
   // ── Matchmaking elapsed timer + stats poll ──
   // Runs while user is on the matchmaking lobby view. Polls /api/match/stats every 3s
