@@ -76,6 +76,38 @@ const THEATERS = {
   },
 };
 
+// Sci-fi unit sketches for the unit database modal. Each is a compact 60x60 inline
+// SVG silhouette evoking the actual hardware (modeled on real military systems for
+// AD/attack drones, generic sci-fi for fictional interceptors). Strokes white for
+// contrast against the dark modal background; fills are the unit's brand color.
+// Ported from the game mode (swarm-1v1.js) which has the same pattern.
+const UNIT_SKETCHES = {
+  ad: {
+    iron_dome: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="6" y="42" width="48" height="6" fill="#44bbff" stroke="#fff" stroke-width="1.5"/><circle cx="14" cy="51" r="3" fill="#222" stroke="#fff" stroke-width="1"/><circle cx="46" cy="51" r="3" fill="#222" stroke="#fff" stroke-width="1"/><rect x="9" y="14" width="9" height="28" fill="#44bbff" stroke="#fff" stroke-width="1.5"/><rect x="20" y="14" width="9" height="28" fill="#44bbff" stroke="#fff" stroke-width="1.5"/><rect x="31" y="14" width="9" height="28" fill="#44bbff" stroke="#fff" stroke-width="1.5"/><rect x="42" y="14" width="9" height="28" fill="#44bbff" stroke="#fff" stroke-width="1.5"/></svg>`,
+    gepard: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="4" y="46" width="52" height="6" fill="#222" stroke="#fff" stroke-width="1"/><rect x="6" y="32" width="48" height="14" fill="#88aa44" stroke="#fff" stroke-width="1.5"/><rect x="20" y="22" width="20" height="11" fill="#88aa44" stroke="#fff" stroke-width="1.5"/><rect x="22" y="6" width="3" height="18" fill="#88aa44" stroke="#fff" stroke-width="1"/><rect x="35" y="6" width="3" height="18" fill="#88aa44" stroke="#fff" stroke-width="1"/><circle cx="30" cy="27" r="2" fill="#fff"/></svg>`,
+    nasams: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="6" y="42" width="48" height="8" fill="#4488ff" stroke="#fff" stroke-width="1.5"/><circle cx="14" cy="52" r="3" fill="#222" stroke="#fff" stroke-width="1"/><circle cx="30" cy="52" r="3" fill="#222" stroke="#fff" stroke-width="1"/><circle cx="46" cy="52" r="3" fill="#222" stroke="#fff" stroke-width="1"/><g transform="rotate(-25 30 30)"><rect x="10" y="20" width="10" height="22" fill="#4488ff" stroke="#fff" stroke-width="1.2"/><rect x="22" y="20" width="10" height="22" fill="#4488ff" stroke="#fff" stroke-width="1.2"/><rect x="34" y="20" width="10" height="22" fill="#4488ff" stroke="#fff" stroke-width="1.2"/></g></svg>`,
+    pantsir: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="4" y="46" width="52" height="6" fill="#222" stroke="#fff" stroke-width="1"/><rect x="4" y="34" width="52" height="12" fill="#cc8800" stroke="#fff" stroke-width="1.5"/><rect x="14" y="22" width="32" height="12" fill="#cc8800" stroke="#fff" stroke-width="1.5"/><rect x="16" y="14" width="3" height="10" fill="#cc8800" stroke="#fff" stroke-width="0.8"/><rect x="20" y="14" width="3" height="10" fill="#cc8800" stroke="#fff" stroke-width="0.8"/><rect x="24" y="14" width="3" height="10" fill="#cc8800" stroke="#fff" stroke-width="0.8"/><rect x="33" y="14" width="3" height="10" fill="#cc8800" stroke="#fff" stroke-width="0.8"/><rect x="37" y="14" width="3" height="10" fill="#cc8800" stroke="#fff" stroke-width="0.8"/><rect x="41" y="14" width="3" height="10" fill="#cc8800" stroke="#fff" stroke-width="0.8"/><circle cx="30" cy="10" r="3" fill="none" stroke="#fff" stroke-width="1.2"/></svg>`,
+    s300: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="4" y="46" width="52" height="6" fill="#222" stroke="#fff" stroke-width="1"/><rect x="6" y="38" width="48" height="10" fill="#cc8800" stroke="#fff" stroke-width="1.5"/><circle cx="14" cy="52" r="3" fill="#222" stroke="#fff" stroke-width="1"/><circle cx="30" cy="52" r="3" fill="#222" stroke="#fff" stroke-width="1"/><circle cx="46" cy="52" r="3" fill="#222" stroke="#fff" stroke-width="1"/><rect x="10" y="6" width="10" height="34" fill="#cc8800" stroke="#fff" stroke-width="1.2"/><rect x="22" y="6" width="10" height="34" fill="#cc8800" stroke="#fff" stroke-width="1.2"/><rect x="34" y="6" width="10" height="34" fill="#cc8800" stroke="#fff" stroke-width="1.2"/><rect x="44" y="6" width="6" height="34" fill="#cc8800" stroke="#fff" stroke-width="1.2"/></svg>`,
+    s400: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="4" y="46" width="52" height="6" fill="#222" stroke="#fff" stroke-width="1"/><rect x="6" y="36" width="48" height="12" fill="#cc8800" stroke="#fff" stroke-width="1.5"/><circle cx="14" cy="52" r="3.5" fill="#222" stroke="#fff" stroke-width="1"/><circle cx="30" cy="52" r="3.5" fill="#222" stroke="#fff" stroke-width="1"/><circle cx="46" cy="52" r="3.5" fill="#222" stroke="#fff" stroke-width="1"/><rect x="9" y="4" width="10" height="36" fill="#cc8800" stroke="#fff" stroke-width="1.2"/><rect x="22" y="4" width="10" height="36" fill="#cc8800" stroke="#fff" stroke-width="1.2"/><rect x="35" y="4" width="10" height="36" fill="#cc8800" stroke="#fff" stroke-width="1.2"/><rect x="46" y="4" width="6" height="36" fill="#cc8800" stroke="#fff" stroke-width="1.2"/></svg>`,
+    patriot: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="4" y="46" width="52" height="6" fill="#222" stroke="#fff" stroke-width="1"/><rect x="6" y="38" width="48" height="10" fill="#4488ff" stroke="#fff" stroke-width="1.5"/><circle cx="14" cy="52" r="3" fill="#222" stroke="#fff" stroke-width="1"/><circle cx="46" cy="52" r="3" fill="#222" stroke="#fff" stroke-width="1"/><g transform="rotate(-15 30 30)"><rect x="10" y="14" width="9" height="26" fill="#4488ff" stroke="#fff" stroke-width="1.2"/><rect x="21" y="14" width="9" height="26" fill="#4488ff" stroke="#fff" stroke-width="1.2"/><rect x="32" y="14" width="9" height="26" fill="#4488ff" stroke="#fff" stroke-width="1.2"/><rect x="43" y="14" width="9" height="26" fill="#4488ff" stroke="#fff" stroke-width="1.2"/></g></svg>`,
+    iris_t: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="6" y="42" width="48" height="8" fill="#88aa44" stroke="#fff" stroke-width="1.5"/><circle cx="14" cy="52" r="3" fill="#222" stroke="#fff" stroke-width="1"/><circle cx="46" cy="52" r="3" fill="#222" stroke="#fff" stroke-width="1"/><rect x="8" y="14" width="6" height="28" fill="#88aa44" stroke="#fff" stroke-width="1.2"/><rect x="16" y="14" width="6" height="28" fill="#88aa44" stroke="#fff" stroke-width="1.2"/><rect x="24" y="14" width="6" height="28" fill="#88aa44" stroke="#fff" stroke-width="1.2"/><rect x="32" y="14" width="6" height="28" fill="#88aa44" stroke="#fff" stroke-width="1.2"/><rect x="40" y="14" width="6" height="28" fill="#88aa44" stroke="#fff" stroke-width="1.2"/><rect x="48" y="14" width="6" height="28" fill="#88aa44" stroke="#fff" stroke-width="1.2"/></svg>`,
+  },
+  attack: {
+    fpv_kamikaze: `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="4" fill="#ff6666" stroke="#fff" stroke-width="1"/><circle cx="14" cy="14" r="5" fill="none" stroke="#ff6666" stroke-width="2"/><circle cx="46" cy="14" r="5" fill="none" stroke="#ff6666" stroke-width="2"/><circle cx="14" cy="46" r="5" fill="none" stroke="#ff6666" stroke-width="2"/><circle cx="46" cy="46" r="5" fill="none" stroke="#ff6666" stroke-width="2"/><line x1="14" y1="14" x2="46" y2="46" stroke="#ff6666" stroke-width="2"/><line x1="46" y1="14" x2="14" y2="46" stroke="#ff6666" stroke-width="2"/></svg>`,
+    shahed_136: `<svg width="60" height="60" viewBox="0 0 60 60"><polygon points="30,8 50,46 30,40 10,46" fill="#cc3333" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/><circle cx="30" cy="22" r="2" fill="#fff"/><line x1="30" y1="40" x2="30" y2="50" stroke="#fff" stroke-width="1.5"/></svg>`,
+    lancet_3: `<svg width="60" height="60" viewBox="0 0 60 60"><polygon points="30,4 36,30 30,52 24,30" fill="#cc3333" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/><polygon points="6,28 24,24 24,36 6,32" fill="#cc3333" stroke="#fff" stroke-width="1.2"/><polygon points="54,28 36,24 36,36 54,32" fill="#cc3333" stroke="#fff" stroke-width="1.2"/></svg>`,
+    mohajer_6: `<svg width="60" height="60" viewBox="0 0 60 60"><ellipse cx="30" cy="30" rx="6" ry="22" fill="#881111" stroke="#fff" stroke-width="1.5"/><rect x="4" y="27" width="52" height="6" fill="#881111" stroke="#fff" stroke-width="1.5"/><rect x="20" y="42" width="20" height="4" fill="#881111" stroke="#fff" stroke-width="1"/><circle cx="30" cy="14" r="2" fill="#fff"/></svg>`,
+    orion: `<svg width="60" height="60" viewBox="0 0 60 60"><ellipse cx="30" cy="30" rx="5" ry="24" fill="#881111" stroke="#fff" stroke-width="1.5"/><polygon points="6,28 30,24 30,36 6,32" fill="#881111" stroke="#fff" stroke-width="1.2"/><polygon points="54,28 30,24 30,36 54,32" fill="#881111" stroke="#fff" stroke-width="1.2"/><rect x="22" y="46" width="16" height="3" fill="#881111" stroke="#fff" stroke-width="1"/></svg>`,
+    wing_loong: `<svg width="60" height="60" viewBox="0 0 60 60"><ellipse cx="30" cy="30" rx="6" ry="26" fill="#881111" stroke="#fff" stroke-width="1.5"/><polygon points="2,30 30,22 30,38 2,34" fill="#881111" stroke="#fff" stroke-width="1.2"/><polygon points="58,30 30,22 30,38 58,34" fill="#881111" stroke="#fff" stroke-width="1.2"/><rect x="20" y="48" width="20" height="3" fill="#881111" stroke="#fff" stroke-width="1"/><circle cx="30" cy="10" r="2" fill="#fff"/></svg>`,
+  },
+  interceptor: {
+    kamikaze_int: `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="22" fill="#4a9eff" stroke="#fff" stroke-width="2.5"/><circle cx="30" cy="30" r="6" fill="#fff"/></svg>`,
+    armed_int: `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="22" fill="#4a9eff" stroke="#fff" stroke-width="2.5"/><polygon points="30,8 44,46 30,38 16,46" fill="#fff" stroke="#fff" stroke-width="1" stroke-linejoin="round"/></svg>`,
+    anduril: `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="22" fill="#4a9eff" stroke="#fff" stroke-width="2.5"/><polygon points="30,12 38,40 30,32 22,40" fill="#fff"/></svg>`,
+    fortem: `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="22" fill="#4a9eff" stroke="#fff" stroke-width="2.5"/><circle cx="30" cy="30" r="14" fill="none" stroke="#fff" stroke-width="1.5" stroke-dasharray="3 3"/><circle cx="30" cy="30" r="4" fill="#fff"/></svg>`,
+  },
+};
+
 // Sandbox is the only simulator mode now. The wave-based difficulty campaigns
 // (medium/hard/nightmare) lived here historically; they have been removed because
 // the 1v1 game mode (pages/projects/swarm-1v1.js) is the proper challenge experience.
@@ -697,14 +729,14 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
       }
     }
 
-    // AD unit range indicators (lightweight circleMarkers instead of heavy L.circle)
+    // AD unit range indicators - bumped opacity/weight per game-mode visibility port
     for (const ad of adUnits) {
       const sys = AD_SYSTEMS.find((s) => s.key === ad.key);
       if (!sys || ad.health <= 0) continue;
       const adLL = simToLL(ad.x, ad.y);
       L.circleMarker(adLL, {
         radius: 25, color: sys.color, fillColor: sys.color,
-        fillOpacity: 0.08, weight: 1, opacity: 0.3, interactive: false,
+        fillOpacity: 0.18, weight: 2.5, opacity: 0.85, interactive: false,
       }).addTo(layer);
     }
   }, [theater, simToLL, breachPoints, mapReady, zoneCenter, zoneRadius, assetRadius]);
@@ -717,15 +749,16 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
     if (!L || !droneLayer) return;
     droneLayer.clearLayers();
 
-    // Draw AD unit markers (circleMarkers only, no DOM labels)
+    // Draw AD unit markers. Destroyed AD is REMOVED from the map entirely (no greyed-
+    // out placeholder), matching the game-mode behavior where "destroyed = gone".
     for (const ad of adUnits) {
+      if (ad.health <= 0) continue;
       const sys = AD_SYSTEMS.find((s) => s.key === ad.key);
       if (!sys) continue;
       const ll = simToLL(ad.x, ad.y);
-      const alive = ad.health > 0;
       L.circleMarker(ll, {
-        radius: alive ? 7 : 4, color: alive ? sys.color : "#444", fillColor: alive ? sys.color : "#333",
-        fillOpacity: alive ? 0.8 : 0.4, weight: 2, opacity: alive ? 1 : 0.5,
+        radius: 7, color: sys.color, fillColor: sys.color,
+        fillOpacity: 0.9, weight: 2.5, opacity: 1,
       }).addTo(droneLayer);
     }
 
@@ -743,14 +776,23 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
       }).addTo(droneLayer);
     }
 
-    // Interceptors (no pursuit/RTB lines during sim for performance)
+    // Interceptors. Distinct shape per type (kamikaze = filled circle, armed = ring with
+    // center pip), matching the game-mode visual language. Landed interceptors are dim.
     for (const d of simState.interceptors) {
       if (d.status !== "active" && d.status !== "landed") continue;
       const ll = simToLL(d.x, d.y);
-      const color = d.status === "active" ? "#4a9eff" : "#2266aa";
-      L.circleMarker(ll, {
-        radius: 5, color, fillColor: color, fillOpacity: 0.9, weight: 1, opacity: 1,
-      }).addTo(droneLayer);
+      if (d.status === "active") {
+        const isKam = d.destroyOnKill !== false;
+        if (isKam) {
+          L.circleMarker(ll, { radius: 5, color: "#ffffff", fillColor: "#4a9eff", fillOpacity: 0.9, weight: 1.5 }).addTo(droneLayer);
+        } else {
+          L.circleMarker(ll, { radius: 7, color: "#ffffff", fillColor: "transparent", fillOpacity: 0, weight: 2 }).addTo(droneLayer);
+          L.circleMarker(ll, { radius: 2, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 1, weight: 0 }).addTo(droneLayer);
+        }
+      } else {
+        // Landed: dim small dot at the spawn location
+        L.circleMarker(ll, { radius: 4, color: "#2266aa", fillColor: "#2266aa", fillOpacity: 0.5, weight: 1 }).addTo(droneLayer);
+      }
     }
 
     // Combat VFX (ported from game mode flash types: ad_explosion, drone_clash + classic kill/breach)
@@ -1142,7 +1184,7 @@ export default function SwarmInterception() {
               boxShadow: "0 0 20px rgba(255,102,136,0.35)",
               animation: "gameModePulse 2.4s ease-in-out infinite",
             }}>
-              <div style={{ fontSize: 16 }}>&#9658; Game Mode</div>
+              <div style={{ fontSize: 16 }}>Game Mode</div>
               <div style={{ fontSize: 9, color: "#ffaabb", marginTop: 4, fontWeight: 500, letterSpacing: 0.5, textTransform: "none" }}>1v1 multiplayer / vs bot</div>
             </Link>
 
@@ -1334,70 +1376,80 @@ export default function SwarmInterception() {
 
                   <h3 style={{ fontSize: 12, color: "#ff6666", margin: "16px 0 8px", textTransform: "uppercase", letterSpacing: 1 }}>Attack Drones</h3>
                   {DRONE_DB.attack.map((d) => (
-                    <div key={d.key} style={{ background: "#1a1a24", border: "1px solid #2a2a35", borderRadius: 6, padding: 12, marginBottom: 6 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                        <span style={{ fontWeight: 600, fontSize: 12, color: "#ff6666" }}>{d.name}</span>
-                        <span style={{ fontSize: 10, color: "#666" }}>{d.country}</span>
+                    <div key={d.key} style={{ background: "#1a1a24", border: "1px solid #2a2a35", borderRadius: 6, padding: 12, marginBottom: 6, display: "flex", gap: 12 }}>
+                      {/* Sci-fi sketch column - shows the unit's silhouette */}
+                      <div style={{ flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: UNIT_SKETCHES.attack[d.key] || `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="20" fill="#cc3333" stroke="#fff" stroke-width="2"/></svg>` }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                          <span style={{ fontWeight: 600, fontSize: 12, color: "#ff6666" }}>{d.name}</span>
+                          <span style={{ fontSize: 10, color: "#666" }}>{d.country}</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 12, marginBottom: 6, fontSize: 10, flexWrap: "wrap" }}>
+                          <span style={{ color: "#888" }}>Speed: <span style={{ color: "#e0e0e0" }}>{d.speed} km/h</span></span>
+                          <span style={{ color: "#888" }}>Cost: <span style={{ color: "#ff9800" }}>${formatUSD(d.cost)}</span></span>
+                          <span style={{ color: "#888" }}>RCS: <span style={{ color: "#e0e0e0" }}>{d.rcs} m2</span></span>
+                          <span style={{ color: "#888" }}>Threat: <span style={{ color: d.threat === "expensive" ? "#ff3333" : d.threat === "medium" ? "#ff9800" : "#4caf50" }}>{d.threat}</span></span>
+                        </div>
+                        <div style={{ fontSize: 10, color: "#555", lineHeight: 1.4 }}>{d.desc}</div>
                       </div>
-                      <div style={{ display: "flex", gap: 12, marginBottom: 6, fontSize: 10 }}>
-                        <span style={{ color: "#888" }}>Speed: <span style={{ color: "#e0e0e0" }}>{d.speed} km/h</span></span>
-                        <span style={{ color: "#888" }}>Cost: <span style={{ color: "#ff9800" }}>${formatUSD(d.cost)}</span></span>
-                        <span style={{ color: "#888" }}>RCS: <span style={{ color: "#e0e0e0" }}>{d.rcs} m2</span></span>
-                        <span style={{ color: "#888" }}>Threat: <span style={{ color: d.threat === "expensive" ? "#ff3333" : d.threat === "medium" ? "#ff9800" : "#4caf50" }}>{d.threat}</span></span>
-                      </div>
-                      <div style={{ fontSize: 10, color: "#555", lineHeight: 1.4 }}>{d.desc}</div>
                     </div>
                   ))}
 
                   <h3 style={{ fontSize: 12, color: "#4a9eff", margin: "16px 0 8px", textTransform: "uppercase", letterSpacing: 1 }}>Interceptor Drones</h3>
                   {DRONE_DB.interceptor.map((d) => (
-                    <div key={d.key} style={{ background: "#1a1a24", border: `1px solid ${d.fictional ? "#333300" : "#2a2a35"}`, borderRadius: 6, padding: 12, marginBottom: 6 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                        <span style={{ fontWeight: 600, fontSize: 12, color: "#4a9eff" }}>
-                          {d.name} {d.fictional && <span style={{ fontSize: 9, color: "#aa8800", fontWeight: 400 }}>* GAME UNIT</span>}
-                        </span>
-                        <span style={{ fontSize: 10, color: "#666" }}>{d.country}</span>
+                    <div key={d.key} style={{ background: "#1a1a24", border: `1px solid ${d.fictional ? "#333300" : "#2a2a35"}`, borderRadius: 6, padding: 12, marginBottom: 6, display: "flex", gap: 12 }}>
+                      <div style={{ flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: UNIT_SKETCHES.interceptor[d.key] || `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="22" fill="#4a9eff" stroke="#fff" stroke-width="2.5"/></svg>` }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                          <span style={{ fontWeight: 600, fontSize: 12, color: "#4a9eff" }}>
+                            {d.name} {d.fictional && <span style={{ fontSize: 9, color: "#aa8800", fontWeight: 400 }}>* GAME UNIT</span>}
+                          </span>
+                          <span style={{ fontSize: 10, color: "#666" }}>{d.country}</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 12, marginBottom: 6, fontSize: 10, flexWrap: "wrap" }}>
+                          <span style={{ color: "#888" }}>Speed: <span style={{ color: "#e0e0e0" }}>{d.speed} km/h</span></span>
+                          <span style={{ color: "#888" }}>Cost: <span style={{ color: "#ff9800" }}>${formatUSD(d.cost)}</span></span>
+                          <span style={{ color: "#888" }}>Type: <span style={{ color: d.destroyOnKill ? "#ff5555" : "#4caf50" }}>{d.destroyOnKill ? "Kamikaze" : "Reusable"}</span></span>
+                          {!d.destroyOnKill && <span style={{ color: "#888" }}>Survival: <span style={{ color: "#4caf50" }}>{((d.survivalRate || 0) * 100).toFixed(0)}%</span></span>}
+                        </div>
+                        <div style={{ fontSize: 10, color: "#555", lineHeight: 1.4 }}>{d.desc}</div>
                       </div>
-                      <div style={{ display: "flex", gap: 12, marginBottom: 6, fontSize: 10, flexWrap: "wrap" }}>
-                        <span style={{ color: "#888" }}>Speed: <span style={{ color: "#e0e0e0" }}>{d.speed} km/h</span></span>
-                        <span style={{ color: "#888" }}>Cost: <span style={{ color: "#ff9800" }}>${formatUSD(d.cost)}</span></span>
-                        <span style={{ color: "#888" }}>Type: <span style={{ color: d.destroyOnKill ? "#ff5555" : "#4caf50" }}>{d.destroyOnKill ? "Kamikaze" : "Reusable"}</span></span>
-                        {!d.destroyOnKill && <span style={{ color: "#888" }}>Survival: <span style={{ color: "#4caf50" }}>{((d.survivalRate || 0) * 100).toFixed(0)}%</span></span>}
-                      </div>
-                      <div style={{ fontSize: 10, color: "#555", lineHeight: 1.4 }}>{d.desc}</div>
                     </div>
                   ))}
 
                   <h3 style={{ fontSize: 12, color: "#22aa22", margin: "16px 0 8px", textTransform: "uppercase", letterSpacing: 1 }}>Ground Air Defense Systems</h3>
                   {AD_SYSTEMS.map((s) => (
-                    <div key={s.key} style={{ background: "#1a1a24", border: "1px solid #2a2a35", borderRadius: 6, padding: 12, marginBottom: 6 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                        <span style={{ fontWeight: 600, fontSize: 12, color: s.color }}>{s.name}</span>
-                        <span style={{ fontSize: 10, color: "#666" }}>{s.country} - {s.type} range</span>
-                      </div>
-                      <div style={{ display: "flex", gap: 8, marginBottom: 6, fontSize: 10, flexWrap: "wrap" }}>
-                        <span style={{ color: "#888" }}>Range: <span style={{ color: "#e0e0e0" }}>{s.range}m</span></span>
-                        <span style={{ color: "#888" }}>Ammo: <span style={{ color: "#e0e0e0" }}>{s.missiles}</span></span>
-                        <span style={{ color: "#888" }}>Rate: <span style={{ color: "#e0e0e0" }}>{(60 / s.engageRate).toFixed(0)}/min</span></span>
-                        <span style={{ color: "#888" }}>Pk: <span style={{ color: "#4caf50" }}>{(s.pk * 100).toFixed(0)}%</span></span>
-                        <span style={{ color: "#888" }}>Cost: <span style={{ color: "#ff9800" }}>${formatUSD(s.cost)}</span></span>
-                        <span style={{ color: "#888" }}>Shot: <span style={{ color: "#ff9800" }}>${formatUSD(s.missileCost)}</span></span>
-                        <span style={{ color: "#888" }}>Min RCS: <span style={{ color: "#e0e0e0" }}>{s.rcsThreshold} m2</span></span>
-                      </div>
-                      {/* Range bar visual */}
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                        <span style={{ fontSize: 9, color: "#555", width: 35 }}>Range</span>
-                        <div style={{ flex: 1, background: "#0a0a0f", borderRadius: 3, height: 6 }}>
-                          <div style={{ width: `${Math.min(100, (s.range / 5000) * 100)}%`, height: "100%", background: s.color, borderRadius: 3, opacity: 0.7 }} />
+                    <div key={s.key} style={{ background: "#1a1a24", border: "1px solid #2a2a35", borderRadius: 6, padding: 12, marginBottom: 6, display: "flex", gap: 12 }}>
+                      <div style={{ flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: UNIT_SKETCHES.ad[s.key] || `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="22" fill="${s.color}" stroke="#fff" stroke-width="2.5"/></svg>` }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                          <span style={{ fontWeight: 600, fontSize: 12, color: s.color }}>{s.name}</span>
+                          <span style={{ fontSize: 10, color: "#666" }}>{s.country} - {s.type} range</span>
                         </div>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                        <span style={{ fontSize: 9, color: "#555", width: 35 }}>Pk</span>
-                        <div style={{ flex: 1, background: "#0a0a0f", borderRadius: 3, height: 6 }}>
-                          <div style={{ width: `${s.pk * 100}%`, height: "100%", background: "#4caf50", borderRadius: 3, opacity: 0.7 }} />
+                        <div style={{ display: "flex", gap: 8, marginBottom: 6, fontSize: 10, flexWrap: "wrap" }}>
+                          <span style={{ color: "#888" }}>Range: <span style={{ color: "#e0e0e0" }}>{s.range}m</span></span>
+                          <span style={{ color: "#888" }}>Ammo: <span style={{ color: "#e0e0e0" }}>{s.missiles}</span></span>
+                          <span style={{ color: "#888" }}>Rate: <span style={{ color: "#e0e0e0" }}>{(60 / s.engageRate).toFixed(0)}/min</span></span>
+                          <span style={{ color: "#888" }}>Pk: <span style={{ color: "#4caf50" }}>{(s.pk * 100).toFixed(0)}%</span></span>
+                          <span style={{ color: "#888" }}>Cost: <span style={{ color: "#ff9800" }}>${formatUSD(s.cost)}</span></span>
+                          <span style={{ color: "#888" }}>Shot: <span style={{ color: "#ff9800" }}>${formatUSD(s.missileCost)}</span></span>
+                          <span style={{ color: "#888" }}>Min RCS: <span style={{ color: "#e0e0e0" }}>{s.rcsThreshold} m2</span></span>
                         </div>
+                        {/* Range bar visual */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                          <span style={{ fontSize: 9, color: "#555", width: 35 }}>Range</span>
+                          <div style={{ flex: 1, background: "#0a0a0f", borderRadius: 3, height: 6 }}>
+                            <div style={{ width: `${Math.min(100, (s.range / 5000) * 100)}%`, height: "100%", background: s.color, borderRadius: 3, opacity: 0.7 }} />
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                          <span style={{ fontSize: 9, color: "#555", width: 35 }}>Pk</span>
+                          <div style={{ flex: 1, background: "#0a0a0f", borderRadius: 3, height: 6 }}>
+                            <div style={{ width: `${s.pk * 100}%`, height: "100%", background: "#4caf50", borderRadius: 3, opacity: 0.7 }} />
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 10, color: "#555", lineHeight: 1.4, marginTop: 4 }}>{s.desc}</div>
                       </div>
-                      <div style={{ fontSize: 10, color: "#555", lineHeight: 1.4, marginTop: 4 }}>{s.desc}</div>
                     </div>
                   ))}
                 </div>
