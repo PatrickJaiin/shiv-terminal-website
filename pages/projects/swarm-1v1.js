@@ -766,6 +766,7 @@ export default function Swarm1v1() {
         if (b._guestRoundOver) break;
         b.step = msg.step || 0;
         b._lastSnapshotTime = performance.now(); // for dead-reckoning extrapolation in guestTick
+        b._hostBattleSpeed = msg.bs || 1; // host's speed multiplier so guest can scale interpolation
         // Swap: host's "p" → guest's "a", host's "a" → guest's "p"
         // hd/spd carry heading+speed so the guest can extrapolate position between snapshots.
         b.aAttackers = (msg.pAtt || []).map((a) => ({ id: a.id, x: a.x, y: a.y, status: a.s, threat: "cheap", heading: a.hd, speed: a.spd }));
@@ -1885,30 +1886,28 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
         interactive: false,
       }).addTo(layer);
     }
-    // Player resources: triangle (per UX request)
+    // Player resources: triangle (per UX request). Destroyed resources are REMOVED
+    // from the map entirely - no greyed-out placeholder, just gone.
     for (const r of playerResources) {
+      if (!r.alive) continue;
       const res = RESOURCES.find((rr) => rr.key === r.key);
       if (!res) continue;
-      const fill = r.alive ? res.color : "#333";
-      const stroke = r.alive ? "#ffffff" : "#444";
       L.marker(toLL(r.x, r.y), {
         icon: L.divIcon({
           className: "", iconSize: [18, 18], iconAnchor: [9, 9],
-          html: `<svg width="18" height="18" viewBox="0 0 18 18"><polygon points="9,1 17,16 1,16" fill="${fill}" stroke="${stroke}" stroke-width="1.5" stroke-linejoin="round"/></svg>`,
+          html: `<svg width="18" height="18" viewBox="0 0 18 18"><polygon points="9,1 17,16 1,16" fill="${res.color}" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round"/></svg>`,
         }),
         interactive: false,
       }).addTo(layer);
     }
     for (const d of playerInterceptors) L.circleMarker(toLL(d.x, d.y), { radius: 4, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 0.6, weight: 1 }).addTo(layer);
     for (const ad of playerAD) {
+      // Destroyed AD is REMOVED from the map entirely - no greyed-out marker.
+      if (ad.health <= 0) continue;
       const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
       if (!sys) continue;
-      // Range circle
-      if (ad.health > 0) {
-        L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.06, weight: 1.5, opacity: 0.4, dashArray: "6 4", interactive: false }).addTo(layer);
-      }
-      // White-bordered fill (player ownership), size 7 to match new battle layer
-      L.circleMarker(toLL(ad.x, ad.y), { radius: 7, color: ad.health > 0 ? "#ffffff" : "#444", fillColor: ad.health > 0 ? sys.color : "#333", fillOpacity: 0.9, weight: 2.5 }).addTo(layer);
+      L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.06, weight: 1.5, opacity: 0.4, dashArray: "6 4", interactive: false }).addTo(layer);
+      L.circleMarker(toLL(ad.x, ad.y), { radius: 7, color: "#ffffff", fillColor: sys.color, fillOpacity: 0.9, weight: 2.5 }).addTo(layer);
     }
 
     // AI - show full enemy intel: HQ, airspace, resources, AD systems with range, interceptor positions
@@ -1937,30 +1936,26 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
         }),
         interactive: false,
       }).addTo(layer);
-      // Enemy resources: triangle (slightly dimmer)
+      // Enemy resources: triangle. Destroyed resources are REMOVED entirely.
       for (const r of aiSetup.resources) {
+        if (!r.alive) continue;
         const res = RESOURCES.find((rr) => rr.key === r.key);
         if (!res) continue;
-        const fill = r.alive ? res.color : "#333";
-        const stroke = r.alive ? "#ff7777" : "#444";
         L.marker(toLL(r.x, r.y), {
           icon: L.divIcon({
             className: "", iconSize: [16, 16], iconAnchor: [8, 8],
-            html: `<svg width="16" height="16" viewBox="0 0 16 16"><polygon points="8,1 15,14 1,14" fill="${fill}" stroke="${stroke}" stroke-width="1.5" stroke-linejoin="round" opacity="0.8"/></svg>`,
+            html: `<svg width="16" height="16" viewBox="0 0 16 16"><polygon points="8,1 15,14 1,14" fill="${res.color}" stroke="#ff7777" stroke-width="1.5" stroke-linejoin="round" opacity="0.8"/></svg>`,
           }),
           interactive: false,
         }).addTo(layer);
       }
-      // Enemy AD systems with range circles
-      // Use the system's own color for the fill (so player can identify the AD type),
-      // but with a red border to indicate enemy ownership (vs player's white border).
+      // Enemy AD systems with range circles. Destroyed AD is REMOVED entirely.
       for (const ad of (aiSetup.adUnits || [])) {
+        if (ad.health <= 0) continue;
         const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
         if (!sys) continue;
-        if (ad.health > 0) {
-          L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: "#ff5555", fillOpacity: 0.04, weight: 1.5, opacity: 0.45, dashArray: "6 4", interactive: false }).addTo(layer);
-        }
-        L.circleMarker(toLL(ad.x, ad.y), { radius: 7, color: ad.health > 0 ? "#ff3333" : "#444", fillColor: ad.health > 0 ? sys.color : "#333", fillOpacity: 0.9, weight: 2.5 }).addTo(layer);
+        L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: "#ff5555", fillOpacity: 0.04, weight: 1.5, opacity: 0.45, dashArray: "6 4", interactive: false }).addTo(layer);
+        L.circleMarker(toLL(ad.x, ad.y), { radius: 7, color: "#ff3333", fillColor: sys.color, fillOpacity: 0.9, weight: 2.5 }).addTo(layer);
       }
       // Enemy interceptors at base
       for (const i of (aiSetup.interceptors || [])) {
@@ -2000,15 +1995,17 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
       // Center at 16,16 in a 32x32 box. Rotate -90 to start at top.
       return `<svg width="32" height="32" viewBox="0 0 32 32" style="transform:rotate(-90deg)"><circle cx="16" cy="16" r="${r}" fill="none" stroke="${color}" stroke-width="3" stroke-dasharray="${filled} ${empty}" opacity="${ringOpacity}"/></svg>`;
     };
-    // Helper: draw an AD marker with type color, side-indicating border, and pie-chart reload
+    // Helper: draw an AD marker with type color, side-indicating border, and pie-chart reload.
+    // Destroyed AD (health <= 0) is skipped entirely - no greyed-out placeholder on the map.
     const drawAdMarker = (ad, sideColor, labelColor) => {
       const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
       if (!sys) return;
       const alive = ad.health > 0;
+      if (!alive) return;
       // Outer ring: side color (white for player, red for enemy)
-      L.circleMarker(toLL(ad.x, ad.y), { radius: 9, color: alive ? sideColor : "#222", fillColor: alive ? sys.color : "#1a1a1a", fillOpacity: alive ? 0.95 : 0.3, weight: 2.5 }).addTo(bl);
+      L.circleMarker(toLL(ad.x, ad.y), { radius: 9, color: sideColor, fillColor: sys.color, fillOpacity: 0.95, weight: 2.5 }).addTo(bl);
       // Inner crosshair
-      L.circleMarker(toLL(ad.x, ad.y), { radius: 2, color: "#ffffff", fillColor: "#ffffff", fillOpacity: alive ? 1 : 0.3, weight: 0 }).addTo(bl);
+      L.circleMarker(toLL(ad.x, ad.y), { radius: 2, color: "#ffffff", fillColor: "#ffffff", fillOpacity: 1, weight: 0 }).addTo(bl);
       // Reload pie chart: fills clockwise as cooldown progresses. Solid green when ready.
       if (alive && ad.ammo > 0) {
         const cooldown = Math.max(3, Math.round(sys.engageRate * 5));
@@ -2168,6 +2165,12 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
   const serializeBattleSnapshot = useCallback((b) => ({
     type: "combat_snapshot",
     step: b.step,
+    // bs = host's battleSpeed multiplier (1/2/4/8/16). The guest uses this to scale
+    // its dead-reckoning extrapolation so drones/interceptors glide at the same
+    // effective rate the host is simulating them. Without this, at 16x speed the guest
+    // would only interpolate 1/16th of the actual distance between snapshots, making
+    // all movement (especially RTB at high speeds) look jerky and wrong.
+    bs: battleSpeedRef.current || 1,
     // hd = heading (radians), spd = speed. Needed by guest for dead-reckoning extrapolation
     // between snapshots so drones glide smoothly instead of teleporting every 67ms.
     pAtt: b.pAttackers.map((a) => ({ id: a.id, x: Math.round(a.x), y: Math.round(a.y), s: a.status, hd: a.heading, spd: a.speed })),
@@ -2200,10 +2203,18 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
       // Dead-reckoning: extrapolate drone positions between snapshots using heading+speed
       // so they glide smoothly instead of teleporting every ~67ms. When the next snapshot
       // arrives it overwrites everything with authoritative positions.
+      // IMPORTANT: scale by the host's battleSpeed so interpolation keeps up with the
+      // host's effective step rate. At 16x speed, the host advances 16 sim steps per
+      // render frame; without the scale factor, the guest would only show 1/16th of
+      // the actual movement between snapshots, making units (especially RTBing
+      // interceptors) appear to crawl compared to attackers that jump on every snapshot.
       if (b._lastSnapshotTime) {
         const elapsed = performance.now() - b._lastSnapshotTime;
-        // frames = how many sim steps elapsed since last snapshot (host runs ~60 steps/sec)
-        const frames = Math.min(elapsed / 16.67, 6); // cap at ~6 frames to avoid overshoot
+        const hostSpeed = b._hostBattleSpeed || 1;
+        // frames = how many HOST sim steps elapsed since last snapshot. Cap at 6x the
+        // host speed so we never extrapolate more than ~100ms worth of movement even
+        // when snapshots are delayed (prevents overshoot-then-snapback on packet loss).
+        const frames = Math.min((elapsed / 16.67) * hostSpeed, 6 * hostSpeed);
         for (const list of [b.pAttackers, b.aAttackers, b.pInts, b.aInts]) {
           for (const d of list) {
             if (d.status !== "active" || d.heading == null || !d.speed) continue;
