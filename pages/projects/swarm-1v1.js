@@ -1266,13 +1266,15 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
         broadcast({ type: "remove_ad", x: ad.x, y: ad.y });
       }
     } else if (placingWhat === "delete") {
-      // Delete during prep: full refund, find closest
+      // Delete during prep: FULL refund (100% of cost), find closest
       let bestD = 200, bestType = null, bestIdx = -1;
       playerResources.forEach((r, i) => { if (r.alive) { const d2 = dist({ x, y }, r); if (d2 < bestD) { bestD = d2; bestType = "res"; bestIdx = i; } } });
       playerInterceptors.forEach((d, i) => { const d2 = dist({ x, y }, d); if (d2 < bestD) { bestD = d2; bestType = "int"; bestIdx = i; } });
       playerAD.forEach((ad, i) => { if (ad.health > 0) { const d2 = dist({ x, y }, ad); if (d2 < bestD) { bestD = d2; bestType = "ad"; bestIdx = i; } } });
       if (bestType === "res") {
         const r = playerResources[bestIdx];
+        const res = RESOURCES.find((rr) => rr.key === r.key);
+        setPlayerBudget((p) => p + (res?.cost || 0));
         if (r.depositId !== undefined) {
           setResourceDeposits((prev) => prev.map((d) => d.id === r.depositId ? { ...d, claimed: false } : d));
         }
@@ -1280,10 +1282,14 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
         broadcast({ type: "remove_resource", x: r.x, y: r.y, depositId: r.depositId });
       } else if (bestType === "int") {
         const d = playerInterceptors[bestIdx];
+        const def = DEFENSE_UNITS.find((dd) => dd.key === d.key);
+        setPlayerBudget((p) => p + (def?.cost || 0) * (d.count || 0));
         setPlayerInterceptors((prev) => prev.filter((_, i) => i !== bestIdx));
         broadcast({ type: "remove_interceptor_group", x: d.x, y: d.y });
       } else if (bestType === "ad") {
         const ad = playerAD[bestIdx];
+        const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
+        setPlayerBudget((p) => p + (sys?.cost || 0));
         setPlayerAD((prev) => prev.filter((_, i) => i !== bestIdx));
         broadcast({ type: "remove_ad", x: ad.x, y: ad.y });
       }
