@@ -32,10 +32,17 @@ const AD_SYSTEMS_1V1 = [
   { key: "pantsir", name: "Pantsir-S1", cost: 15000000, range: 1500, missiles: 12, missileCost: 60000, pk: 0.65, engageRate: 3, color: "#cc8800" },
 ];
 
+// Resource economy follows niche-distinction principle:
+// Solar: cheap, low risk, fast payback (3-round ROI), best for early eco
+// Arms: mid-tier, gives free interceptor reinforcements (tempo)
+// Oil: high cost, high income (5-round ROI), highest absolute return per slot
+// Hydro: very high cost, very high income, scarce nodes (only 4 per map)
+//        ROI ~6 rounds. Best return-per-slot but biggest single-point-of-failure.
 const RESOURCES = [
-  { key: "oil", name: "Oil Refinery", cost: 8000000, income: 3000000, breachDmg: 15000000, color: "#cc8800", icon: "O" },
-  { key: "solar", name: "Solar Farm", cost: 3000000, income: 500000, breachDmg: 5000000, color: "#44bb44", icon: "S" },
-  { key: "arms", name: "Arms Factory", cost: 6000000, income: 1000000, breachDmg: 10000000, color: "#8888cc", icon: "A" },
+  { key: "solar", name: "Solar Farm", cost: 2000000, income: 600000, breachDmg: 4000000, color: "#44bb44", icon: "S" },
+  { key: "arms", name: "Arms Factory", cost: 5000000, income: 900000, breachDmg: 9000000, color: "#8888cc", icon: "A" },
+  { key: "oil", name: "Oil Refinery", cost: 8000000, income: 2200000, breachDmg: 16000000, color: "#cc8800", icon: "O" },
+  { key: "hydro", name: "Hydropower Plant", cost: 14000000, income: 3600000, breachDmg: 22000000, color: "#44aadd", icon: "H" },
 ];
 
 const AI_NAMES = ["SKYNET-7", "AEGIS_AI", "IRON_WALL", "RED_FURY", "SHADOW_NET", "VANGUARD", "CERBERUS", "TITAN_DEF"];
@@ -54,20 +61,29 @@ function simToLatLng(x, y, b) { return [b.south + (y / ARENA) * (b.north - b.sou
 function latLngToSim(lat, lng, b) { return [((lng - b.west) / (b.east - b.west)) * ARENA, ((lat - b.south) / (b.north - b.south)) * ARENA]; }
 
 // Generate random resource deposit spawn points across the map.
-// Each map gets ~6 of each type spread across the arena.
-// Player can only place refineries/farms/factories on matching deposits.
+// Modern game design: more nodes than slots forces opportunity cost decisions.
+// Each map gets 10 each of solar/arms/oil + 4 hydropower (scarce, biased to map edges as "rivers").
 function generateResourceDeposits() {
   const deposits = [];
-  const types = ["oil", "solar", "arms"];
-  const PER_TYPE = 6;
   let id = 0;
-  for (const key of types) {
-    for (let i = 0; i < PER_TYPE; i++) {
-      // Spread across the whole map, avoid edges
-      const x = 800 + Math.random() * (ARENA - 1600);
-      const y = 800 + Math.random() * (ARENA - 1600);
+  // Common resources: spread across whole map
+  for (const key of ["solar", "arms", "oil"]) {
+    for (let i = 0; i < 10; i++) {
+      const x = 700 + Math.random() * (ARENA - 1400);
+      const y = 700 + Math.random() * (ARENA - 1400);
       deposits.push({ id: id++, key, x, y, claimed: false });
     }
+  }
+  // Hydro: scarce, placed near map edges (representing rivers/coastlines)
+  for (let i = 0; i < 4; i++) {
+    // Pick an edge bias: top, right, bottom, or left band
+    const edge = i % 4;
+    let x, y;
+    if (edge === 0) { x = 600 + Math.random() * (ARENA - 1200); y = 500 + Math.random() * 800; }
+    else if (edge === 1) { x = ARENA - 500 - Math.random() * 800; y = 600 + Math.random() * (ARENA - 1200); }
+    else if (edge === 2) { x = 600 + Math.random() * (ARENA - 1200); y = ARENA - 500 - Math.random() * 800; }
+    else { x = 500 + Math.random() * 800; y = 600 + Math.random() * (ARENA - 1200); }
+    deposits.push({ id: id++, key: "hydro", x, y, claimed: false });
   }
   return deposits;
 }
@@ -191,6 +207,7 @@ export default function Swarm1v1() {
   const createRetryTimerRef = useRef(null); // pending retry setTimeout id (so cancel can clear it)
   const gameModeRef = useRef("bot"); // mirror gameMode for use in stable callbacks
   const startGuestBattleLoopRef = useRef(null); // forward ref to break circular dep with handleNetMessage
+  const launchRoundRef = useRef(null); // forward ref so timer effect can call launchRound
   // Phase 4 matchmaking
   const mmPollRef = useRef(null); // setInterval id for polling
   const mmDeadlineRef = useRef(null); // overall timeout deadline
@@ -204,6 +221,10 @@ export default function Swarm1v1() {
   const [gameOver, setGameOver] = useState(null);
   const [battleActive, setBattleActive] = useState(false);
   const [battleDrones, setBattleDrones] = useState({ playerAttackers: [], aiAttackers: [], playerInts: [], aiInts: [] });
+  // Per-turn timer: 60s prep window between rounds. Auto-launches on 0 or both ready.
+  const TURN_TIMER_SECONDS = 60;
+  const [turnTimer, setTurnTimer] = useState(TURN_TIMER_SECONDS);
+  const turnTimerRef = useRef(null);
 
   // Map
   const mapRef = useRef(null);
@@ -258,9 +279,9 @@ export default function Swarm1v1() {
         // Generate match: deposits first, then AI setup that claims nearby deposits
         const deposits = generateResourceDeposits();
         const newAi = generateAISetup();
-        // AI auto-claims one deposit of each type closest to its HQ
+        // AI auto-claims one deposit of each type closest to its HQ (including hydro)
         const aiResources = [];
-        for (const key of ["oil", "solar", "arms"]) {
+        for (const key of ["solar", "arms", "oil", "hydro"]) {
           const candidates = deposits
             .filter((d) => d.key === key && !d.claimed)
             .map((d) => ({ d, dist: Math.hypot(d.x - newAi.hqX, d.y - newAi.hqY) }))
@@ -1063,19 +1084,16 @@ export default function Swarm1v1() {
       const isHighlighted = placingWhat === dep.key;
       const inPlayerAirspace = playerHQ && dist(dep, playerHQ) <= playerAirspace;
       const inAiAirspace = aiSetup && dist(dep, { x: aiSetup.hqX, y: aiSetup.hqY }) <= aiSetup.airspace;
-      // Draw deposit marker - bright if highlighted matching type, dim otherwise
-      L.circleMarker(toLL(dep.x, dep.y), {
-        radius: isHighlighted ? 9 : 5,
-        color: isHighlighted ? "#ffffff" : res.color,
-        fillColor: res.color,
-        fillOpacity: isHighlighted ? 0.7 : 0.25,
-        weight: isHighlighted ? 2 : 1,
-        opacity: isHighlighted ? 1 : 0.55,
-      }).addTo(layer);
-      // Icon label
+      // Draw deposit as triangle outline (matches the resource shape it'll become)
+      const sz = isHighlighted ? 18 : 14;
+      const halfsz = sz / 2;
+      const op = isHighlighted ? 1 : 0.5;
+      const fillOp = isHighlighted ? 0.5 : 0.15;
       L.marker(toLL(dep.x, dep.y), {
-        icon: L.divIcon({ className: "", iconSize: [16, 16], iconAnchor: [8, 8],
-          html: `<div style="color:${isHighlighted ? '#fff' : res.color};font-size:${isHighlighted ? 12 : 9}px;font-weight:800;font-family:monospace;text-align:center;line-height:16px;text-shadow:0 0 4px #000;opacity:${isHighlighted ? 1 : 0.7}">${res.icon}</div>` }),
+        icon: L.divIcon({
+          className: "", iconSize: [sz, sz], iconAnchor: [halfsz, halfsz],
+          html: `<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}"><polygon points="${halfsz},1 ${sz - 1},${sz - 1} 1,${sz - 1}" fill="${res.color}" fill-opacity="${fillOp}" stroke="${isHighlighted ? '#ffffff' : res.color}" stroke-width="${isHighlighted ? 2 : 1}" stroke-opacity="${op}" stroke-linejoin="round"/><text x="${halfsz}" y="${sz - 3}" text-anchor="middle" font-size="${isHighlighted ? 10 : 8}" font-weight="800" font-family="monospace" fill="${isHighlighted ? '#fff' : res.color}" opacity="${op}">${res.icon}</text></svg>`,
+        }),
         interactive: false,
       }).addTo(layer);
     }
@@ -1117,11 +1135,28 @@ export default function Swarm1v1() {
           L.circleMarker(bll, { radius: 4, color: "#888", fillColor: "#555", fillOpacity: 0.9, weight: 2 }).addTo(layer);
         }
       }
-      L.circleMarker(toLL(playerHQ.x, playerHQ.y), { radius: 8, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 1, weight: 2 }).addTo(layer);
+      // HQ: bigger square (per UX request)
+      L.marker(toLL(playerHQ.x, playerHQ.y), {
+        icon: L.divIcon({
+          className: "", iconSize: [22, 22], iconAnchor: [11, 11],
+          html: `<div style="width:22px;height:22px;background:#4a9eff;border:2.5px solid #fff;box-sizing:border-box;box-shadow:0 0 6px rgba(74,158,255,0.7)"></div>`,
+        }),
+        interactive: false,
+      }).addTo(layer);
     }
+    // Player resources: triangle (per UX request)
     for (const r of playerResources) {
       const res = RESOURCES.find((rr) => rr.key === r.key);
-      if (res) L.circleMarker(toLL(r.x, r.y), { radius: 6, color: r.alive ? res.color : "#444", fillColor: r.alive ? res.color : "#333", fillOpacity: 0.8, weight: 2 }).addTo(layer);
+      if (!res) continue;
+      const fill = r.alive ? res.color : "#333";
+      const stroke = r.alive ? "#ffffff" : "#444";
+      L.marker(toLL(r.x, r.y), {
+        icon: L.divIcon({
+          className: "", iconSize: [18, 18], iconAnchor: [9, 9],
+          html: `<svg width="18" height="18" viewBox="0 0 18 18"><polygon points="9,1 17,16 1,16" fill="${fill}" stroke="${stroke}" stroke-width="1.5" stroke-linejoin="round"/></svg>`,
+        }),
+        interactive: false,
+      }).addTo(layer);
     }
     for (const d of playerInterceptors) L.circleMarker(toLL(d.x, d.y), { radius: 4, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 0.6, weight: 1 }).addTo(layer);
     for (const ad of playerAD) {
@@ -1151,12 +1186,27 @@ export default function Swarm1v1() {
           L.polyline(pts, { color: "#ff5555", weight: 1, opacity: 0.4, dashArray: "10 6", interactive: false }).addTo(layer);
         }
       }
-      // HQ
-      L.circleMarker(toLL(aiSetup.hqX, aiSetup.hqY), { radius: 8, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 1, weight: 2 }).addTo(layer);
-      // Resources
+      // Enemy HQ: bigger square
+      L.marker(toLL(aiSetup.hqX, aiSetup.hqY), {
+        icon: L.divIcon({
+          className: "", iconSize: [22, 22], iconAnchor: [11, 11],
+          html: `<div style="width:22px;height:22px;background:#ff5555;border:2.5px solid #fff;box-sizing:border-box;box-shadow:0 0 6px rgba(255,85,85,0.7)"></div>`,
+        }),
+        interactive: false,
+      }).addTo(layer);
+      // Enemy resources: triangle (slightly dimmer)
       for (const r of aiSetup.resources) {
         const res = RESOURCES.find((rr) => rr.key === r.key);
-        if (res) L.circleMarker(toLL(r.x, r.y), { radius: 5, color: r.alive ? res.color : "#444", fillColor: r.alive ? res.color : "#333", fillOpacity: 0.6, weight: 1 }).addTo(layer);
+        if (!res) continue;
+        const fill = r.alive ? res.color : "#333";
+        const stroke = r.alive ? "#ff7777" : "#444";
+        L.marker(toLL(r.x, r.y), {
+          icon: L.divIcon({
+            className: "", iconSize: [16, 16], iconAnchor: [8, 8],
+            html: `<svg width="16" height="16" viewBox="0 0 16 16"><polygon points="8,1 15,14 1,14" fill="${fill}" stroke="${stroke}" stroke-width="1.5" stroke-linejoin="round" opacity="0.8"/></svg>`,
+          }),
+          interactive: false,
+        }).addTo(layer);
       }
       // Enemy AD systems with range circles (red-tinted)
       for (const ad of (aiSetup.adUnits || [])) {
@@ -1889,7 +1939,33 @@ export default function Swarm1v1() {
     frameRef.current = requestAnimationFrame(tick);
   }, [playerHQ, aiSetup, currentRound, playerResources, playerInterceptors, playerAD, playerAttack, playerTrajectory, playerBudget, aiBudget, gameOver, battleActive, username, opponentName, attackPriority, defPosture, playerAirspace, gameMode, broadcast, serializeBattleSnapshot]);
 
+  // Wire forward ref so the per-turn timer effect can call into us without a TDZ issue
+  launchRoundRef.current = launchRound;
+
   useEffect(() => () => { if (frameRef.current) cancelAnimationFrame(frameRef.current); }, []);
+
+  // ── Per-turn timer: counts down between rounds, auto-launches on 0 ──
+  // Active only when in COMBAT phase, not battling, no game over.
+  // Guest doesn't auto-launch (host controls round flow); guest's timer is informational.
+  useEffect(() => {
+    if (turnTimerRef.current) { clearInterval(turnTimerRef.current); turnTimerRef.current = null; }
+    if (phase !== PHASE.COMBAT || battleActive || gameOver) return;
+    setTurnTimer(TURN_TIMER_SECONDS);
+    turnTimerRef.current = setInterval(() => {
+      setTurnTimer((t) => {
+        if (t <= 1) {
+          // Time's up - auto-launch (host or bot only; guest waits for host)
+          if (turnTimerRef.current) { clearInterval(turnTimerRef.current); turnTimerRef.current = null; }
+          if (gameModeRef.current !== "guest" && launchRoundRef.current) {
+            try { launchRoundRef.current(); } catch {}
+          }
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+    return () => { if (turnTimerRef.current) { clearInterval(turnTimerRef.current); turnTimerRef.current = null; } };
+  }, [phase, battleActive, gameOver, currentRound]);
 
   const inputStyle = { padding: "8px 12px", background: "#1a1a24", border: "1px solid #2a2a35", color: "#e0e0e0", borderRadius: 4, fontSize: 13 };
   const btnStyle = { padding: "10px 20px", borderRadius: 6, fontSize: 14, fontWeight: 600, cursor: "pointer", border: "2px solid" };
@@ -2251,8 +2327,17 @@ export default function Swarm1v1() {
 
               {phase === PHASE.COMBAT && (
                 <>
-                  <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "#ff6688", marginBottom: 8 }}>
-                    {gameOver ? "GAME OVER" : battleActive ? "BATTLE IN PROGRESS" : `Round ${currentRound + 1}`}
+                  <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "#ff6688", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span>{gameOver ? "GAME OVER" : battleActive ? "BATTLE IN PROGRESS" : `Round ${currentRound + 1}`}</span>
+                    {!gameOver && !battleActive && (
+                      <span style={{
+                        fontSize: 14, fontWeight: 800, fontFamily: "monospace",
+                        color: turnTimer <= 10 ? "#ff5555" : turnTimer <= 20 ? "#ff9800" : "#4caf50",
+                        textShadow: turnTimer <= 10 ? "0 0 8px rgba(255,85,85,0.6)" : "none",
+                      }}>
+                        {Math.floor(turnTimer / 60)}:{String(turnTimer % 60).padStart(2, "0")}
+                      </span>
+                    )}
                   </div>
 
                   <div style={{ fontSize: 10, color: "#888", marginBottom: 2 }}>Interceptors: {playerInterceptors.reduce((s, d) => s + d.count, 0)} | AD: {playerAD.filter((a) => a.health > 0).length}</div>
