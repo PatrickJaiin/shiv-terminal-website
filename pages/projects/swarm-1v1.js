@@ -57,6 +57,30 @@ const RESOURCES = [
   { key: "hydro", name: "Hydropower Plant", cost: 14000000, income: 3600000, breachDmg: 22000000, color: "#44aadd", icon: "H" },
 ];
 
+// Sci-fi unit sketches for the inspector preview popup. Each is a compact 60x60
+// inline SVG silhouette evoking the actual hardware (modeled on real military systems
+// for AD, generic sci-fi for resources/interceptors). Strokes are white for contrast
+// against the dark popup background; fills are the unit's brand color so they read
+// at a glance even when shrunk.
+const UNIT_SKETCHES = {
+  ad: {
+    iron_dome: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="6" y="42" width="48" height="6" fill="#44bbff" stroke="#fff" stroke-width="1.5"/><circle cx="14" cy="51" r="3" fill="#222" stroke="#fff" stroke-width="1"/><circle cx="46" cy="51" r="3" fill="#222" stroke="#fff" stroke-width="1"/><rect x="9" y="14" width="9" height="28" fill="#44bbff" stroke="#fff" stroke-width="1.5"/><rect x="20" y="14" width="9" height="28" fill="#44bbff" stroke="#fff" stroke-width="1.5"/><rect x="31" y="14" width="9" height="28" fill="#44bbff" stroke="#fff" stroke-width="1.5"/><rect x="42" y="14" width="9" height="28" fill="#44bbff" stroke="#fff" stroke-width="1.5"/><line x1="13" y1="14" x2="13" y2="9" stroke="#fff" stroke-width="1"/><line x1="24" y1="14" x2="24" y2="9" stroke="#fff" stroke-width="1"/><line x1="35" y1="14" x2="35" y2="9" stroke="#fff" stroke-width="1"/><line x1="46" y1="14" x2="46" y2="9" stroke="#fff" stroke-width="1"/></svg>`,
+    gepard: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="4" y="46" width="52" height="6" fill="#222" stroke="#fff" stroke-width="1"/><rect x="6" y="32" width="48" height="14" fill="#88aa44" stroke="#fff" stroke-width="1.5"/><rect x="20" y="22" width="20" height="11" fill="#88aa44" stroke="#fff" stroke-width="1.5"/><rect x="22" y="6" width="3" height="18" fill="#88aa44" stroke="#fff" stroke-width="1"/><rect x="35" y="6" width="3" height="18" fill="#88aa44" stroke="#fff" stroke-width="1"/><circle cx="30" cy="27" r="2" fill="#fff"/></svg>`,
+    nasams: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="6" y="42" width="48" height="8" fill="#4488ff" stroke="#fff" stroke-width="1.5"/><circle cx="14" cy="52" r="3" fill="#222" stroke="#fff" stroke-width="1"/><circle cx="30" cy="52" r="3" fill="#222" stroke="#fff" stroke-width="1"/><circle cx="46" cy="52" r="3" fill="#222" stroke="#fff" stroke-width="1"/><g transform="rotate(-25 30 30)"><rect x="10" y="20" width="10" height="22" fill="#4488ff" stroke="#fff" stroke-width="1.2"/><rect x="22" y="20" width="10" height="22" fill="#4488ff" stroke="#fff" stroke-width="1.2"/><rect x="34" y="20" width="10" height="22" fill="#4488ff" stroke="#fff" stroke-width="1.2"/></g></svg>`,
+    pantsir: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="4" y="46" width="52" height="6" fill="#222" stroke="#fff" stroke-width="1"/><rect x="4" y="34" width="52" height="12" fill="#cc8800" stroke="#fff" stroke-width="1.5"/><rect x="14" y="22" width="32" height="12" fill="#cc8800" stroke="#fff" stroke-width="1.5"/><rect x="16" y="14" width="3" height="10" fill="#cc8800" stroke="#fff" stroke-width="0.8"/><rect x="20" y="14" width="3" height="10" fill="#cc8800" stroke="#fff" stroke-width="0.8"/><rect x="24" y="14" width="3" height="10" fill="#cc8800" stroke="#fff" stroke-width="0.8"/><rect x="33" y="14" width="3" height="10" fill="#cc8800" stroke="#fff" stroke-width="0.8"/><rect x="37" y="14" width="3" height="10" fill="#cc8800" stroke="#fff" stroke-width="0.8"/><rect x="41" y="14" width="3" height="10" fill="#cc8800" stroke="#fff" stroke-width="0.8"/><circle cx="30" cy="10" r="3" fill="none" stroke="#fff" stroke-width="1.2"/><line x1="30" y1="13" x2="30" y2="22" stroke="#fff" stroke-width="1"/></svg>`,
+  },
+  resource: {
+    solar: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="6" y="14" width="48" height="32" fill="#44bb44" stroke="#fff" stroke-width="2"/><line x1="6" y1="22" x2="54" y2="22" stroke="#fff" stroke-width="1"/><line x1="6" y1="30" x2="54" y2="30" stroke="#fff" stroke-width="1"/><line x1="6" y1="38" x2="54" y2="38" stroke="#fff" stroke-width="1"/><line x1="22" y1="14" x2="22" y2="46" stroke="#fff" stroke-width="1"/><line x1="38" y1="14" x2="38" y2="46" stroke="#fff" stroke-width="1"/><rect x="26" y="46" width="8" height="8" fill="#44bb44" stroke="#fff" stroke-width="1"/></svg>`,
+    arms: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="6" y="32" width="48" height="20" fill="#8888cc" stroke="#fff" stroke-width="1.5"/><rect x="40" y="14" width="8" height="22" fill="#8888cc" stroke="#fff" stroke-width="1.5"/><path d="M 6 32 L 18 22 L 30 32 Z" fill="#8888cc" stroke="#fff" stroke-width="1.5"/><rect x="12" y="38" width="6" height="8" fill="#1a1a24" stroke="#fff" stroke-width="0.8"/><rect x="22" y="38" width="6" height="8" fill="#1a1a24" stroke="#fff" stroke-width="0.8"/><rect x="32" y="38" width="6" height="8" fill="#1a1a24" stroke="#fff" stroke-width="0.8"/><circle cx="44" cy="10" r="2" fill="#fff" opacity="0.6"/><circle cx="42" cy="6" r="1.5" fill="#fff" opacity="0.4"/></svg>`,
+    oil: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="20" y="8" width="20" height="40" fill="#cc8800" stroke="#fff" stroke-width="1.5"/><rect x="14" y="20" width="32" height="4" fill="#cc8800" stroke="#fff" stroke-width="1"/><rect x="14" y="32" width="32" height="4" fill="#cc8800" stroke="#fff" stroke-width="1"/><rect x="6" y="42" width="20" height="10" fill="#cc8800" stroke="#fff" stroke-width="1.5"/><rect x="34" y="42" width="20" height="10" fill="#cc8800" stroke="#fff" stroke-width="1.5"/><line x1="30" y1="8" x2="30" y2="4" stroke="#fff" stroke-width="1.5"/><circle cx="30" cy="4" r="1.5" fill="#ff8800"/></svg>`,
+    hydro: `<svg width="60" height="60" viewBox="0 0 60 60"><path d="M 6 16 L 6 50 L 54 50 L 54 16 L 50 12 L 10 12 Z" fill="#44aadd" stroke="#fff" stroke-width="1.5"/><rect x="22" y="22" width="6" height="20" fill="#1a1a24" stroke="#fff" stroke-width="1"/><rect x="32" y="22" width="6" height="20" fill="#1a1a24" stroke="#fff" stroke-width="1"/><line x1="6" y1="22" x2="54" y2="22" stroke="#fff" stroke-width="0.8" opacity="0.5"/><line x1="6" y1="32" x2="54" y2="32" stroke="#fff" stroke-width="0.8" opacity="0.5"/><line x1="6" y1="42" x2="54" y2="42" stroke="#fff" stroke-width="0.8" opacity="0.5"/><path d="M 25 42 Q 25 46 22 48 M 30 42 Q 30 46 28 48 M 35 42 Q 35 46 33 48" fill="none" stroke="#fff" stroke-width="0.8"/></svg>`,
+  },
+  interceptor: {
+    kamikaze: `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="22" fill="#4a9eff" stroke="#fff" stroke-width="2.5"/><circle cx="30" cy="30" r="6" fill="#fff"/><line x1="30" y1="8" x2="30" y2="18" stroke="#fff" stroke-width="2"/><line x1="30" y1="42" x2="30" y2="52" stroke="#fff" stroke-width="2"/><line x1="8" y1="30" x2="18" y2="30" stroke="#fff" stroke-width="2"/><line x1="42" y1="30" x2="52" y2="30" stroke="#fff" stroke-width="2"/></svg>`,
+    armed: `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="22" fill="#4a9eff" stroke="#fff" stroke-width="2.5"/><polygon points="30,8 44,46 30,38 16,46" fill="#fff" stroke="#fff" stroke-width="1" stroke-linejoin="round"/></svg>`,
+  },
+};
+
 const AI_NAMES = ["SKYNET-7", "AEGIS_AI", "IRON_WALL", "RED_FURY", "SHADOW_NET", "VANGUARD", "CERBERUS", "TITAN_DEF"];
 const STARTING_BUDGET = 30000000;
 const AIRSPACE_BREACH_COST = 30; // per drone entering airspace
@@ -1902,15 +1926,15 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
       }).addTo(layer);
     }
     // Player interceptor groups (placed during setup). Distinct shapes per type:
-    // kamikaze = chevron/dart (one-shot ramming weapon), armed = circle with crosshair
-    // (reusable shooter). Each placed group renders as a single marker showing the count.
+    // kamikaze = filled circle with white border (the classic interceptor symbol),
+    // armed = chevron/dart pointing up (reusable shooter platform with weapon pods).
     for (const d of playerInterceptors) {
       const isKamikaze = d.key === "kamikaze";
       const html = isKamikaze
-        // Chevron/dart pointing up - "rams target"
-        ? `<svg width="20" height="20" viewBox="0 0 20 20"><polygon points="10,2 18,17 10,13 2,17" fill="#4a9eff" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round"/></svg>`
-        // Circle with cross - "armed shooter"
-        : `<svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="none" stroke="#4a9eff" stroke-width="2"/><circle cx="10" cy="10" r="3" fill="#4a9eff"/><line x1="10" y1="2" x2="10" y2="6" stroke="#ffffff" stroke-width="1.5"/><line x1="10" y1="14" x2="10" y2="18" stroke="#ffffff" stroke-width="1.5"/><line x1="2" y1="10" x2="6" y2="10" stroke="#ffffff" stroke-width="1.5"/><line x1="14" y1="10" x2="18" y2="10" stroke="#ffffff" stroke-width="1.5"/></svg>`;
+        // Filled circle - default interceptor look
+        ? `<svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="#4a9eff" stroke="#ffffff" stroke-width="2"/></svg>`
+        // Chevron/dart - distinct armed/shooter look
+        : `<svg width="20" height="20" viewBox="0 0 20 20"><polygon points="10,2 18,17 10,13 2,17" fill="#4a9eff" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
       L.marker(toLL(d.x, d.y), {
         icon: L.divIcon({ className: "", iconSize: [20, 20], iconAnchor: [10, 10], html }),
         interactive: false,
@@ -1972,15 +1996,14 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
         L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: "#ff5555", fillOpacity: 0.04, weight: 1.5, opacity: 0.45, dashArray: "6 4", interactive: false }).addTo(layer);
         L.circleMarker(toLL(ad.x, ad.y), { radius: 7, color: "#ff3333", fillColor: sys.color, fillOpacity: 0.9, weight: 2.5 }).addTo(layer);
       }
-      // Enemy interceptors at base. Same shape distinction as player but red-tinted.
+      // Enemy interceptors at base. Same shape distinction as player but red-tinted:
+      // kamikaze = filled circle (default interceptor), armed = chevron (shooter).
       for (const i of (aiSetup.interceptors || [])) {
         if (i.status !== "active") continue;
-        // Enemy interceptors are stored with destroyOnKill flag from spawnDrones; use it
-        // to pick the shape. Fall back to circleMarker if the field is missing.
         const isKamikaze = i.destroyOnKill !== false;
         const html = isKamikaze
-          ? `<svg width="18" height="18" viewBox="0 0 18 18"><polygon points="9,2 16,15 9,12 2,15" fill="#ff5555" stroke="#ff7777" stroke-width="1.2" stroke-linejoin="round" opacity="0.85"/></svg>`
-          : `<svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="#ff5555" stroke-width="1.8"/><circle cx="9" cy="9" r="2.5" fill="#ff5555"/></svg>`;
+          ? `<svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="#ff5555" stroke="#ff7777" stroke-width="1.5" opacity="0.85"/></svg>`
+          : `<svg width="18" height="18" viewBox="0 0 18 18"><polygon points="9,2 16,15 9,12 2,15" fill="#ff5555" stroke="#ff7777" stroke-width="1.2" stroke-linejoin="round" opacity="0.85"/></svg>`;
         L.marker(toLL(i.x, i.y), {
           icon: L.divIcon({ className: "", iconSize: [18, 18], iconAnchor: [9, 9], html }),
           interactive: false,
@@ -2077,16 +2100,13 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     const dy = (d) => d._renderY ?? d.y;
     for (const a of (b.aAttackers || [])) { if (a.status === "active") L.circleMarker(toLL(dx(a), dy(a)), { radius: 3, color: "#ff4444", fillColor: "#ff4444", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
     for (const a of (b.pAttackers || [])) { if (a.status === "active") L.circleMarker(toLL(dx(a), dy(a)), { radius: 3, color: "#00ddff", fillColor: "#00ddff", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
-    // Interceptors during battle. Type distinction via shape:
-    //   - kamikaze (destroyOnKill: true)  -> small filled chevron, single-use
-    //   - armed (destroyOnKill: false)    -> larger ring with hollow center, reusable
-    // circleMarker is the cheap renderer Leaflet uses for canvas; kamikaze gets a tiny
-    // 4px filled dot, armed gets a 6px ring with a center dot for visual weight.
+    // Interceptors during battle. Kamikaze = filled circle (default look), armed =
+    // ring with center pip (the more distinctive "shooter platform" look).
     for (const i of (b.pInts || [])) {
       if (i.status === "active") {
         const isKam = i.destroyOnKill !== false;
         if (isKam) {
-          L.circleMarker(toLL(dx(i), dy(i)), { radius: 4, color: "#ffffff", fillColor: "#4a9eff", fillOpacity: 1, weight: 1 }).addTo(bl);
+          L.circleMarker(toLL(dx(i), dy(i)), { radius: 5, color: "#ffffff", fillColor: "#4a9eff", fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
         } else {
           L.circleMarker(toLL(dx(i), dy(i)), { radius: 7, color: "#ffffff", fillColor: "transparent", fillOpacity: 0, weight: 2 }).addTo(bl);
           L.circleMarker(toLL(dx(i), dy(i)), { radius: 2, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 1, weight: 0 }).addTo(bl);
@@ -2099,7 +2119,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
       if (i.status === "active") {
         const isKam = i.destroyOnKill !== false;
         if (isKam) {
-          L.circleMarker(toLL(dx(i), dy(i)), { radius: 4, color: "#880000", fillColor: "#ff5555", fillOpacity: 1, weight: 1 }).addTo(bl);
+          L.circleMarker(toLL(dx(i), dy(i)), { radius: 5, color: "#880000", fillColor: "#ff5555", fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
         } else {
           L.circleMarker(toLL(dx(i), dy(i)), { radius: 7, color: "#880000", fillColor: "transparent", fillOpacity: 0, weight: 2 }).addTo(bl);
           L.circleMarker(toLL(dx(i), dy(i)), { radius: 2, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 1, weight: 0 }).addTo(bl);
@@ -3673,7 +3693,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
                       ["Reload", `${sys.engageRate}s`],
                       ["Status", liveHealth > 0 ? (liveAmmo === 0 ? "OUT OF AMMO" : "Operational") : "DESTROYED"],
                     ];
-                    svg = `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="22" fill="${color}" stroke="${u.side === 'player' ? '#fff' : '#ff3333'}" stroke-width="3"/><circle cx="30" cy="30" r="4" fill="#fff"/><line x1="30" y1="8" x2="30" y2="20" stroke="#fff" stroke-width="2"/><line x1="30" y1="40" x2="30" y2="52" stroke="#fff" stroke-width="2"/><line x1="8" y1="30" x2="20" y2="30" stroke="#fff" stroke-width="2"/><line x1="40" y1="30" x2="52" y2="30" stroke="#fff" stroke-width="2"/></svg>`;
+                    // Per-system sci-fi sketch from UNIT_SKETCHES, fall back to a generic
+                    // crosshair if a new AD system is added without a sketch.
+                    svg = UNIT_SKETCHES.ad[u.key] || `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="22" fill="${color}" stroke="${u.side === 'player' ? '#fff' : '#ff3333'}" stroke-width="3"/><circle cx="30" cy="30" r="4" fill="#fff"/><line x1="30" y1="8" x2="30" y2="20" stroke="#fff" stroke-width="2"/><line x1="30" y1="40" x2="30" y2="52" stroke="#fff" stroke-width="2"/><line x1="8" y1="30" x2="20" y2="30" stroke="#fff" stroke-width="2"/><line x1="40" y1="30" x2="52" y2="30" stroke="#fff" stroke-width="2"/></svg>`;
                   }
                 } else if (u.kind === "resource") {
                   const res = RESOURCES.find((r) => r.key === u.key);
@@ -3688,7 +3710,8 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
                       ["Breach loss", `$${formatUSD(res.breachDmg)}`],
                       ["Status", (liveRes ?? u.res)?.alive ? "Online" : "DESTROYED"],
                     ];
-                    svg = `<svg width="60" height="60" viewBox="0 0 60 60"><polygon points="30,8 52,50 8,50" fill="${color}" stroke="#fff" stroke-width="3" stroke-linejoin="round"/><text x="30" y="44" text-anchor="middle" font-size="20" font-weight="800" font-family="monospace" fill="#fff">${res.icon}</text></svg>`;
+                    // Per-resource sci-fi sketch (solar panels, factory, refinery, dam).
+                    svg = UNIT_SKETCHES.resource[u.key] || `<svg width="60" height="60" viewBox="0 0 60 60"><polygon points="30,8 52,50 8,50" fill="${color}" stroke="#fff" stroke-width="3" stroke-linejoin="round"/><text x="30" y="44" text-anchor="middle" font-size="20" font-weight="800" font-family="monospace" fill="#fff">${res.icon}</text></svg>`;
                   }
                 } else if (u.kind === "interceptor") {
                   const def = DEFENSE_UNITS.find((d) => d.key === u.key);
@@ -3702,7 +3725,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
                       ["Type", def.destroyOnKill ? "Kamikaze (one-shot)" : "Armed (reusable)"],
                       ["Survival", def.destroyOnKill ? "0%" : `${Math.round((def.survivalRate || 0) * 100)}%`],
                     ];
-                    svg = `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="20" fill="${color}" stroke="#fff" stroke-width="2.5"/><polygon points="30,12 38,40 30,32 22,40" fill="#fff"/></svg>`;
+                    // Distinct sketches: kamikaze = crosshair targeting (default look),
+                    // armed = chevron/dart (the new "shooter" look).
+                    svg = UNIT_SKETCHES.interceptor[u.key] || `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="20" fill="${color}" stroke="#fff" stroke-width="2.5"/></svg>`;
                   }
                 }
                 if (!title) return null;
