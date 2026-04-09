@@ -5,7 +5,22 @@ import Window from './Window';
 import Terminal from './Terminal';
 
 export default function Desktop() {
-    const [isDarkMode, setIsDarkMode] = useState(false);
+    // Initialize from the persisted theme so navigating from the main site (which uses
+    // the same localStorage key 'theme' via Navbar + the no-flash init script in _app.js)
+    // doesn't reset to light. SSR-safe: useState lazy initializer reads window only on
+    // the client, defaults to false during SSR.
+    const [isDarkMode, setIsDarkMode] = useState(() => {
+        if (typeof window === 'undefined') return false;
+        try {
+            const stored = localStorage.getItem('theme');
+            if (stored === 'dark') return true;
+            if (stored === 'light') return false;
+            // No persisted preference -> respect OS setting (matches the init script).
+            return window.matchMedia('(prefers-color-scheme: dark)').matches;
+        } catch {
+            return false;
+        }
+    });
     const [maxZIndex, setMaxZIndex] = useState(1);
 
     // Mac-style background images
@@ -109,12 +124,16 @@ export default function Desktop() {
     ]);
 
     useEffect(() => {
+        // Mirror local state to <html> + persist to localStorage so the main site
+        // and the terminal page agree on the theme. Don't stomp the value - we just
+        // synchronized it from localStorage in the lazy initializer above.
         document.documentElement.setAttribute('data-theme', isDarkMode ? 'dark' : 'light');
         if (isDarkMode) {
             document.documentElement.classList.add('dark');
         } else {
             document.documentElement.classList.remove('dark');
         }
+        try { localStorage.setItem('theme', isDarkMode ? 'dark' : 'light'); } catch {}
     }, [isDarkMode]);
 
     const handleAppClick = (id) => {
