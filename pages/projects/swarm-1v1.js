@@ -892,6 +892,10 @@ export default function Swarm1v1() {
     teardownPeer();
     setConnectionStatus("idle");
     if (!wasIntentional) setConnectionError("Opponent disconnected");
+    // If the match is already over, let the user stay on the results screen instead
+    // of bouncing them back to the lobby. They can click "Back to Lobby" themselves.
+    // Only the connection bookkeeping is reset; gameMode/phase/gameOver stay intact.
+    if (gameOver) return;
     setRoomCode(""); setJoinCode(""); setLobbyView("main");
     setGameMode("bot");
     setCopied(false);
@@ -903,7 +907,7 @@ export default function Swarm1v1() {
     setPhase(PHASE.LOBBY);
     setMapReady(false);
     if (mapInstanceRef.current) { try { mapInstanceRef.current.remove(); } catch {} mapInstanceRef.current = null; layerRef.current = null; battleLayerRef.current = null; LRef.current = null; }
-  }, [teardownPeer, resetMatchState]);
+  }, [teardownPeer, resetMatchState, gameOver]);
 
   const cancelConnection = useCallback(() => {
     teardownPeer(true); // intentional - don't flash "opponent disconnected"
@@ -1609,10 +1613,10 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
 
   // ── Auto-advance on mutual ready (1v1 mode only) ──
   // When both players mark themselves ready, the round should start automatically
-  // without any extra "START COMBAT" or "LAUNCH ROUND" button press. Host drives the
-  // transition (SETUP->COMBAT) and the round launch (calling launchRoundRef.current()),
-  // then broadcasts the start_combat message for the guest. Ready flags get cleared
-  // inside launchRound/the effect so the next between-round buy phase starts fresh.
+  // without any extra button press. Host drives the transition (SETUP->COMBAT) and the
+  // round launch. Critically, on the FIRST ready (still in SETUP phase) we ALSO launch
+  // round 1 immediately - otherwise users had to click ready twice (once to leave SETUP,
+  // once to start round 1). The combined transition + launch keeps the flow to one click.
   const readyAdvanceGuardRef = useRef(false);
   useEffect(() => {
     if (gameMode !== "host") return;
@@ -1621,20 +1625,17 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     if (readyAdvanceGuardRef.current) return; // fire once per ready-pair
     readyAdvanceGuardRef.current = true;
     if (phase === PHASE.SETUP) {
-      // SETUP -> COMBAT: broadcast so guest transitions too, then advance local phase.
-      // Clear ready flags so the between-round buy loop starts fresh on both sides.
+      // SETUP -> COMBAT + immediate launch of round 1.
       try { broadcast({ type: "start_combat" }); } catch {}
       setPhase(PHASE.COMBAT);
-      setMeReady(false);
-      setOpponentReady(false);
-    } else if (phase === PHASE.COMBAT) {
-      // Between rounds: launch the round. launchRound resets meReady/opponentReady via
-      // the ready-reset effect below once battleActive flips true.
-      setMeReady(false);
-      setOpponentReady(false);
-      if (launchRoundRef.current) {
-        try { launchRoundRef.current(); } catch {}
-      }
+    }
+    // Clear ready flags BEFORE launching so the next between-round buy phase starts
+    // unready on both sides. The post-battle ready-reset effect also clears them as a
+    // safety net in case launchRound bails on its own guard (e.g. waveCost > budget).
+    setMeReady(false);
+    setOpponentReady(false);
+    if (launchRoundRef.current) {
+      try { launchRoundRef.current(); } catch {}
     }
   }, [meReady, opponentReady, phase, battleActive, gameOver, gameMode, broadcast]);
 
@@ -1900,7 +1901,21 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
         interactive: false,
       }).addTo(layer);
     }
-    for (const d of playerInterceptors) L.circleMarker(toLL(d.x, d.y), { radius: 4, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 0.6, weight: 1 }).addTo(layer);
+    // Player interceptor groups (placed during setup). Distinct shapes per type:
+    // kamikaze = chevron/dart (one-shot ramming weapon), armed = circle with crosshair
+    // (reusable shooter). Each placed group renders as a single marker showing the count.
+    for (const d of playerInterceptors) {
+      const isKamikaze = d.key === "kamikaze";
+      const html = isKamikaze
+        // Chevron/dart pointing up - "rams target"
+        ? `<svg width="20" height="20" viewBox="0 0 20 20"><polygon points="10,2 18,17 10,13 2,17" fill="#4a9eff" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round"/></svg>`
+        // Circle with cross - "armed shooter"
+        : `<svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="none" stroke="#4a9eff" stroke-width="2"/><circle cx="10" cy="10" r="3" fill="#4a9eff"/><line x1="10" y1="2" x2="10" y2="6" stroke="#ffffff" stroke-width="1.5"/><line x1="10" y1="14" x2="10" y2="18" stroke="#ffffff" stroke-width="1.5"/><line x1="2" y1="10" x2="6" y2="10" stroke="#ffffff" stroke-width="1.5"/><line x1="14" y1="10" x2="18" y2="10" stroke="#ffffff" stroke-width="1.5"/></svg>`;
+      L.marker(toLL(d.x, d.y), {
+        icon: L.divIcon({ className: "", iconSize: [20, 20], iconAnchor: [10, 10], html }),
+        interactive: false,
+      }).addTo(layer);
+    }
     for (const ad of playerAD) {
       // Destroyed AD is REMOVED from the map entirely - no greyed-out marker.
       if (ad.health <= 0) continue;
@@ -1957,10 +1972,19 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
         L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: "#ff5555", fillOpacity: 0.04, weight: 1.5, opacity: 0.45, dashArray: "6 4", interactive: false }).addTo(layer);
         L.circleMarker(toLL(ad.x, ad.y), { radius: 7, color: "#ff3333", fillColor: sys.color, fillOpacity: 0.9, weight: 2.5 }).addTo(layer);
       }
-      // Enemy interceptors at base
+      // Enemy interceptors at base. Same shape distinction as player but red-tinted.
       for (const i of (aiSetup.interceptors || [])) {
         if (i.status !== "active") continue;
-        L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 0.55, weight: 1 }).addTo(layer);
+        // Enemy interceptors are stored with destroyOnKill flag from spawnDrones; use it
+        // to pick the shape. Fall back to circleMarker if the field is missing.
+        const isKamikaze = i.destroyOnKill !== false;
+        const html = isKamikaze
+          ? `<svg width="18" height="18" viewBox="0 0 18 18"><polygon points="9,2 16,15 9,12 2,15" fill="#ff5555" stroke="#ff7777" stroke-width="1.2" stroke-linejoin="round" opacity="0.85"/></svg>`
+          : `<svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="none" stroke="#ff5555" stroke-width="1.8"/><circle cx="9" cy="9" r="2.5" fill="#ff5555"/></svg>`;
+        L.marker(toLL(i.x, i.y), {
+          icon: L.divIcon({ className: "", iconSize: [18, 18], iconAnchor: [9, 9], html }),
+          interactive: false,
+        }).addTo(layer);
       }
     }
   }, [mapReady, theater, playerHQ, playerExtraHQs, playerAirspace, playerResources, playerInterceptors, playerAD, aiSetup, phase, battleDrones, resourceDeposits, placingWhat, playerTrajectory, attackPriority]);
@@ -2053,13 +2077,36 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     const dy = (d) => d._renderY ?? d.y;
     for (const a of (b.aAttackers || [])) { if (a.status === "active") L.circleMarker(toLL(dx(a), dy(a)), { radius: 3, color: "#ff4444", fillColor: "#ff4444", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
     for (const a of (b.pAttackers || [])) { if (a.status === "active") L.circleMarker(toLL(dx(a), dy(a)), { radius: 3, color: "#00ddff", fillColor: "#00ddff", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
+    // Interceptors during battle. Type distinction via shape:
+    //   - kamikaze (destroyOnKill: true)  -> small filled chevron, single-use
+    //   - armed (destroyOnKill: false)    -> larger ring with hollow center, reusable
+    // circleMarker is the cheap renderer Leaflet uses for canvas; kamikaze gets a tiny
+    // 4px filled dot, armed gets a 6px ring with a center dot for visual weight.
     for (const i of (b.pInts || [])) {
-      if (i.status === "active") L.circleMarker(toLL(dx(i), dy(i)), { radius: 5, color: "#ffffff", fillColor: "#4a9eff", fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
-      else if (i.status === "landed") L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#336699", fillColor: "#336699", fillOpacity: 0.5, weight: 1 }).addTo(bl);
+      if (i.status === "active") {
+        const isKam = i.destroyOnKill !== false;
+        if (isKam) {
+          L.circleMarker(toLL(dx(i), dy(i)), { radius: 4, color: "#ffffff", fillColor: "#4a9eff", fillOpacity: 1, weight: 1 }).addTo(bl);
+        } else {
+          L.circleMarker(toLL(dx(i), dy(i)), { radius: 7, color: "#ffffff", fillColor: "transparent", fillOpacity: 0, weight: 2 }).addTo(bl);
+          L.circleMarker(toLL(dx(i), dy(i)), { radius: 2, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 1, weight: 0 }).addTo(bl);
+        }
+      } else if (i.status === "landed") {
+        L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#336699", fillColor: "#336699", fillOpacity: 0.5, weight: 1 }).addTo(bl);
+      }
     }
     for (const i of (b.aInts || [])) {
-      if (i.status === "active") L.circleMarker(toLL(dx(i), dy(i)), { radius: 5, color: "#880000", fillColor: "#ff5555", fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
-      else if (i.status === "landed") L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#663333", fillColor: "#663333", fillOpacity: 0.5, weight: 1 }).addTo(bl);
+      if (i.status === "active") {
+        const isKam = i.destroyOnKill !== false;
+        if (isKam) {
+          L.circleMarker(toLL(dx(i), dy(i)), { radius: 4, color: "#880000", fillColor: "#ff5555", fillOpacity: 1, weight: 1 }).addTo(bl);
+        } else {
+          L.circleMarker(toLL(dx(i), dy(i)), { radius: 7, color: "#880000", fillColor: "transparent", fillOpacity: 0, weight: 2 }).addTo(bl);
+          L.circleMarker(toLL(dx(i), dy(i)), { radius: 2, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 1, weight: 0 }).addTo(bl);
+        }
+      } else if (i.status === "landed") {
+        L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#663333", fillColor: "#663333", fillOpacity: 0.5, weight: 1 }).addTo(bl);
+      }
     }
     if (b.flashes) {
       // Per visuals audit: use wall-clock time for VFX decay so 16x speed doesn't hide flashes.
