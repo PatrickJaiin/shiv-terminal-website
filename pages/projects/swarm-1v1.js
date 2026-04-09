@@ -385,6 +385,25 @@ function playSfx(name, throttleMs = 40) {
   } catch {}
 }
 
+// PeerJS ICE config: multiple STUN servers for geographic redundancy + optional TURN relay.
+// STUN alone handles ~85% of NAT configs. For the remaining ~15% (symmetric NAT, common on
+// mobile/corporate networks), a TURN relay is needed - add credentials from metered.ca's
+// free tier (50 GB/month) or self-hosted coturn and uncomment the TURN entries below.
+const PEER_ICE_CONFIG = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
+    { urls: "stun:stun3.l.google.com:19302" },
+    { urls: "stun:stun4.l.google.com:19302" },
+    // TURN relay - uncomment and fill in credentials from https://www.metered.ca/stun-turn
+    // { urls: "turn:a.relay.metered.ca:80", username: "YOUR_KEY", credential: "YOUR_SECRET" },
+    // { urls: "turn:a.relay.metered.ca:80?transport=tcp", username: "YOUR_KEY", credential: "YOUR_SECRET" },
+    // { urls: "turn:a.relay.metered.ca:443", username: "YOUR_KEY", credential: "YOUR_SECRET" },
+    // { urls: "turns:a.relay.metered.ca:443", username: "YOUR_KEY", credential: "YOUR_SECRET" },
+  ],
+};
+
 // Create flying drones from a wave config. If `trajectory` is provided (array of {x,y}),
 // drones will fly through each waypoint before falling through to their assigned target.
 function spawnDrones(wave, originX, originY, targetX, targetY, idStart, trajectory = null) {
@@ -712,11 +731,13 @@ export default function Swarm1v1() {
         const b = battleRef.current;
         if (!b) break;
         b.step = msg.step || 0;
+        b._lastSnapshotTime = performance.now(); // for dead-reckoning extrapolation in guestTick
         // Swap: host's "p" → guest's "a", host's "a" → guest's "p"
-        b.aAttackers = (msg.pAtt || []).map((a) => ({ id: a.id, x: a.x, y: a.y, status: a.s, threat: "cheap" }));
-        b.pAttackers = (msg.aAtt || []).map((a) => ({ id: a.id, x: a.x, y: a.y, status: a.s, threat: "cheap" }));
-        b.aInts = (msg.pInt || []).map((i) => ({ id: i.id, x: i.x, y: i.y, status: i.s }));
-        b.pInts = (msg.aInt || []).map((i) => ({ id: i.id, x: i.x, y: i.y, status: i.s }));
+        // hd/spd carry heading+speed so the guest can extrapolate position between snapshots.
+        b.aAttackers = (msg.pAtt || []).map((a) => ({ id: a.id, x: a.x, y: a.y, status: a.s, threat: "cheap", heading: a.hd, speed: a.spd }));
+        b.pAttackers = (msg.aAtt || []).map((a) => ({ id: a.id, x: a.x, y: a.y, status: a.s, threat: "cheap", heading: a.hd, speed: a.spd }));
+        b.aInts = (msg.pInt || []).map((i) => ({ id: i.id, x: i.x, y: i.y, status: i.s, heading: i.hd, speed: i.spd }));
+        b.pInts = (msg.aInt || []).map((i) => ({ id: i.id, x: i.x, y: i.y, status: i.s, heading: i.hd, speed: i.spd }));
         b.aAD = (msg.pAD || []).map((a) => ({ key: a.key, x: a.x, y: a.y, health: a.h, ammo: a.ammo, lastFired: a.lf }));
         b.pAD = (msg.aAD || []).map((a) => ({ key: a.key, x: a.x, y: a.y, health: a.h, ammo: a.ammo, lastFired: a.lf }));
         b.flashes = msg.flashes || [];
@@ -844,7 +865,7 @@ export default function Swarm1v1() {
     setGameMode("host");
     setLobbyView("create");
 
-    const peer = new window.Peer(getPeerId(code), { debug: 0 });
+    const peer = new window.Peer(getPeerId(code), { debug: 0, config: PEER_ICE_CONFIG });
     const thisPeer = peer; // captured for stale-closure guards
     peerRef.current = peer;
     wirePeerResilience(peer, () => peerRef.current === thisPeer);
@@ -926,7 +947,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     setGameMode("guest");
     setLobbyView("join");
 
-    const peer = new window.Peer({ debug: 0 });
+    const peer = new window.Peer({ debug: 0, config: PEER_ICE_CONFIG });
     const thisPeer = peer;
     peerRef.current = peer;
     wirePeerResilience(peer, () => peerRef.current === thisPeer);
@@ -1010,7 +1031,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     setConnectionStatus("creating"); // we'll progress: creating → waiting → connecting → connected
 
     // Create our peer with a random ID (PeerJS generates one)
-    const peer = new window.Peer({ debug: 0 });
+    const peer = new window.Peer({ debug: 0, config: PEER_ICE_CONFIG });
     const thisPeer = peer;
     peerRef.current = peer;
     wirePeerResilience(peer, () => peerRef.current === thisPeer);
@@ -1848,14 +1869,19 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     };
     for (const ad of (b.pAD || [])) drawAdMarker(ad, "#ffffff", AD_SYSTEMS_1V1.find((s) => s.key === ad.key)?.color || "#fff");
     for (const ad of (b.aAD || [])) drawAdMarker(ad, "#ff3333", "#ff7777");
-    for (const a of (b.aAttackers || [])) { if (a.status === "active") L.circleMarker(toLL(a.x, a.y), { radius: 3, color: "#ff4444", fillColor: "#ff4444", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
-    for (const a of (b.pAttackers || [])) { if (a.status === "active") L.circleMarker(toLL(a.x, a.y), { radius: 3, color: "#00ddff", fillColor: "#00ddff", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
+    // Use _renderX/_renderY (dead-reckoning extrapolation) when set by guestTick, else raw x/y.
+    // This keeps the host's render path unchanged (host never sets _renderX) while making the
+    // guest's drones glide smoothly between 15Hz snapshots instead of teleporting.
+    const dx = (d) => d._renderX ?? d.x;
+    const dy = (d) => d._renderY ?? d.y;
+    for (const a of (b.aAttackers || [])) { if (a.status === "active") L.circleMarker(toLL(dx(a), dy(a)), { radius: 3, color: "#ff4444", fillColor: "#ff4444", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
+    for (const a of (b.pAttackers || [])) { if (a.status === "active") L.circleMarker(toLL(dx(a), dy(a)), { radius: 3, color: "#00ddff", fillColor: "#00ddff", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
     for (const i of (b.pInts || [])) {
-      if (i.status === "active") L.circleMarker(toLL(i.x, i.y), { radius: 5, color: "#ffffff", fillColor: "#4a9eff", fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
+      if (i.status === "active") L.circleMarker(toLL(dx(i), dy(i)), { radius: 5, color: "#ffffff", fillColor: "#4a9eff", fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
       else if (i.status === "landed") L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#336699", fillColor: "#336699", fillOpacity: 0.5, weight: 1 }).addTo(bl);
     }
     for (const i of (b.aInts || [])) {
-      if (i.status === "active") L.circleMarker(toLL(i.x, i.y), { radius: 5, color: "#880000", fillColor: "#ff5555", fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
+      if (i.status === "active") L.circleMarker(toLL(dx(i), dy(i)), { radius: 5, color: "#880000", fillColor: "#ff5555", fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
       else if (i.status === "landed") L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#663333", fillColor: "#663333", fillOpacity: 0.5, weight: 1 }).addTo(bl);
     }
     if (b.flashes) {
@@ -1865,18 +1891,28 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
       // and CAP the total count so high-speed combat can't accumulate thousands of DOM elements.
       const nowMs = performance.now();
       for (const f of b.flashes) { if (!f.wallTime) f.wallTime = nowMs; }
+      const EXPLOSION_TYPES = new Set(["ad_explosion", "resource_explosion"]);
       b.flashes = b.flashes.filter((f) => {
         const ageMs = nowMs - f.wallTime;
-        return ageMs < (f.type === "dmgtext" ? 2000 : 500);
+        const maxMs = f.type === "dmgtext" ? 2000 : EXPLOSION_TYPES.has(f.type) ? 900 : 500;
+        return ageMs < maxMs;
       });
       // Cap: keep only the most recent 200 flashes total. Prevents lag spikes during 16x combat
       // when many AD shots + kills + damage popups can pile up faster than they decay.
       if (b.flashes.length > 200) b.flashes = b.flashes.slice(-200);
+      // Guest-side shake: trigger shakeMap for explosion flashes received via snapshot.
+      // Track seen flash IDs to avoid re-triggering shake on already-processed flashes.
+      if (!b._seenShakeIds) b._seenShakeIds = new Set();
+      for (const f of b.flashes) {
+        if (f.shake && f.wallTime && !b._seenShakeIds.has(f.wallTime)) {
+          b._seenShakeIds.add(f.wallTime);
+          shakeMap(f.shake, Math.round(f.shake * 1.25));
+        }
+      }
       for (const f of b.flashes) {
         const ageMs = nowMs - (f.wallTime || 0);
-        const maxAgeMs = f.type === "dmgtext" ? 2000 : 500;
+        const maxAgeMs = f.type === "dmgtext" ? 2000 : EXPLOSION_TYPES.has(f.type) ? 900 : 500;
         const p = Math.min(1, ageMs / maxAgeMs);
-        const age = ageMs / 16; // legacy "frame age" for compatibility with existing math
         const ll = toLL(f.x, f.y);
         if (f.type === "adshot") {
           if (ageMs < 333) {
@@ -1888,12 +1924,56 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
             L.circleMarker(ll2, { radius: 4 * fade, color: f.color || "#ffaa00", fillColor: f.color || "#ffaa00", fillOpacity: fade * 0.8, weight: 0 }).addTo(bl);
           }
         } else if (f.type === "dmgtext") {
-          // Drift up over time - 1px every 16ms = 60px/sec
           const drift = ageMs / 16 * 3;
           const driftLL = toLL(f.x, f.y + drift);
           L.marker(driftLL, { icon: L.divIcon({ className: "", iconSize: [80, 16], iconAnchor: [40, 8], html: `<div style="color:${f.color || "#ff5555"};font-size:12px;font-weight:800;font-family:monospace;text-align:center;text-shadow:0 0 6px #000;opacity:${1 - p}">${f.text}</div>` }), interactive: false }).addTo(bl);
+        } else if (f.type === "ad_explosion") {
+          // Large multi-ring explosion: AD system destroyed by a kamikaze drone strike.
+          // Outer white shockwave ring, inner orange fireball, debris sparkles.
+          const eased = 1 - Math.pow(1 - p, 3);
+          // Outer shockwave (white ring expanding fast)
+          L.circleMarker(ll, { radius: 10 + eased * 30, color: "#ffffff", fillColor: "transparent", fillOpacity: 0, weight: 3, opacity: (1 - p) * 0.7 }).addTo(bl);
+          // Inner fireball (orange → dark red)
+          L.circleMarker(ll, { radius: 6 + eased * 18, color: "#ff4400", fillColor: "#ff8800", fillOpacity: (1 - p) * 0.8, weight: 2, opacity: 1 - p }).addTo(bl);
+          // Hot core
+          if (p < 0.5) {
+            L.circleMarker(ll, { radius: 4 + eased * 6, color: "#ffcc00", fillColor: "#ffee88", fillOpacity: (1 - p * 2) * 0.9, weight: 0 }).addTo(bl);
+          }
+          // 4 debris sparkles drifting outward
+          for (let di = 0; di < 4; di++) {
+            const angle = (di / 4) * Math.PI * 2 + 0.3;
+            const dr = eased * 250;
+            const dll = toLL(f.x + Math.cos(angle) * dr, f.y + Math.sin(angle) * dr);
+            L.circleMarker(dll, { radius: 2, color: "#ffaa00", fillColor: "#ffaa00", fillOpacity: (1 - p) * 0.8, weight: 0 }).addTo(bl);
+          }
+        } else if (f.type === "resource_explosion") {
+          // Medium explosion: resource building destroyed. Orange/amber fireball + ring.
+          const eased = 1 - Math.pow(1 - p, 3);
+          // Shockwave ring
+          L.circleMarker(ll, { radius: 8 + eased * 22, color: "#ffffff", fillColor: "transparent", fillOpacity: 0, weight: 2.5, opacity: (1 - p) * 0.6 }).addTo(bl);
+          // Fireball
+          L.circleMarker(ll, { radius: 5 + eased * 14, color: "#ff6600", fillColor: "#ff9800", fillOpacity: (1 - p) * 0.7, weight: 2, opacity: 1 - p }).addTo(bl);
+          // 3 debris
+          for (let di = 0; di < 3; di++) {
+            const angle = (di / 3) * Math.PI * 2 + 0.5;
+            const dr = eased * 180;
+            const dll = toLL(f.x + Math.cos(angle) * dr, f.y + Math.sin(angle) * dr);
+            L.circleMarker(dll, { radius: 2, color: "#ff9800", fillColor: "#ff9800", fillOpacity: (1 - p) * 0.7, weight: 0 }).addTo(bl);
+          }
+        } else if (f.type === "drone_clash") {
+          // Interceptor vs attacker drone: quick blue-orange burst with crossing sparks.
+          const eased = 1 - Math.pow(1 - p, 3);
+          // Blue-white center (interceptor)
+          L.circleMarker(ll, { radius: 4 + eased * 10, color: "#4a9eff", fillColor: "#88ccff", fillOpacity: (1 - p) * 0.7, weight: 1.5, opacity: 1 - p }).addTo(bl);
+          // Orange ring (attacker)
+          L.circleMarker(ll, { radius: 6 + eased * 12, color: "#ff8800", fillColor: "transparent", fillOpacity: 0, weight: 2, opacity: (1 - p) * 0.6 }).addTo(bl);
+          // 2 crossing sparks
+          if (p < 0.6) {
+            const spk = eased * 120;
+            L.circleMarker(toLL(f.x - spk, f.y + spk * 0.5), { radius: 1.5, color: "#ffffff", fillColor: "#ffffff", fillOpacity: (1 - p) * 0.9, weight: 0 }).addTo(bl);
+            L.circleMarker(toLL(f.x + spk, f.y - spk * 0.5), { radius: 1.5, color: "#ffffff", fillColor: "#ffffff", fillOpacity: (1 - p) * 0.9, weight: 0 }).addTo(bl);
+          }
         } else if (f.type === "kill") {
-          // Ease-out: explodes fast, settles slow (per visuals audit)
           const eased = 1 - Math.pow(1 - p, 3);
           L.circleMarker(ll, { radius: 5 + eased * 14, color: "#ffffff", fillColor: "#ff8800", fillOpacity: (1 - p) * 0.6, weight: 2, opacity: 1 - p }).addTo(bl);
         } else if (f.type === "breach") {
@@ -1902,16 +1982,18 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
         }
       }
     }
-  }, []);
+  }, [shakeMap]);
 
-  // ── Phase 3: Serialize battle state for network transmission (~10Hz) ──
+  // ── Phase 3: Serialize battle state for network transmission (~15Hz) ──
   const serializeBattleSnapshot = useCallback((b) => ({
     type: "combat_snapshot",
     step: b.step,
-    pAtt: b.pAttackers.map((a) => ({ id: a.id, x: Math.round(a.x), y: Math.round(a.y), s: a.status })),
-    aAtt: b.aAttackers.map((a) => ({ id: a.id, x: Math.round(a.x), y: Math.round(a.y), s: a.status })),
-    pInt: b.pInts.map((i) => ({ id: i.id, x: Math.round(i.x), y: Math.round(i.y), s: i.status })),
-    aInt: b.aInts.map((i) => ({ id: i.id, x: Math.round(i.x), y: Math.round(i.y), s: i.status })),
+    // hd = heading (radians), spd = speed. Needed by guest for dead-reckoning extrapolation
+    // between snapshots so drones glide smoothly instead of teleporting every 67ms.
+    pAtt: b.pAttackers.map((a) => ({ id: a.id, x: Math.round(a.x), y: Math.round(a.y), s: a.status, hd: a.heading, spd: a.speed })),
+    aAtt: b.aAttackers.map((a) => ({ id: a.id, x: Math.round(a.x), y: Math.round(a.y), s: a.status, hd: a.heading, spd: a.speed })),
+    pInt: b.pInts.map((i) => ({ id: i.id, x: Math.round(i.x), y: Math.round(i.y), s: i.status, hd: i.heading, spd: i.speed })),
+    aInt: b.aInts.map((i) => ({ id: i.id, x: Math.round(i.x), y: Math.round(i.y), s: i.status, hd: i.heading, spd: i.speed })),
     // lf = lastFired step. Required for the guest's reload pie chart to cycle correctly
     // (without it, ad.lastFired is undefined → reloadPct stays at 1 → pie chart is stuck green).
     pAD: b.pAD.map((a) => ({ key: a.key, x: a.x, y: a.y, h: a.health, ammo: a.ammo, lf: a.lastFired })),
@@ -1935,6 +2017,21 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     function guestTick() {
       const b = battleRef.current;
       if (!b || b._guestRoundOver) return;
+      // Dead-reckoning: extrapolate drone positions between snapshots using heading+speed
+      // so they glide smoothly instead of teleporting every ~67ms. When the next snapshot
+      // arrives it overwrites everything with authoritative positions.
+      if (b._lastSnapshotTime) {
+        const elapsed = performance.now() - b._lastSnapshotTime;
+        // frames = how many sim steps elapsed since last snapshot (host runs ~60 steps/sec)
+        const frames = Math.min(elapsed / 16.67, 6); // cap at ~6 frames to avoid overshoot
+        for (const list of [b.pAttackers, b.aAttackers, b.pInts, b.aInts]) {
+          for (const d of list) {
+            if (d.status !== "active" || d.heading == null || !d.speed) continue;
+            d._renderX = d.x + Math.cos(d.heading) * d.speed * frames;
+            d._renderY = d.y + Math.sin(d.heading) * d.speed * frames;
+          }
+        }
+      }
       renderBattleFrame(b);
       setBattleDrones({
         playerAttackers: [...(b.pAttackers || [])],
@@ -2078,8 +2175,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
             if (dist(a, closest) < 80) {
               const adSys = AD_SYSTEMS_1V1.find((s2) => s2.key === closest.key);
               closest.health = 0; closest.ammo = 0; a.status = "expended";
-              b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" });
-              b.flashes.push({ x: a.x, y: a.y + 100, time: b.step, type: "dmgtext", text: `AD destroyed!`, color: "#ff3333" });
+              b.flashes.push({ x: a.x, y: a.y, time: b.step, wallTime: performance.now(), type: "ad_explosion", shake: 8 });
+              b.flashes.push({ x: a.x, y: a.y + 100, time: b.step, wallTime: performance.now(), type: "dmgtext", text: `${adSys?.name || "AD"} destroyed!`, color: "#ff3333" });
+              shakeMap(8, 10);
               continue;
             }
           }
@@ -2138,9 +2236,11 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
           const closest = alive.reduce((best, ad) => dist(a, ad) < dist(a, best) ? ad : best, alive[0]);
           tx = closest.x; ty = closest.y;
           if (dist(a, closest) < 100) {
+            const adSys = AD_SYSTEMS_1V1.find((s2) => s2.key === closest.key);
             closest.health = 0; closest.ammo = 0; a.status = "expended";
-            b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" });
-            b.flashes.push({ x: a.x, y: a.y + 100, time: b.step, type: "dmgtext", text: "AD hit!", color: "#ff3333" });
+            b.flashes.push({ x: a.x, y: a.y, time: b.step, wallTime: performance.now(), type: "ad_explosion", shake: 8 });
+            b.flashes.push({ x: a.x, y: a.y + 100, time: b.step, wallTime: performance.now(), type: "dmgtext", text: `${adSys?.name || "AD"} destroyed!`, color: "#ff3333" });
+            shakeMap(8, 10);
             continue;
           }
         } else if (attackPriority === "resources") {
@@ -2151,8 +2251,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
             if (dist(a, closest) < 100) {
               const res2 = RESOURCES.find((rr) => rr.key === closest.key);
               closest.alive = false; a.status = "expended"; b.pBreaches++;
-              b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "kill" });
-              b.flashes.push({ x: a.x, y: a.y - 100, time: b.step, type: "dmgtext", text: `${res2?.name || "Resource"} hit!`, color: "#ff9800" });
+              b.flashes.push({ x: a.x, y: a.y, time: b.step, wallTime: performance.now(), type: "resource_explosion", shake: 6 });
+              b.flashes.push({ x: a.x, y: a.y - 100, time: b.step, wallTime: performance.now(), type: "dmgtext", text: `${res2?.name || "Resource"} destroyed!`, color: "#ff9800" });
+              shakeMap(6, 8);
               continue;
             }
           }
@@ -2160,7 +2261,11 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
           const alive = b.aInts.filter((i) => i.status === "active");
           const closest = alive.reduce((best, i) => dist(a, i) < dist(a, best) ? i : best, alive[0]);
           tx = closest.x; ty = closest.y;
-          if (dist(a, closest) < KILL_RADIUS) { closest.status = "expended"; a.status = "expended"; continue; }
+          if (dist(a, closest) < KILL_RADIUS) {
+            closest.status = "expended"; a.status = "expended";
+            b.flashes.push({ x: a.x, y: a.y, time: b.step, wallTime: performance.now(), type: "drone_clash" });
+            continue;
+          }
         }
         const dx = tx - a.x, dy = ty - a.y;
         let diff = Math.atan2(dy, dx) - a.heading;
@@ -2243,7 +2348,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
             int.x = nx; int.y = ny;
             if (dist(int, tgt) < KILL_RADIUS) {
               tgt.status = "destroyed"; b.aKills++; int.targetId = null;
-              b.flashes.push({ x: tgt.x, y: tgt.y, time: b.step, type: "kill" });
+              b.flashes.push({ x: tgt.x, y: tgt.y, time: b.step, wallTime: performance.now(), type: "drone_clash" });
               if (int.destroyOnKill) int.status = "expended";
               else if (Math.random() > (int.survivalRate || 0.73)) int.status = "expended";
             }
@@ -2262,7 +2367,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
           int.y += Math.sin(int.heading) * int.speed;
           if (dist(int, tgt) < KILL_RADIUS) {
             tgt.status = "destroyed"; b.pKills++; int.targetId = null;
-            b.flashes.push({ x: tgt.x, y: tgt.y, time: b.step, type: "kill" });
+            b.flashes.push({ x: tgt.x, y: tgt.y, time: b.step, wallTime: performance.now(), type: "drone_clash" });
             if (int.destroyOnKill) int.status = "expended";
             else if (Math.random() > (int.survivalRate || 0.73)) int.status = "expended";
           }
@@ -2314,11 +2419,11 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
 
       } // end speed loop
 
-      // Phase 3: host streams combat snapshots to guest at 10Hz (wall-clock, not step-based,
+      // Phase 3: host streams combat snapshots to guest at ~15Hz (wall-clock, not step-based,
       // so high-speedup modes don't accidentally fire 60+ snapshots/sec)
       if (gameModeRef.current === "host") {
         const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
-        if (!b.lastSnapshotTs || now - b.lastSnapshotTs >= 100) {
+        if (!b.lastSnapshotTs || now - b.lastSnapshotTs >= 67) {
           b.lastSnapshotTs = now;
           broadcast(serializeBattleSnapshot(b));
         }
