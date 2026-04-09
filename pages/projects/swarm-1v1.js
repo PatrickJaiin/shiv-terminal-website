@@ -15,12 +15,12 @@ const THEATERS = {
 
 // Repriced per game economics audit (Apr 2026):
 // FPV bumped from $500 → $15K to match Kamikaze interceptor cost (1:1 economics).
-// 100 FPVs now costs $1.5M (5% of starting budget) vs $50K previously - prevents round-1 rush exploit.
+// HP added per threat tier so cheap ADs need more shots vs expensive drones.
 const ATTACK_UNITS = [
-  { key: "fpv", name: "FPV Drone", cost: 15000, speed: 1.5, threat: "cheap" },
-  { key: "shahed", name: "Shahed-136", cost: 20000, speed: 1.0, threat: "cheap" },
-  { key: "lancet", name: "Lancet-3", cost: 35000, speed: 1.8, threat: "medium" },
-  { key: "mohajer", name: "Mohajer-6", cost: 500000, speed: 0.8, threat: "expensive" },
+  { key: "fpv", name: "FPV Drone", cost: 15000, speed: 1.5, threat: "cheap", hp: 1 },
+  { key: "shahed", name: "Shahed-136", cost: 20000, speed: 1.0, threat: "cheap", hp: 1 },
+  { key: "lancet", name: "Lancet-3", cost: 35000, speed: 1.8, threat: "medium", hp: 3 },
+  { key: "mohajer", name: "Mohajer-6", cost: 500000, speed: 0.8, threat: "expensive", hp: 8 },
 ];
 
 const DEFENSE_UNITS = [
@@ -28,14 +28,16 @@ const DEFENSE_UNITS = [
   { key: "armed", name: "Armed Interceptor", cost: 180000, speed: 1.8, destroyOnKill: false, survivalRate: 0.73 },
 ];
 
-// Rebalanced per economics audit:
-// Iron Dome: 20 → 60 missiles (was $51M for 17 expected kills; now $51M for 51 expected kills, viable vs swarms)
-// NASAMS: $100M → $40M, 6 → 20 missiles (was strictly worst purchase; now the long-range premium option)
+// AD damage system (Apr 2026 rebalance):
+// Each AD does `dmg` HP per hit. Drone HP varies by threat tier (1/1/3/8).
+// Gepard does 1 dmg → kills cheap drones in 1 shot but burns through ammo on Mohajer (8 shots).
+// NASAMS does 100 dmg → one-shots everything regardless of HP.
+// pK is now "hit chance"; on hit we deduct dmg from target.hp; drone dies at hp <= 0.
 const AD_SYSTEMS_1V1 = [
-  { key: "iron_dome", name: "Iron Dome", cost: 50000000, range: 2000, missiles: 60, missileCost: 50000, pk: 0.85, engageRate: 3, color: "#44bbff" },
-  { key: "gepard", name: "Gepard", cost: 5000000, range: 800, missiles: 680, missileCost: 100, pk: 0.2, engageRate: 1, color: "#88aa44" },
-  { key: "nasams", name: "NASAMS 3", cost: 40000000, range: 2500, missiles: 20, missileCost: 500000, pk: 0.8, engageRate: 4, color: "#4488ff" },
-  { key: "pantsir", name: "Pantsir-S1", cost: 15000000, range: 1500, missiles: 12, missileCost: 60000, pk: 0.65, engageRate: 3, color: "#cc8800" },
+  { key: "iron_dome", name: "Iron Dome", cost: 50000000, range: 2000, missiles: 60, missileCost: 50000, pk: 0.9, engageRate: 3, dmg: 3, color: "#44bbff" },
+  { key: "gepard", name: "Gepard", cost: 5000000, range: 800, missiles: 680, missileCost: 100, pk: 0.85, engageRate: 1, dmg: 1, color: "#88aa44" },
+  { key: "nasams", name: "NASAMS 3", cost: 40000000, range: 2500, missiles: 20, missileCost: 500000, pk: 0.95, engageRate: 4, dmg: 100, color: "#4488ff" },
+  { key: "pantsir", name: "Pantsir-S1", cost: 15000000, range: 1500, missiles: 12, missileCost: 60000, pk: 0.8, engageRate: 3, dmg: 2, color: "#cc8800" },
 ];
 
 // Resource economy follows niche-distinction principle:
@@ -398,6 +400,7 @@ function spawnDrones(wave, originX, originY, targetX, targetY, idStart, trajecto
       const firstTarget = trajectory && trajectory.length > 0 ? trajectory[0] : { x: targetX, y: targetY };
       drones.push({
         id: id++, x: ox, y: oy, speed: u.speed, threat: u.threat, cost: u.cost,
+        hp: u.hp || 1, maxHp: u.hp || 1,
         status: "active", heading: Math.atan2(firstTarget.y - oy, firstTarget.x - ox) + (Math.random() - 0.5) * 0.3,
         trajectory: trajectory && trajectory.length > 0 ? trajectory.map((w) => ({ x: w.x, y: w.y })) : null,
         waypointIdx: 0,
@@ -2132,21 +2135,22 @@ export default function Swarm1v1() {
       }
 
       // AD units fire with reload cooldown.
-      // Target priority: enemy attackers first (existential threat), then enemy interceptors (air-to-air).
-      // Player AD targets enemy attackers + enemy interceptors
-      for (const ad of b.pAD) {
-        if (ad.health <= 0 || ad.ammo <= 0) continue;
+      // pK = hit chance, dmg = HP removed on hit. Drone dies when hp <= 0.
+      // Gepard (1 dmg) burns through ammo on Mohajer (8 hp) but kills FPV (1 hp) in one shot.
+      // NASAMS (100 dmg) one-shots everything.
+      const fireAd = (ad, attackerList, intList, killCounterKey) => {
+        if (ad.health <= 0 || ad.ammo <= 0) return;
         const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
-        if (!sys) continue;
+        if (!sys) return;
         const cooldown = Math.max(3, Math.round(sys.engageRate * 5));
-        if (ad.lastFired && b.step - ad.lastFired < cooldown) continue;
+        if (ad.lastFired && b.step - ad.lastFired < cooldown) return;
         let target = null;
-        for (const a of b.aAttackers) {
+        for (const a of attackerList) {
           if (a.status !== "active") continue;
           if (dist(ad, a) < sys.range) { target = a; break; }
         }
         if (!target) {
-          for (const i of b.aInts) {
+          for (const i of intList) {
             if (i.status !== "active") continue;
             if (dist(ad, i) < sys.range) { target = i; break; }
           }
@@ -2154,43 +2158,24 @@ export default function Swarm1v1() {
         if (target) {
           ad.ammo--; ad.lastFired = b.step;
           b.flashes.push({ x: ad.x, y: ad.y, x2: target.x, y2: target.y, time: b.step, wallTime: performance.now(), type: "adshot", color: sys.color });
-          playSfx("ad_fire", 50);
+          if (killCounterKey === "aKills") playSfx("ad_fire", 50);
           if (Math.random() < sys.pk) {
-            target.status = "destroyed";
-            b.aKills++;
-            b.flashes.push({ x: target.x, y: target.y, time: b.step, wallTime: performance.now(), type: "kill" });
-            playSfx("drone_kill", 60);
+            // Hit: deduct damage from target HP
+            target.hp = (target.hp ?? 1) - sys.dmg;
+            if (target.hp <= 0) {
+              target.status = "destroyed";
+              b[killCounterKey]++;
+              b.flashes.push({ x: target.x, y: target.y, time: b.step, wallTime: performance.now(), type: "kill" });
+              if (killCounterKey === "aKills") playSfx("drone_kill", 60);
+            } else {
+              // Hit but not killed - small impact flash
+              b.flashes.push({ x: target.x, y: target.y, time: b.step, wallTime: performance.now(), type: "kill" });
+            }
           }
         }
-      }
-      // Enemy AD targets player attackers + player interceptors
-      for (const ad of b.aAD) {
-        if (ad.health <= 0 || ad.ammo <= 0) continue;
-        const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
-        if (!sys) continue;
-        const cooldown = Math.max(3, Math.round(sys.engageRate * 5));
-        if (ad.lastFired && b.step - ad.lastFired < cooldown) continue;
-        let target = null;
-        for (const a of b.pAttackers) {
-          if (a.status !== "active") continue;
-          if (dist(ad, a) < sys.range) { target = a; break; }
-        }
-        if (!target) {
-          for (const i of b.pInts) {
-            if (i.status !== "active") continue;
-            if (dist(ad, i) < sys.range) { target = i; break; }
-          }
-        }
-        if (target) {
-          ad.ammo--; ad.lastFired = b.step;
-          b.flashes.push({ x: ad.x, y: ad.y, x2: target.x, y2: target.y, time: b.step, type: "adshot", color: sys.color });
-          if (Math.random() < sys.pk) {
-            target.status = "destroyed";
-            b.pKills++;
-            b.flashes.push({ x: target.x, y: target.y, time: b.step, type: "kill" });
-          }
-        }
-      }
+      };
+      for (const ad of b.pAD) fireAd(ad, b.aAttackers, b.aInts, "aKills");
+      for (const ad of b.aAD) fireAd(ad, b.pAttackers, b.pInts, "pKills");
 
       } // end speed loop
 
@@ -2390,20 +2375,37 @@ export default function Swarm1v1() {
         }));
         aiSetup.interceptors = b.aInts.filter((i) => i.status === "active");
 
-        // Persist AD damage between rounds: destroyed ADs stay destroyed, ammo carries over.
-        // Match by position since the battle copies are separate references from the originals.
-        setPlayerAD((prev) => prev.map((ad) => {
+        // Persist AD damage between rounds + auto-reload (charges player for missing missiles).
+        // Destroyed ADs stay destroyed; surviving ADs that fired refill to max if affordable.
+        let pReloadCost = 0;
+        const updatedPlayerAD = playerAD.map((ad) => {
           const battleAd = b.pAD.find((ba) => ba.x === ad.x && ba.y === ad.y && ba.key === ad.key);
-          if (!battleAd) return ad;
-          return { ...ad, health: battleAd.health, ammo: battleAd.ammo };
-        }).filter((ad) => ad.health > 0));
-        // Mirror for AI's AD systems
+          if (!battleAd || battleAd.health <= 0) return { ...ad, health: 0 };
+          const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
+          const missing = (sys?.missiles || 0) - battleAd.ammo;
+          const reloadCost = missing * (sys?.missileCost || 0);
+          pReloadCost += reloadCost;
+          return { ...ad, health: battleAd.health, ammo: sys?.missiles || battleAd.ammo, _justReloaded: missing > 0 };
+        }).filter((ad) => ad.health > 0);
+        if (pReloadCost > 0) {
+          setPlayerBudget((p) => p - pReloadCost);
+          endLog.push(`AD reload: -$${formatUSD(pReloadCost)} (${updatedPlayerAD.filter((a) => a._justReloaded).length} systems refilled)`);
+        }
+        setPlayerAD(updatedPlayerAD);
+        // Same for AI: auto-reload up to max if AI has budget
         if (aiSetup && Array.isArray(aiSetup.adUnits)) {
-          aiSetup.adUnits = aiSetup.adUnits.map((ad) => {
+          let aReloadCost = 0;
+          const updatedAiAd = aiSetup.adUnits.map((ad) => {
             const battleAd = b.aAD.find((ba) => ba.x === ad.x && ba.y === ad.y && ba.key === ad.key);
-            if (!battleAd) return ad;
-            return { ...ad, health: battleAd.health, ammo: battleAd.ammo };
+            if (!battleAd || battleAd.health <= 0) return { ...ad, health: 0 };
+            const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
+            const missing = (sys?.missiles || 0) - battleAd.ammo;
+            const cost = missing * (sys?.missileCost || 0);
+            aReloadCost += cost;
+            return { ...ad, health: battleAd.health, ammo: sys?.missiles || battleAd.ammo };
           }).filter((ad) => ad.health > 0);
+          if (aReloadCost > 0) setAiBudget((p) => p - aReloadCost);
+          aiSetup.adUnits = updatedAiAd;
         }
 
         // Arms factory bonus
