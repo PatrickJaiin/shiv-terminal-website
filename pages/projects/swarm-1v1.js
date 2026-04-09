@@ -140,6 +140,140 @@ function generateRoomCode() {
 }
 function getPeerId(code) { return `swarm1v1-${code}`; }
 
+// ── Audio engine: programmatic SFX via Web Audio API (no asset files) ──
+// Per visuals/sound audit: silent game is the biggest gap. Generate 5 core sounds at runtime.
+let _audioCtx = null;
+const _audioThrottle = {};
+function _initAudio() {
+  if (_audioCtx) return _audioCtx;
+  if (typeof window === "undefined") return null;
+  try {
+    _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  } catch { _audioCtx = null; }
+  return _audioCtx;
+}
+function playSfx(name, throttleMs = 40) {
+  const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
+  if (_audioThrottle[name] && now - _audioThrottle[name] < throttleMs) return;
+  _audioThrottle[name] = now;
+  const ctx = _audioCtx;
+  if (!ctx) return;
+  const t = ctx.currentTime;
+  try {
+    if (name === "ad_fire") {
+      // Short laser-zap: square wave with frequency sweep down
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "square";
+      osc.frequency.setValueAtTime(800 + Math.random() * 200, t);
+      osc.frequency.exponentialRampToValueAtTime(150, t + 0.08);
+      gain.gain.setValueAtTime(0.08, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t); osc.stop(t + 0.12);
+    } else if (name === "drone_kill") {
+      // Pop: white noise burst with quick decay
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.08, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const gain = ctx.createGain();
+      gain.gain.value = 0.12;
+      src.connect(gain).connect(ctx.destination);
+      src.start(t);
+    } else if (name === "breach_alarm") {
+      // Two-tone alarm ping
+      [600, 800].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.18, t + i * 0.13);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.13 + 0.12);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t + i * 0.13); osc.stop(t + i * 0.13 + 0.15);
+      });
+    } else if (name === "hq_destroyed") {
+      // Big explosion: filtered noise burst + low rumble
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 1.2, ctx.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < data.length; i++) {
+        const env = Math.exp(-i / data.length * 4);
+        data[i] = (Math.random() * 2 - 1) * env;
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = 700;
+      const gain = ctx.createGain();
+      gain.gain.value = 0.35;
+      src.connect(filter).connect(gain).connect(ctx.destination);
+      src.start(t);
+      // Sub-bass rumble
+      const osc = ctx.createOscillator();
+      const og = ctx.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(80, t);
+      osc.frequency.exponentialRampToValueAtTime(20, t + 1);
+      og.gain.setValueAtTime(0.25, t);
+      og.gain.exponentialRampToValueAtTime(0.001, t + 1);
+      osc.connect(og).connect(ctx.destination);
+      osc.start(t); osc.stop(t + 1);
+    } else if (name === "round_start") {
+      // Horn: detuned sawtooths at 220Hz with attack
+      [220, 165].forEach((freq) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sawtooth";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.001, t);
+        gain.gain.linearRampToValueAtTime(0.12, t + 0.05);
+        gain.gain.setValueAtTime(0.12, t + 0.3);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t); osc.stop(t + 0.55);
+      });
+    } else if (name === "ui_click") {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 1200;
+      gain.gain.setValueAtTime(0.06, t);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t); osc.stop(t + 0.05);
+    } else if (name === "victory") {
+      // Major chord ascending
+      [261, 329, 392].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "triangle";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.001, t + i * 0.08);
+        gain.gain.linearRampToValueAtTime(0.15, t + i * 0.08 + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.08 + 0.7);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t + i * 0.08); osc.stop(t + i * 0.08 + 0.75);
+      });
+    } else if (name === "defeat") {
+      // Minor chord descending
+      [196, 165, 130].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sawtooth";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.001, t + i * 0.12);
+        gain.gain.linearRampToValueAtTime(0.12, t + i * 0.12 + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + i * 0.12 + 0.9);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t + i * 0.12); osc.stop(t + i * 0.12 + 1);
+      });
+    }
+  } catch {}
+}
+
 // Create flying drones from a wave config. If `trajectory` is provided (array of {x,y}),
 // drones will fly through each waypoint before falling through to their assigned target.
 function spawnDrones(wave, originX, originY, targetX, targetY, idStart, trajectory = null) {
@@ -279,6 +413,7 @@ export default function Swarm1v1() {
 
   const findMatch = useCallback(() => {
     if (!username.trim()) return;
+    _initAudio(); // unlock Web Audio on first user gesture
     setGameMode("bot");
     setPhase(PHASE.MATCHMAKING);
     setOpponentName(AI_NAMES[Math.floor(Math.random() * AI_NAMES.length)]);
@@ -548,6 +683,7 @@ export default function Swarm1v1() {
       setConnectionStatus("error");
       return;
     }
+    _initAudio(); // unlock Web Audio on first user gesture
     teardownPeer(true);
     const code = generateRoomCode();
     setRoomCode(code);
@@ -622,6 +758,7 @@ export default function Swarm1v1() {
       setConnectionStatus("error");
       return;
     }
+    _initAudio(); // unlock Web Audio on first user gesture
     teardownPeer(true);
     setConnectionError("");
     setConnectionStatus("connecting");
@@ -879,6 +1016,22 @@ export default function Swarm1v1() {
     setTimeout(() => setBudgetShake(false), 500);
   }, []);
 
+  // Screen shake on the map container - per visuals audit, the cheapest juice tool ever invented
+  const shakeMap = useCallback((intensity = 6, frames = 8) => {
+    const el = mapRef.current;
+    if (!el) return;
+    let f = 0;
+    const step = () => {
+      if (!el || f++ >= frames) { if (el) el.style.transform = ""; return; }
+      const k = 1 - f / frames;
+      const dx = (Math.random() - 0.5) * intensity * k;
+      const dy = (Math.random() - 0.5) * intensity * k;
+      el.style.transform = `translate(${dx}px, ${dy}px)`;
+      requestAnimationFrame(step);
+    };
+    step();
+  }, []);
+
   // Check if cost would exceed budget
   const canAfford = useCallback((cost) => {
     return (playerBudget - cost) >= 0;
@@ -1066,7 +1219,9 @@ export default function Swarm1v1() {
       const Leaf = LRef.current;
       if (mapInstanceRef.current) { mapInstanceRef.current.setView(THEATERS[theater].mapCenter, THEATERS[theater].mapZoom); return; }
       const th = THEATERS[theater];
-      const map = Leaf.map(mapRef.current, { center: th.mapCenter, zoom: th.mapZoom, zoomControl: true });
+      // preferCanvas: true forces Leaflet to render circleMarkers via Canvas instead of SVG nodes.
+      // 5-10x speedup for high-entity-count battle frames per visuals audit.
+      const map = Leaf.map(mapRef.current, { center: th.mapCenter, zoom: th.mapZoom, zoomControl: true, preferCanvas: true });
       mapInstanceRef.current = map;
       Leaf.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 18 }).addTo(map);
       Leaf.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, opacity: 0.3 }).addTo(map);
@@ -1331,29 +1486,40 @@ export default function Swarm1v1() {
       else if (i.status === "landed") L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#663333", fillColor: "#663333", fillOpacity: 0.5, weight: 1 }).addTo(bl);
     }
     if (b.flashes) {
-      b.flashes = b.flashes.filter((f) => b.step - f.time < (f.type === "dmgtext" ? 120 : 30));
+      // Per visuals audit: use wall-clock time for VFX decay so 16x speed doesn't hide flashes.
+      // Each flash carries wallTime (creation timestamp). Aging is computed in milliseconds, not sim steps.
+      const nowMs = performance.now();
+      b.flashes = b.flashes.filter((f) => {
+        const ageMs = nowMs - (f.wallTime || 0);
+        return ageMs < (f.type === "dmgtext" ? 2000 : 500);
+      });
       for (const f of b.flashes) {
-        const age = b.step - f.time;
-        const maxAge = f.type === "dmgtext" ? 120 : 30;
-        const p = age / maxAge;
+        const ageMs = nowMs - (f.wallTime || 0);
+        const maxAgeMs = f.type === "dmgtext" ? 2000 : 500;
+        const p = Math.min(1, ageMs / maxAgeMs);
+        const age = ageMs / 16; // legacy "frame age" for compatibility with existing math
         const ll = toLL(f.x, f.y);
         if (f.type === "adshot") {
-          if (age < 20) {
+          if (ageMs < 333) {
             const ll2 = toLL(f.x2, f.y2);
-            const fade = 1 - age / 20;
+            const fade = 1 - ageMs / 333;
             L.polyline([ll, ll2], { color: "#ffffff", weight: 4, opacity: fade * 0.3, interactive: false }).addTo(bl);
             L.polyline([ll, ll2], { color: f.color || "#ffaa00", weight: 2, opacity: fade * 0.9, interactive: false }).addTo(bl);
             L.circleMarker(ll, { radius: 4 * fade, color: "#ffffff", fillColor: "#ffffff", fillOpacity: fade * 0.6, weight: 0 }).addTo(bl);
             L.circleMarker(ll2, { radius: 4 * fade, color: f.color || "#ffaa00", fillColor: f.color || "#ffaa00", fillOpacity: fade * 0.8, weight: 0 }).addTo(bl);
           }
         } else if (f.type === "dmgtext") {
-          const drift = age * 3;
+          // Drift up over time - 1px every 16ms = 60px/sec
+          const drift = ageMs / 16 * 3;
           const driftLL = toLL(f.x, f.y + drift);
           L.marker(driftLL, { icon: L.divIcon({ className: "", iconSize: [80, 16], iconAnchor: [40, 8], html: `<div style="color:${f.color || "#ff5555"};font-size:12px;font-weight:800;font-family:monospace;text-align:center;text-shadow:0 0 6px #000;opacity:${1 - p}">${f.text}</div>` }), interactive: false }).addTo(bl);
         } else if (f.type === "kill") {
-          L.circleMarker(ll, { radius: 5 + p * 12, color: "#ff8800", fillColor: "#ff8800", fillOpacity: (1 - p) * 0.5, weight: 1.5, opacity: 1 - p }).addTo(bl);
+          // Ease-out: explodes fast, settles slow (per visuals audit)
+          const eased = 1 - Math.pow(1 - p, 3);
+          L.circleMarker(ll, { radius: 5 + eased * 14, color: "#ffffff", fillColor: "#ff8800", fillOpacity: (1 - p) * 0.6, weight: 2, opacity: 1 - p }).addTo(bl);
         } else if (f.type === "breach") {
-          L.circleMarker(ll, { radius: 6 + p * 10, color: "#ff0000", fillColor: "#ff0000", fillOpacity: (1 - p) * 0.6, weight: 2, opacity: 1 - p }).addTo(bl);
+          const eased = 1 - Math.pow(1 - p, 3);
+          L.circleMarker(ll, { radius: 6 + eased * 12, color: "#ff0040", fillColor: "#ff0040", fillOpacity: (1 - p) * 0.7, weight: 2.5, opacity: 1 - p }).addTo(bl);
         }
       }
     }
@@ -1433,6 +1599,8 @@ export default function Swarm1v1() {
     if (gameMode === "host") {
       broadcast({ type: "round_start", round, pIncome, aIncome });
     }
+    // Audio: round start horn
+    playSfx("round_start", 0);
 
     // Spawn player's attack drones flying toward AI HQ (via trajectory waypoints if defined)
     const pAttackers = spawnDrones(playerAttack, playerHQ.x, playerHQ.y - 500, aiSetup.hqX, aiSetup.hqY, 10000 + round * 1000, playerTrajectory.length > 0 ? playerTrajectory : null);
@@ -1522,20 +1690,21 @@ export default function Swarm1v1() {
         for (const h of hqList) { if (dist(a, h) < 200) { breachedHQ = h; break; } }
         if (breachedHQ) {
           a.status = "breached"; b.aBreaches++;
-          // Per audit fix #3: breach damage scales with attacker cost (max($100K, cost × 2))
-          // Track total damage on battleRef so round-end uses real numbers, not flat $500K
           const breachCost = Math.max(100000, (a.cost || 500000) * 2);
           b.aBreachDmg = (b.aBreachDmg || 0) + breachCost;
-          b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "breach" });
-          b.flashes.push({ x: a.x, y: a.y + 100, time: b.step, type: "dmgtext", text: `-$${breachCost >= 1e6 ? (breachCost / 1e6).toFixed(1) + "M" : (breachCost / 1e3).toFixed(0) + "K"}`, color: "#ff5555" });
-          // Immediate HQ overwhelm: pop game over right now (per audit fix #2: dynamic threshold)
+          b.flashes.push({ x: a.x, y: a.y, time: b.step, wallTime: performance.now(), type: "breach" });
+          b.flashes.push({ x: a.x, y: a.y + 100, time: b.step, wallTime: performance.now(), type: "dmgtext", text: `-$${breachCost >= 1e6 ? (breachCost / 1e6).toFixed(1) + "M" : (breachCost / 1e3).toFixed(0) + "K"}`, color: "#ff5555" });
+          playSfx("breach_alarm", 250);
+          shakeMap(4, 6);
           if (b.aBreaches > (b.aOverwhelmThreshold || 8) && !b.hqOverwhelmDeclared) {
             b.hqOverwhelmDeclared = true;
             const go = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: "HQ overwhelmed" };
             setGameOver(go);
-            // Show big damage popup
             setDamagePopup({ text: "HQ DESTROYED", color: "#ff0000" });
             setTimeout(() => setDamagePopup(null), 3000);
+            playSfx("hq_destroyed", 0);
+            playSfx("defeat", 0);
+            shakeMap(20, 16);
           }
         }
       }
@@ -1595,18 +1764,19 @@ export default function Swarm1v1() {
         a.y += Math.sin(a.heading) * a.speed;
         if (dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) < 200) {
           a.status = "breached"; b.pBreaches++;
-          // Per audit fix #3: scale breach damage with attacker cost
           const breachCost = Math.max(100000, (a.cost || 500000) * 2);
           b.pBreachDmg = (b.pBreachDmg || 0) + breachCost;
-          b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "breach" });
-          b.flashes.push({ x: a.x, y: a.y - 100, time: b.step, type: "dmgtext", text: `-$${breachCost >= 1e6 ? (breachCost / 1e6).toFixed(1) + "M" : (breachCost / 1e3).toFixed(0) + "K"}`, color: "#ff5555" });
-          // Immediate game-win on enemy HQ overwhelm (dynamic threshold per fix #2)
+          b.flashes.push({ x: a.x, y: a.y, time: b.step, wallTime: performance.now(), type: "breach" });
+          b.flashes.push({ x: a.x, y: a.y - 100, time: b.step, wallTime: performance.now(), type: "dmgtext", text: `-$${breachCost >= 1e6 ? (breachCost / 1e6).toFixed(1) + "M" : (breachCost / 1e3).toFixed(0) + "K"}`, color: "#ff5555" });
           if (b.pBreaches > (b.pOverwhelmThreshold || 8) && !b.enemyOverwhelmDeclared) {
             b.enemyOverwhelmDeclared = true;
             const go = { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: "Enemy HQ overwhelmed" };
             setGameOver(go);
             setDamagePopup({ text: "ENEMY HQ DESTROYED", color: "#4caf50" });
             setTimeout(() => setDamagePopup(null), 3000);
+            playSfx("hq_destroyed", 0);
+            playSfx("victory", 0);
+            shakeMap(15, 12);
           }
         }
       }
@@ -1701,25 +1871,26 @@ export default function Swarm1v1() {
         if (!sys) continue;
         const cooldown = Math.max(3, Math.round(sys.engageRate * 5));
         if (ad.lastFired && b.step - ad.lastFired < cooldown) continue;
-        // Build prioritized target list: attackers first, then interceptors
-        let target = null, targetKind = null;
+        let target = null;
         for (const a of b.aAttackers) {
           if (a.status !== "active") continue;
-          if (dist(ad, a) < sys.range) { target = a; targetKind = "attacker"; break; }
+          if (dist(ad, a) < sys.range) { target = a; break; }
         }
         if (!target) {
           for (const i of b.aInts) {
             if (i.status !== "active") continue;
-            if (dist(ad, i) < sys.range) { target = i; targetKind = "interceptor"; break; }
+            if (dist(ad, i) < sys.range) { target = i; break; }
           }
         }
         if (target) {
           ad.ammo--; ad.lastFired = b.step;
-          b.flashes.push({ x: ad.x, y: ad.y, x2: target.x, y2: target.y, time: b.step, type: "adshot", color: sys.color });
+          b.flashes.push({ x: ad.x, y: ad.y, x2: target.x, y2: target.y, time: b.step, wallTime: performance.now(), type: "adshot", color: sys.color });
+          playSfx("ad_fire", 50);
           if (Math.random() < sys.pk) {
             target.status = "destroyed";
             b.aKills++;
-            b.flashes.push({ x: target.x, y: target.y, time: b.step, type: "kill" });
+            b.flashes.push({ x: target.x, y: target.y, time: b.step, wallTime: performance.now(), type: "kill" });
+            playSfx("drone_kill", 60);
           }
         }
       }
@@ -2650,7 +2821,7 @@ export default function Swarm1v1() {
             </div>
 
             <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
-              <div ref={mapRef} style={{ width: "100%", height: "100%", cursor: placingWhat ? "crosshair" : "grab" }} />
+              <div ref={mapRef} style={{ width: "100%", height: "100%", cursor: placingWhat ? "crosshair" : "grab", filter: "brightness(0.55) contrast(1.1) saturate(0.6)", transition: "transform 0.05s" }} />
               {infoPopup && (
                 <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "rgba(17,17,24,0.95)", border: "1px solid #4a9eff", borderRadius: 6, padding: "8px 16px", fontSize: 11, color: "#e0e0e0", zIndex: 500, maxWidth: 400, textAlign: "center" }}>
                   {infoPopup.text}
