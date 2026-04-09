@@ -76,52 +76,14 @@ const THEATERS = {
   },
 };
 
-const SCENARIOS = {
-  sandbox: { name: "Sandbox", interceptors: 20, budget: null, waves: [
-    { attackers: { fpv_kamikaze: 10, shahed_136: 5 }, bonus: 0 },
-  ]},
-  medium: { name: "Medium", interceptors: 8, budget: 5, waves: [
-    { attackers: { fpv_kamikaze: 8 }, bonus: 1 },
-    { attackers: { fpv_kamikaze: 12, shahed_136: 4 }, bonus: 1 },
-    { attackers: { fpv_kamikaze: 15, shahed_136: 6 }, bonus: 2 },
-    { attackers: { fpv_kamikaze: 18, shahed_136: 8, lancet_3: 3 }, bonus: 2 },
-    { attackers: { fpv_kamikaze: 22, shahed_136: 10, lancet_3: 5 }, bonus: 2 },
-    { attackers: { fpv_kamikaze: 25, shahed_136: 12, lancet_3: 6 }, bonus: 3 },
-    { attackers: { fpv_kamikaze: 30, shahed_136: 15, lancet_3: 8 }, bonus: 3 },
-    { attackers: { fpv_kamikaze: 35, shahed_136: 18, lancet_3: 10 }, bonus: 3 },
-    { attackers: { fpv_kamikaze: 40, shahed_136: 20, lancet_3: 12, mohajer_6: 2 }, bonus: 4 },
-    { attackers: { fpv_kamikaze: 45, shahed_136: 22, lancet_3: 14, mohajer_6: 3 }, bonus: 4 },
-    { attackers: { fpv_kamikaze: 50, shahed_136: 25, lancet_3: 16, mohajer_6: 4 }, bonus: 5 },
-    { attackers: { fpv_kamikaze: 60, shahed_136: 30, lancet_3: 20, mohajer_6: 5 }, bonus: 0 },
-  ]},
-  hard: { name: "Hard", interceptors: 6, budget: 5, waves: [
-    { attackers: { fpv_kamikaze: 15, shahed_136: 5 }, bonus: 1 },
-    { attackers: { fpv_kamikaze: 20, shahed_136: 8, lancet_3: 3 }, bonus: 1 },
-    { attackers: { fpv_kamikaze: 25, shahed_136: 12, lancet_3: 5 }, bonus: 2 },
-    { attackers: { fpv_kamikaze: 30, shahed_136: 15, lancet_3: 8, mohajer_6: 2 }, bonus: 2 },
-    { attackers: { fpv_kamikaze: 35, shahed_136: 18, lancet_3: 10, mohajer_6: 3 }, bonus: 2 },
-    { attackers: { fpv_kamikaze: 40, shahed_136: 22, lancet_3: 12, mohajer_6: 5 }, bonus: 3 },
-    { attackers: { fpv_kamikaze: 50, shahed_136: 25, lancet_3: 15, mohajer_6: 6 }, bonus: 3 },
-    { attackers: { fpv_kamikaze: 55, shahed_136: 30, lancet_3: 18, mohajer_6: 8, orion: 2 }, bonus: 3 },
-    { attackers: { fpv_kamikaze: 60, shahed_136: 35, lancet_3: 20, mohajer_6: 10, orion: 3 }, bonus: 4 },
-    { attackers: { fpv_kamikaze: 70, shahed_136: 40, lancet_3: 25, mohajer_6: 12, orion: 4 }, bonus: 4 },
-    { attackers: { fpv_kamikaze: 80, shahed_136: 45, lancet_3: 28, mohajer_6: 15, orion: 5 }, bonus: 5 },
-    { attackers: { fpv_kamikaze: 100, shahed_136: 50, lancet_3: 30, mohajer_6: 18, orion: 6, wing_loong: 2 }, bonus: 0 },
-  ]},
-  nightmare: { name: "Nightmare", interceptors: 4, budget: 4, waves: [
-    { attackers: { fpv_kamikaze: 20, shahed_136: 8, lancet_3: 3 }, bonus: 1 },
-    { attackers: { fpv_kamikaze: 30, shahed_136: 12, lancet_3: 6, mohajer_6: 2 }, bonus: 1 },
-    { attackers: { fpv_kamikaze: 40, shahed_136: 18, lancet_3: 10, mohajer_6: 4 }, bonus: 2 },
-    { attackers: { fpv_kamikaze: 50, shahed_136: 25, lancet_3: 14, mohajer_6: 6, orion: 2 }, bonus: 2 },
-    { attackers: { fpv_kamikaze: 60, shahed_136: 30, lancet_3: 18, mohajer_6: 8, orion: 3 }, bonus: 2 },
-    { attackers: { fpv_kamikaze: 70, shahed_136: 35, lancet_3: 22, mohajer_6: 10, orion: 4, wing_loong: 1 }, bonus: 3 },
-    { attackers: { fpv_kamikaze: 80, shahed_136: 40, lancet_3: 25, mohajer_6: 12, orion: 5, wing_loong: 2 }, bonus: 3 },
-    { attackers: { fpv_kamikaze: 90, shahed_136: 45, lancet_3: 28, mohajer_6: 15, orion: 6, wing_loong: 3 }, bonus: 3 },
-    { attackers: { fpv_kamikaze: 100, shahed_136: 50, lancet_3: 32, mohajer_6: 18, orion: 8, wing_loong: 4 }, bonus: 4 },
-    { attackers: { fpv_kamikaze: 120, shahed_136: 55, lancet_3: 35, mohajer_6: 20, orion: 10, wing_loong: 5 }, bonus: 4 },
-    { attackers: { fpv_kamikaze: 140, shahed_136: 60, lancet_3: 40, mohajer_6: 22, orion: 12, wing_loong: 6 }, bonus: 5 },
-    { attackers: { fpv_kamikaze: 160, shahed_136: 70, lancet_3: 45, mohajer_6: 25, orion: 15, wing_loong: 8 }, bonus: 0 },
-  ]},
+// Sandbox is the only simulator mode now. The wave-based difficulty campaigns
+// (medium/hard/nightmare) lived here historically; they have been removed because
+// the 1v1 game mode (pages/projects/swarm-1v1.js) is the proper challenge experience.
+// The simulator is now purely an open-ended sandbox: place stuff, run it, observe.
+const SANDBOX = {
+  name: "Sandbox",
+  interceptors: 20,
+  defaultAttackers: { fpv_kamikaze: 10, shahed_136: 5 },
 };
 
 const KILL_RADIUS = 120;
@@ -153,9 +115,9 @@ function latLngToSim(lat, lng, bounds) {
   return [x, y];
 }
 
-// ── Create drones for a scenario/wave ──
-function createDrones(scenario, theater, customAttackSpawns, customDefenseSpawns, waveAttackers) {
-  const attackerConfig = waveAttackers || scenario.waves[0].attackers;
+// ── Create drones for the sandbox run ──
+function createDrones(scenario, theater, customAttackSpawns, customDefenseSpawns, attackers) {
+  const attackerConfig = attackers || scenario.defaultAttackers;
   const th = THEATERS[theater] || THEATERS.kashmir;
   const center = [5000, 5000];
   const hasCustomAtk = customAttackSpawns.length > 0;
@@ -791,7 +753,7 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
       }).addTo(droneLayer);
     }
 
-    // Kill impact pulses and breach markers
+    // Combat VFX (ported from game mode flash types: ad_explosion, drone_clash + classic kill/breach)
     if (flashLayer) {
       flashLayer.clearLayers();
       const now = Date.now();
@@ -806,8 +768,40 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
             radius: 6 + progress * 8, color: "#ff3333", fillColor: "#ff0000",
             fillOpacity: (1 - progress) * 0.5, weight: 2, opacity: 1 - progress,
           }).addTo(flashLayer);
+        } else if (flash.type === "ad_explosion") {
+          // AD destroyed by a kamikaze: large white shockwave + orange fireball + sparks
+          if (age > 900) continue;
+          const p = age / 900;
+          const eased = 1 - Math.pow(1 - p, 3);
+          // Outer shockwave ring
+          L.circleMarker(ll, { radius: 10 + eased * 26, color: "#ffffff", fillOpacity: 0, weight: 3, opacity: (1 - p) * 0.7 }).addTo(flashLayer);
+          // Inner fireball
+          L.circleMarker(ll, { radius: 6 + eased * 16, color: "#ff4400", fillColor: "#ff8800", fillOpacity: (1 - p) * 0.8, weight: 2, opacity: 1 - p }).addTo(flashLayer);
+          // Hot core fades fast
+          if (p < 0.5) {
+            L.circleMarker(ll, { radius: 4 + eased * 5, color: "#ffcc00", fillColor: "#ffee88", fillOpacity: (1 - p * 2) * 0.9, weight: 0 }).addTo(flashLayer);
+          }
+          // 4 debris sparkles drifting outward
+          for (let di = 0; di < 4; di++) {
+            const angle = (di / 4) * Math.PI * 2 + 0.3;
+            const dr = eased * 220;
+            const dll = simToLL(flash.x + Math.cos(angle) * dr, flash.y + Math.sin(angle) * dr);
+            L.circleMarker(dll, { radius: 2, color: "#ffaa00", fillColor: "#ffaa00", fillOpacity: (1 - p) * 0.8, weight: 0 }).addTo(flashLayer);
+          }
+        } else if (flash.type === "drone_clash") {
+          // Interceptor vs drone kill: blue-orange burst with crossing sparks
+          if (age > 500) continue;
+          const p = age / 500;
+          const eased = 1 - Math.pow(1 - p, 3);
+          L.circleMarker(ll, { radius: 4 + eased * 10, color: "#4a9eff", fillColor: "#88ccff", fillOpacity: (1 - p) * 0.7, weight: 1.5, opacity: 1 - p }).addTo(flashLayer);
+          L.circleMarker(ll, { radius: 6 + eased * 12, color: "#ff8800", fillOpacity: 0, weight: 2, opacity: (1 - p) * 0.6 }).addTo(flashLayer);
+          if (p < 0.6) {
+            const spk = eased * 110;
+            L.circleMarker(simToLL(flash.x - spk, flash.y + spk * 0.5), { radius: 1.5, color: "#ffffff", fillColor: "#ffffff", fillOpacity: (1 - p) * 0.9, weight: 0 }).addTo(flashLayer);
+            L.circleMarker(simToLL(flash.x + spk, flash.y - spk * 0.5), { radius: 1.5, color: "#ffffff", fillColor: "#ffffff", fillOpacity: (1 - p) * 0.9, weight: 0 }).addTo(flashLayer);
+          }
         } else {
-          // Kill impact: simple expanding ring
+          // Default kill (AD shoots down a drone): small orange ring
           if (age > 500) continue;
           const progress = age / 500;
           L.circleMarker(ll, {
@@ -831,7 +825,6 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
 // ── Main page ──
 export default function SwarmInterception() {
   const [theater, setTheater] = useState("ukraine_kyiv");
-  const [scenario, setScenario] = useState("medium");
   const [simState, setSimState] = useState(null);
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -850,9 +843,6 @@ export default function SwarmInterception() {
   const [zoneRadius, setZoneRadius] = useState(DEFAULT_ZONE_RADIUS);
   const [assetRadius, setAssetRadius] = useState(DEFAULT_ASSET_RADIUS);
   const [defenseBudget, setDefenseBudget] = useState(100); // in millions USD
-  const [currentWave, setCurrentWave] = useState(0);
-  const [waveBonus, setWaveBonus] = useState(0);
-  const [verdictPopup, setVerdictPopup] = useState(null);
   const [statsPanel, setStatsPanel] = useState(false);
   const [adPlaceKey, setAdPlaceKey] = useState("iron_dome");
   const [adUnits, setAdUnits] = useState(() => {
@@ -868,22 +858,37 @@ export default function SwarmInterception() {
   const flashesRef = useRef([]);
   const frameRef = useRef(null);
   const theaterRef = useRef(theater);
-  const scenarioRef = useRef(scenario);
-  const waveRef = useRef(0);
   const zoneCenterRef = useRef(zoneCenter);
   const zoneRadiusRef = useRef(zoneRadius);
   const assetRadiusRef = useRef(assetRadius);
   const adUnitsRef = useRef(adUnits);
+  // Map container ref for screen-shake effect (learning from game mode's shakeMap)
+  const mapContainerRef = useRef(null);
 
   useEffect(() => { speedRef.current = speed; }, [speed]);
   useEffect(() => { pausedRef.current = paused; }, [paused]);
   useEffect(() => { theaterRef.current = theater; }, [theater]);
-  useEffect(() => { scenarioRef.current = scenario; }, [scenario]);
-  useEffect(() => { waveRef.current = currentWave; }, [currentWave]);
   useEffect(() => { zoneCenterRef.current = zoneCenter; }, [zoneCenter]);
   useEffect(() => { zoneRadiusRef.current = zoneRadius; }, [zoneRadius]);
   useEffect(() => { assetRadiusRef.current = assetRadius; }, [assetRadius]);
   useEffect(() => { adUnitsRef.current = adUnits; }, [adUnits]);
+
+  // Screen shake helper - ported from game mode (swarm-1v1.js shakeMap pattern).
+  // Cheapest "juice" tool ever invented; sells the impact of breaches and AD destruction.
+  const shakeMap = useCallback((intensity = 6, frames = 8) => {
+    const el = mapContainerRef.current;
+    if (!el) return;
+    let f = 0;
+    const step = () => {
+      if (!el || f++ >= frames) { if (el) el.style.transform = ""; return; }
+      const k = 1 - f / frames;
+      const dx = (Math.random() - 0.5) * intensity * k;
+      const dy = (Math.random() - 0.5) * intensity * k;
+      el.style.transform = `translate(${dx}px, ${dy}px)`;
+      requestAnimationFrame(step);
+    };
+    step();
+  }, []);
 
   const handlePlaceSpawn = useCallback((x, y) => {
     if (placementMode === "attack") {
@@ -915,12 +920,8 @@ export default function SwarmInterception() {
   }, [placementMode, spawnDroneKey, spawnDefKey, spawnCount, zoneCenter, zoneRadius]);
 
   const startSim = useCallback(() => {
-    const sc = SCENARIOS[scenario];
-    if (!sc || !sc.waves || sc.waves.length === 0) return;
     setPlacementMode(null);
-    setCurrentWave(0);
-    setWaveBonus(0);
-    const { interceptors, attackers } = createDrones(sc, theater, attackSpawns, defenseSpawns, sc.waves[0].attackers);
+    const { interceptors, attackers } = createDrones(SANDBOX, theater, attackSpawns, defenseSpawns, SANDBOX.defaultAttackers);
     const initial = {
       interceptors, attackers,
       metrics: { kills: 0, misses: 0, breaches: 0, breach_damage: 0, defense_cost: 0, threat_value_destroyed: 0, active_interceptors: interceptors.length, active_threats: attackers.length },
@@ -935,9 +936,9 @@ export default function SwarmInterception() {
     setPaused(false);
     runRef.current = true;
     pausedRef.current = false;
-    setStatusText("WAVE 1");
+    setStatusText("RUNNING");
     runLoop();
-  }, [scenario, theater, attackSpawns, defenseSpawns]);
+  }, [theater, attackSpawns, defenseSpawns]);
 
   const runLoop = useCallback(() => {
     if (!runRef.current) return;
@@ -947,17 +948,20 @@ export default function SwarmInterception() {
     if (!s || s.done) { runRef.current = false; setRunning(false); setStatusText("COMPLETE"); return; }
 
     const steps = speedRef.current;
+    let triggeredShakes = 0; // batch shakes per frame to avoid spamming requestAnimationFrame
     for (let i = 0; i < steps; i++) {
       if (s.done) break;
       const prevKills = s.metrics.kills;
       const prevBreaches = s.metrics.breaches;
+      const prevAdHealth = adUnitsRef.current.map((ad) => ad.health);
       s = simStep(s, zoneCenterRef.current, assetRadiusRef.current, adUnitsRef.current, zoneRadiusRef.current);
       const now = Date.now();
-      // Kill impact flashes
+      // Kill impact flashes - distinguish AD-shoots-down vs interceptor-clash
       if (s.metrics.kills > prevKills) {
         for (const k of s.attackers) {
           if (k.status === "destroyed" && !k.flashed) {
-            flashesRef.current.push({ x: k.x, y: k.y, time: now, type: "kill" });
+            const flashType = k.killedByAD ? "kill" : "drone_clash";
+            flashesRef.current.push({ x: k.x, y: k.y, time: now, type: flashType });
             k.flashed = true;
           }
         }
@@ -968,9 +972,18 @@ export default function SwarmInterception() {
           if (b.status === "breached" && b.breachX != null) {
             flashesRef.current.push({ x: b.breachX, y: b.breachY, time: now, type: "breach" });
             b.breachX = null;
+            triggeredShakes = Math.max(triggeredShakes, 6);
           }
         }
       }
+      // AD destroyed flashes - detect via prev/current health diff
+      adUnitsRef.current.forEach((ad, idx) => {
+        if (prevAdHealth[idx] > 0 && ad.health <= 0 && !ad._explosionFlashed) {
+          ad._explosionFlashed = true;
+          flashesRef.current.push({ x: ad.x, y: ad.y, time: now, type: "ad_explosion" });
+          triggeredShakes = Math.max(triggeredShakes, 8);
+        }
+      });
       // Zone crossing marks (outer green AD line)
       const newCross = [];
       for (const a of s.attackers) {
@@ -984,92 +997,25 @@ export default function SwarmInterception() {
 
     simRef.current = s;
     const now = Date.now();
-    flashesRef.current = flashesRef.current.filter((f) => now - f.time < (f.type === "breach" ? 1000 : 500));
+    // Slightly longer wallclock decay for explosion flashes (matches game-mode VFX timing)
+    flashesRef.current = flashesRef.current.filter((f) => {
+      const maxAge = f.type === "breach" ? 1000 : f.type === "ad_explosion" ? 900 : 500;
+      return now - f.time < maxAge;
+    });
     setSimState({ ...s });
     setKillFlashes([...flashesRef.current]);
     setAdUnits([...adUnitsRef.current]);
 
+    if (triggeredShakes > 0) shakeMap(triggeredShakes, Math.round(triggeredShakes * 1.25));
+
     if (s.done) {
-      // Check for next wave
-      const sc = SCENARIOS[scenarioRef.current];
-      const wave = waveRef.current;
-      if (sc && sc.waves && wave < sc.waves.length - 1) {
-        // Award bonus from completed wave
-        const completedWave = sc.waves[wave];
-        if (completedWave.bonus > 0) {
-          setWaveBonus((prev) => prev + completedWave.bonus);
-        }
-        // Next wave: keep surviving interceptors, spawn new attackers
-        const nextWave = wave + 1;
-        waveRef.current = nextWave;
-        setCurrentWave(nextWave);
-        const th = THEATERS[theaterRef.current] || THEATERS.kashmir;
-        const nextAttackers = sc.waves[nextWave].attackers;
-
-        // Reuse surviving interceptors, reset their targets
-        const survivors = s.interceptors.filter((i) => i.status === "active" || i.status === "landed");
-        for (const i of survivors) { i.status = "active"; i.targetId = null; }
-
-        // Create new attackers
-        const newAttackerList = [];
-        let id = 1000 + nextWave * 1000;
-        for (const [key, count] of Object.entries(nextAttackers)) {
-          const profile = DRONE_DB.attack.find((d) => d.key === key);
-          if (!profile) continue;
-          for (let j = 0; j < count; j++) {
-            const origin = th.attackOrigins[Math.floor(Math.random() * th.attackOrigins.length)];
-            newAttackerList.push({
-              id: id++,
-              x: origin[0] + (Math.random() - 0.5) * 1500,
-              y: origin[1] + (Math.random() - 0.5) * 1500,
-              speed: profile.speed / 200, cost: profile.cost, threat: profile.threat,
-              status: "active", heading: Math.atan2(5000 - origin[1], 5000 - origin[0]) + (Math.random() - 0.5) * 0.8,
-              type: "attacker", profileName: profile.name,
-            });
-          }
-        }
-
-        // Reset AD unit ammo for next wave
-        for (const ad of adUnitsRef.current) {
-          if (ad.health > 0) {
-            const sys = AD_SYSTEMS.find((s2) => s2.key === ad.key);
-            if (sys) ad.ammo = sys.missiles;
-          }
-        }
-
-        const nextState = {
-          interceptors: survivors, attackers: newAttackerList,
-          metrics: { ...s.metrics, active_interceptors: survivors.length, active_threats: newAttackerList.length },
-          step: s.step, done: false,
-        };
-        simRef.current = nextState;
-        setSimState({ ...nextState });
-        setStatusText(`WAVE ${nextWave + 1}`);
-        frameRef.current = requestAnimationFrame(runLoop);
-      } else {
-        runRef.current = false;
-        setRunning(false);
-        setStatusText("COMPLETE");
-        // Show verdict popup for non-sandbox modes
-        if (scenarioRef.current !== "sandbox") {
-          setTimeout(() => {
-            const metrics = simRef.current?.metrics || {};
-            const sc2 = SCENARIOS[scenarioRef.current];
-            const bonus = waveRef.current > 0 ? sc2?.waves?.slice(0, waveRef.current).reduce((s2, w) => s2 + (w.bonus || 0), 0) : 0;
-            const bUSD = (sc2?.budget || 0) * 1e6 + bonus * 1e6;
-            const spent = (metrics.defense_cost || 0) + (metrics.breach_damage || 0);
-            // fleet + AD costs computed in budget section, approx here
-            const overB = spent > bUSD * 0.8; // loose check
-            const breaches = metrics.breaches || 0;
-            const won = breaches === 0 && !overB;
-            setVerdictPopup({ won, waves: (waveRef.current || 0) + 1, kills: metrics.kills || 0, breaches });
-          }, 500);
-        }
-      }
+      runRef.current = false;
+      setRunning(false);
+      setStatusText("COMPLETE");
     } else {
       frameRef.current = requestAnimationFrame(runLoop);
     }
-  }, []);
+  }, [shakeMap]);
 
   const stopSim = useCallback(() => {
     runRef.current = false;
@@ -1084,10 +1030,8 @@ export default function SwarmInterception() {
     flashesRef.current = [];
     setRunning(false); setPaused(false); setSimState(null); setStatusText("READY");
     setKillFlashes([]); setBreachPoints([]);
-    setCurrentWave(0); setWaveBonus(0); setVerdictPopup(null);
     setAttackSpawns([]); setDefenseSpawns([]);
     setPlacementMode(null);
-    setScenario("medium");
     setZoneCenter(DEFAULT_ZONE_CENTER);
     setZoneRadius(DEFAULT_ZONE_RADIUS);
     setAssetRadius(DEFAULT_ASSET_RADIUS);
@@ -1111,7 +1055,8 @@ export default function SwarmInterception() {
     if (simRef.current.metrics.kills > prevKills) {
       for (const k of simRef.current.attackers) {
         if (k.status === "destroyed" && !k.flashed) {
-          flashesRef.current.push({ x: k.x, y: k.y, time: now, type: "kill" });
+          const flashType = k.killedByAD ? "kill" : "drone_clash";
+          flashesRef.current.push({ x: k.x, y: k.y, time: now, type: flashType });
           k.flashed = true;
         }
       }
@@ -1162,6 +1107,10 @@ export default function SwarmInterception() {
 
       <style jsx global>{`
         .leaflet-container { background: #0a0a0f; }
+        @keyframes gameModePulse {
+          0%, 100% { box-shadow: 0 0 14px rgba(255,102,136,0.30); transform: scale(1); }
+          50% { box-shadow: 0 0 28px rgba(255,102,136,0.55); transform: scale(1.02); }
+        }
       `}</style>
 
       <div style={{ background: "#0a0a0f", color: "#e0e0e0", fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif", height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
@@ -1172,7 +1121,6 @@ export default function SwarmInterception() {
             <h1 style={{ fontSize: 16, fontWeight: 600, color: "#4a9eff", letterSpacing: 0.5, margin: 0 }}>SWARM INTERCEPTION SIMULATOR</h1>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <Link href="/projects/swarm-1v1" style={{ padding: "4px 12px", background: "#4a1a2a", border: "1px solid #8a2a4a", color: "#ff6688", borderRadius: 4, fontSize: 11, cursor: "pointer", textDecoration: "none", fontWeight: 600 }}>1v1 GAME MODE</Link>
             <button onClick={() => setStatsPanel(true)} style={{ padding: "4px 12px", background: "#1a2a40", border: "1px solid #2a4a6a", color: "#4a9eff", borderRadius: 4, fontSize: 11, cursor: "pointer" }}>Unit Database</button>
             <span style={{ fontSize: 12, color: statusColor }}>{statusText}</span>
           </div>
@@ -1182,45 +1130,21 @@ export default function SwarmInterception() {
         <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
           {/* Left panel */}
           <div style={{ width: 280, background: "#111118", borderRight: "1px solid #2a2a35", padding: 16, overflowY: "auto", flexShrink: 0 }}>
-            <PanelTitle>Difficulty (Attack Wave)</PanelTitle>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginBottom: 6 }}>
-              {Object.entries(SCENARIOS).map(([k, v]) => {
-                const total = v.waves.reduce((s, w) => s + Object.values(w.attackers).reduce((s2, n) => s2 + n, 0), 0);
-                const colorMap = { sandbox: "#4a9eff", medium: "#ff9800", hard: "#ff5555", nightmare: "#cc00cc" };
-                const c = colorMap[k] || "#888";
-                const active = scenario === k;
-                return (
-                  <button key={k} onClick={() => { setScenario(k); if (v.budget != null) setDefenseBudget(v.budget); }} disabled={running}
-                    style={{
-                      padding: "8px 6px", fontSize: 11, fontWeight: active ? 700 : 400, borderRadius: 4,
-                      cursor: running ? "not-allowed" : "pointer", opacity: running ? 0.5 : 1,
-                      border: `2px solid ${active ? c : "#2a2a35"}`,
-                      background: active ? "rgba(255,255,255,0.05)" : "#1a1a24",
-                      color: active ? c : "#888", textAlign: "center", lineHeight: 1.4,
-                    }}>
-                    {v.name}<br/><span style={{ fontSize: 9, opacity: 0.7 }}>{v.waves.length} wave{v.waves.length > 1 ? "s" : ""} / {total}</span>
-                  </button>
-                );
-              })}
-            </div>
-            {(() => {
-              const sc = SCENARIOS[scenario];
-              if (!sc) return null;
-              return (
-                <div style={{ fontSize: 9, color: "#555", marginBottom: 6 }}>
-                  {sc.waves.map((w, wi) => (
-                    <div key={wi} style={{ marginBottom: 2 }}>
-                      <span style={{ color: "#666" }}>W{wi + 1}: </span>
-                      {Object.entries(w.attackers).map(([k, n]) => {
-                        const p = DRONE_DB.attack.find((d) => d.key === k);
-                        return <span key={k} style={{ marginRight: 4 }}>{p ? p.name.split(" ")[0] : k} x{n}</span>;
-                      })}
-                      {w.bonus > 0 && <span style={{ color: "#4caf50" }}> +${w.bonus}M</span>}
-                    </div>
-                  ))}
-                </div>
-              );
-            })()}
+            {/* Prominent Game Mode CTA - the simulator is open-ended sandbox; the
+                challenge experience lives in the 1v1 game mode and we surface that prominently. */}
+            <Link href="/projects/swarm-1v1" style={{
+              display: "block", padding: "14px 16px", marginBottom: 16,
+              background: "linear-gradient(135deg, #6a1a3a 0%, #4a1a2a 100%)",
+              border: "2px solid #ff6688", borderRadius: 8,
+              color: "#ffffff", textDecoration: "none",
+              textAlign: "center", fontWeight: 800, fontSize: 14,
+              letterSpacing: 1.2, textTransform: "uppercase",
+              boxShadow: "0 0 20px rgba(255,102,136,0.35)",
+              animation: "gameModePulse 2.4s ease-in-out infinite",
+            }}>
+              <div style={{ fontSize: 16 }}>&#9658; Game Mode</div>
+              <div style={{ fontSize: 9, color: "#ffaabb", marginTop: 4, fontWeight: 500, letterSpacing: 0.5, textTransform: "none" }}>1v1 multiplayer / vs bot</div>
+            </Link>
 
             <PanelTitle>Theater</PanelTitle>
             <select value={theater} onChange={(e) => {
@@ -1391,27 +1315,11 @@ export default function SwarmInterception() {
             {profiles.map((p) => <ProfileCard key={p.key} name={p.name} country={p.country} speed={p.speed} cost={p.cost} rcs={p.rcs} />)}
           </div>
 
-          {/* Map */}
+          {/* Map - wrapped in a shake-able container so shakeMap can translate it on impacts */}
           <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
-            <SimMap simState={simState} theater={theater} killFlashes={killFlashes} breachPoints={breachPoints} attackSpawns={attackSpawns} defenseSpawns={defenseSpawns} placementMode={placementMode} onPlaceSpawn={placementMode ? handlePlaceSpawn : null} zoneCenter={zoneCenter} zoneRadius={zoneRadius} assetRadius={assetRadius} adUnits={adUnits} />
-            {verdictPopup && (
-              <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
-                onClick={() => setVerdictPopup(null)}>
-                <div style={{ background: "#111118", border: `2px solid ${verdictPopup.won ? "#22aa22" : "#ff3333"}`, borderRadius: 12, padding: "32px 40px", textAlign: "center", maxWidth: 360 }}
-                  onClick={(e) => e.stopPropagation()}>
-                  <div style={{ fontSize: 28, fontWeight: 800, color: verdictPopup.won ? "#4caf50" : "#ff5555", marginBottom: 8 }}>
-                    {verdictPopup.won ? "DEFENSE SUCCESSFUL" : "DEFENSE FAILED"}
-                  </div>
-                  <div style={{ fontSize: 12, color: "#888", marginBottom: 16 }}>
-                    {verdictPopup.waves} waves completed - {verdictPopup.kills} kills - {verdictPopup.breaches} breaches
-                  </div>
-                  <button onClick={() => setVerdictPopup(null)}
-                    style={{ padding: "8px 24px", background: "#1a2a40", border: "1px solid #2a4a6a", color: "#e0e0e0", borderRadius: 6, fontSize: 13, cursor: "pointer" }}>
-                    Close
-                  </button>
-                </div>
-              </div>
-            )}
+            <div ref={mapContainerRef} style={{ width: "100%", height: "100%" }}>
+              <SimMap simState={simState} theater={theater} killFlashes={killFlashes} breachPoints={breachPoints} attackSpawns={attackSpawns} defenseSpawns={defenseSpawns} placementMode={placementMode} onPlaceSpawn={placementMode ? handlePlaceSpawn : null} zoneCenter={zoneCenter} zoneRadius={zoneRadius} assetRadius={assetRadius} adUnits={adUnits} />
+            </div>
             {statsPanel && (
               <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}
                 onClick={() => setStatsPanel(false)}>
@@ -1515,18 +1423,17 @@ export default function SwarmInterception() {
             <Metric label="Lost" value={lost} color="red" />
             <Metric label="Attrition Rate" value={`${attrition}%`} />
 
-            {/* Defense Budget */}
-            <PanelTitle>Defense Budget{scenario !== "sandbox" ? " (fixed)" : ""}</PanelTitle>
+            {/* Defense Budget - sandbox mode: user-adjustable budget that the cost
+                breakdown is compared against. No win/lose check, just informational. */}
+            <PanelTitle>Defense Budget</PanelTitle>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
               <input type="range" min="50" max="5000" step="50" value={defenseBudget}
                 onChange={(e) => setDefenseBudget(parseInt(e.target.value))}
-                disabled={scenario !== "sandbox"}
-                style={{ flex: 1, padding: 0, margin: 0, height: 18, opacity: scenario !== "sandbox" ? 0.5 : 1 }} />
+                style={{ flex: 1, padding: 0, margin: 0, height: 18 }} />
               <span style={{ fontSize: 12, color: "#4a9eff", minWidth: 45, textAlign: "right", fontWeight: 600 }}>${defenseBudget}M</span>
             </div>
             {(() => {
-              const bonusUSD = waveBonus * 1e6;
-              const budgetUSD = defenseBudget * 1e6 + bonusUSD;
+              const budgetUSD = defenseBudget * 1e6;
               // Costs: buying drones + buying AD + AD ammo spent + breach damage
               let droneFleetCost = 0;
               if (simState) {
@@ -1537,8 +1444,7 @@ export default function SwarmInterception() {
                   return s + p.cost * sp.count;
                 }, 0);
               } else {
-                const sc = SCENARIOS[scenario];
-                if (sc) droneFleetCost = sc.interceptors * 200000;
+                droneFleetCost = SANDBOX.interceptors * 200000;
               }
               const adDeployCost = adUnits.reduce((s, ad) => { if (ad.free) return s; const sys = AD_SYSTEMS.find((s2) => s2.key === ad.key); return s + (sys ? sys.cost : 0); }, 0);
               const ammoSpent = m.defense_cost || 0; // AD missile costs
@@ -1547,30 +1453,9 @@ export default function SwarmInterception() {
               const remaining = budgetUSD - totalSpent;
               const pctUsed = budgetUSD > 0 ? Math.min(100, (totalSpent / budgetUSD) * 100) : 0;
               const overBudget = remaining < 0;
-              const sc = SCENARIOS[scenario];
-              const allWavesDone = simState?.done && sc?.waves && currentWave >= sc.waves.length - 1;
-              const isSandbox = scenario === "sandbox";
-              const failed = allWavesDone && !isSandbox && overBudget;
 
               return (
                 <div style={{ fontSize: 11 }}>
-                  {/* Wave indicator */}
-                  {sc?.waves && sc.waves.length > 1 && (
-                    <div style={{ display: "flex", gap: 3, marginBottom: 8 }}>
-                      {sc.waves.map((_, wi) => (
-                        <div key={wi} style={{
-                          flex: 1, height: 4, borderRadius: 2,
-                          background: wi < currentWave ? "#4caf50" : wi === currentWave && simState ? "#ff9800" : "#2a2a35",
-                        }} />
-                      ))}
-                    </div>
-                  )}
-                  {sc?.waves && sc.waves.length > 1 && (
-                    <div style={{ fontSize: 10, color: "#888", marginBottom: 6 }}>
-                      Wave {currentWave + 1} / {sc.waves.length}
-                      {waveBonus > 0 && <span style={{ color: "#4caf50" }}> (+${waveBonus}M bonus)</span>}
-                    </div>
-                  )}
                   {/* Budget bar */}
                   <div style={{ background: "#1a1a24", borderRadius: 4, height: 8, marginBottom: 8, overflow: "hidden" }}>
                     <div style={{ height: "100%", width: `${Math.min(pctUsed, 100)}%`, background: pctUsed > 90 ? "#ff5555" : pctUsed > 70 ? "#ff9800" : "#4caf50", borderRadius: 4, transition: "width 0.3s" }} />
@@ -1593,7 +1478,6 @@ export default function SwarmInterception() {
                     <span>Remaining</span><span>{overBudget ? "-" : ""}${formatUSD(Math.abs(remaining))}</span>
                   </div>
                   <div style={{ fontSize: 10, color: "#666", textAlign: "right" }}>{pctUsed.toFixed(0)}% of ${formatUSD(budgetUSD)} budget</div>
-
                 </div>
               );
             })()}
