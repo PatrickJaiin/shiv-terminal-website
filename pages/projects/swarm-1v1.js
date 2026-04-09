@@ -2815,14 +2815,20 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
               {lobbyView === "matchmaking" && (
                 <>
                   <div style={{ fontSize: 11, color: "#888", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>Finding Opponent</div>
-                  {/* Rotating spinner (CSS keyframe) */}
-                  <div style={{
-                    fontSize: 64, marginBottom: 8, color: connectionStatus === "error" ? "#ff5555" : "#4caf50",
-                    display: "inline-block",
-                    animation: connectionStatus === "error" || connectionStatus === "connected" ? "none" : "mmSpin 1.4s linear infinite",
-                    transformOrigin: "center",
-                  }}>
-                    {connectionStatus === "error" ? "✕" : connectionStatus === "connected" ? "✓" : "⟳"}
+                  {/* Spinner: SVG ring instead of Unicode ⟳ glyph because text glyphs have
+                      asymmetric metrics and wobble eccentrically when CSS-rotated. SVG is
+                      geometrically centered so it spins cleanly. */}
+                  <div style={{ fontSize: 64, marginBottom: 8, color: connectionStatus === "error" ? "#ff5555" : "#4caf50", display: "inline-flex", alignItems: "center", justifyContent: "center", lineHeight: 1, height: 64 }}>
+                    {connectionStatus === "error" ? (
+                      <span>✕</span>
+                    ) : connectionStatus === "connected" ? (
+                      <span>✓</span>
+                    ) : (
+                      <svg width="56" height="56" viewBox="0 0 56 56" style={{ animation: "mmSpin 1.2s linear infinite", display: "block" }}>
+                        <circle cx="28" cy="28" r="22" fill="none" stroke="#4caf50" strokeOpacity="0.18" strokeWidth="5" />
+                        <circle cx="28" cy="28" r="22" fill="none" stroke="#4caf50" strokeWidth="5" strokeLinecap="round" strokeDasharray="40 138" />
+                      </svg>
+                    )}
                   </div>
                   {/* Elapsed timer */}
                   {connectionStatus !== "error" && connectionStatus !== "connected" && (
