@@ -64,8 +64,36 @@ function formatUSD(n) {
   return Math.round(n).toString();
 }
 function dist(a, b) { return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2); }
-function simToLatLng(x, y, b) { return [b.south + (y / ARENA) * (b.north - b.south), b.west + (x / ARENA) * (b.east - b.west)]; }
-function latLngToSim(lat, lng, b) { return [((lng - b.west) / (b.east - b.west)) * ARENA, ((lat - b.south) / (b.north - b.south)) * ARENA]; }
+// Project sim coords (square ARENA × ARENA grid) to lat/lng using an ISOTROPIC projection.
+// Without this, theaters with non-square geographic bounds (e.g. Kashmir 1°×1.5°) would
+// stretch sim circles into ovals because 1 sim X unit and 1 sim Y unit would represent
+// different real-world distances.
+// Strategy: compute the larger geographic dimension in meters, use that as the arena side
+// length, then map sim units to meters in BOTH x and y at the same scale.
+function getProjection(b) {
+  const midLat = (b.south + b.north) / 2;
+  const midLng = (b.west + b.east) / 2;
+  const cosLat = Math.cos((midLat * Math.PI) / 180);
+  const widthM = (b.east - b.west) * 111000 * cosLat;
+  const heightM = (b.north - b.south) * 111000;
+  const sizeM = Math.max(widthM, heightM); // square arena = bigger dimension
+  const mpu = sizeM / ARENA;
+  return { midLat, midLng, cosLat, mpu };
+}
+function simToLatLng(x, y, b) {
+  const p = getProjection(b);
+  const dxMeters = (x - ARENA / 2) * p.mpu;
+  const dyMeters = (y - ARENA / 2) * p.mpu;
+  const dLat = dyMeters / 111000;
+  const dLng = dxMeters / (111000 * p.cosLat);
+  return [p.midLat + dLat, p.midLng + dLng];
+}
+function latLngToSim(lat, lng, b) {
+  const p = getProjection(b);
+  const dxMeters = (lng - p.midLng) * 111000 * p.cosLat;
+  const dyMeters = (lat - p.midLat) * 111000;
+  return [ARENA / 2 + dxMeters / p.mpu, ARENA / 2 + dyMeters / p.mpu];
+}
 
 // Generate random resource deposit spawn points across the map.
 // Modern game design: more nodes than slots forces opportunity cost decisions.
@@ -1354,7 +1382,7 @@ export default function Swarm1v1() {
     const L = LRef.current; const layer = layerRef.current;
     if (!L || !layer || !mapReady) return;
     layer.clearLayers();
-    const th = THEATERS[theater]; const mpu = ((th.bounds.north - th.bounds.south) * 111000) / ARENA;
+    const th = THEATERS[theater]; const mpu = getProjection(th.bounds).mpu;
     const toLL = (x, y) => simToLatLng(x, y, th.bounds);
 
     // Divider
@@ -1534,7 +1562,7 @@ export default function Swarm1v1() {
     bl.clearLayers();
     const th = THEATERS[theaterRef.current]; if (!th) return;
     const toLL = (x, y) => simToLatLng(x, y, th.bounds);
-    const mpu = ((th.bounds.north - th.bounds.south) * 111000) / ARENA;
+    const mpu = getProjection(th.bounds).mpu;
     if (showADRangeRef.current) {
       for (const ad of (b.pAD || [])) {
         if (ad.health <= 0) continue;
@@ -2054,7 +2082,7 @@ export default function Swarm1v1() {
       if (L && bl) {
         bl.clearLayers();
         const th = THEATERS[theaterRef.current]; const toLL = (x, y) => simToLatLng(x, y, th.bounds);
-        const mpu = ((th.bounds.north - th.bounds.south) * 111000) / ARENA;
+        const mpu = getProjection(th.bounds).mpu;
         // AD range circles during battle (toggleable)
         if (showADRangeRef.current) {
           for (const ad of b.pAD) {
