@@ -16,11 +16,14 @@ const THEATERS = {
 // Repriced per game economics audit (Apr 2026):
 // FPV bumped from $500 → $15K to match Kamikaze interceptor cost (1:1 economics).
 // HP added per threat tier so cheap ADs need more shots vs expensive drones.
+// HP values are calibrated so the Gepard (dmg 1, pk 0.5) takes on average the target
+// "shot count" to kill each drone: 10 shots for FPV, 12 for Shahed, 15 for Lancet, 30 for
+// Mohajer. At 50% pk, each HP point needs ~2 attempts, so hp = desired_shots / 2.
 const ATTACK_UNITS = [
-  { key: "fpv", name: "FPV Drone", cost: 15000, speed: 1.5, threat: "cheap", hp: 1 },
-  { key: "shahed", name: "Shahed-136", cost: 20000, speed: 1.0, threat: "cheap", hp: 1 },
-  { key: "lancet", name: "Lancet-3", cost: 35000, speed: 1.8, threat: "medium", hp: 3 },
-  { key: "mohajer", name: "Mohajer-6", cost: 500000, speed: 0.8, threat: "expensive", hp: 8 },
+  { key: "fpv", name: "FPV Drone", cost: 15000, speed: 1.5, threat: "cheap", hp: 5 },
+  { key: "shahed", name: "Shahed-136", cost: 20000, speed: 1.0, threat: "cheap", hp: 6 },
+  { key: "lancet", name: "Lancet-3", cost: 35000, speed: 1.8, threat: "medium", hp: 8 },
+  { key: "mohajer", name: "Mohajer-6", cost: 500000, speed: 0.8, threat: "expensive", hp: 15 },
 ];
 
 const DEFENSE_UNITS = [
@@ -35,7 +38,7 @@ const DEFENSE_UNITS = [
 // pK is now "hit chance"; on hit we deduct dmg from target.hp; drone dies at hp <= 0.
 const AD_SYSTEMS_1V1 = [
   { key: "iron_dome", name: "Iron Dome", cost: 50000000, range: 2000, missiles: 60, missileCost: 50000, pk: 0.9, engageRate: 3, dmg: 3, color: "#44bbff" },
-  { key: "gepard", name: "Gepard", cost: 5000000, range: 800, missiles: 680, missileCost: 100, pk: 0.85, engageRate: 1, dmg: 1, color: "#88aa44" },
+  { key: "gepard", name: "Gepard", cost: 5000000, range: 800, missiles: 680, missileCost: 100, pk: 0.5, engageRate: 1, dmg: 1, color: "#88aa44" },
   { key: "nasams", name: "NASAMS 3", cost: 40000000, range: 2500, missiles: 20, missileCost: 500000, pk: 0.95, engageRate: 4, dmg: 100, color: "#4488ff" },
   { key: "pantsir", name: "Pantsir-S1", cost: 15000000, range: 1500, missiles: 12, missileCost: 60000, pk: 0.8, engageRate: 3, dmg: 2, color: "#cc8800" },
 ];
@@ -2322,6 +2325,23 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
       // Move AI attackers - medium/expensive target player AD first
       for (const a of b.aAttackers) {
         if (a.status !== "active") continue;
+        // Trajectory waypoint following: guest drones get assigned a trajectory from
+        // aiSetup._trajectory in launchRound. This loop previously ignored it and only
+        // targeted the nearest HQ, so the guest's waypoints were silently dropped.
+        // Head to current waypoint until close, then advance to the next.
+        if (a.trajectory && a.waypointIdx < a.trajectory.length) {
+          const wp = a.trajectory[a.waypointIdx];
+          const wx = wp.x, wy = wp.y;
+          if (dist(a, wp) < 180) { a.waypointIdx++; }
+          const wdx = wx - a.x, wdy = wy - a.y;
+          let wdiff = Math.atan2(wdy, wdx) - a.heading;
+          while (wdiff > Math.PI) wdiff -= Math.PI * 2;
+          while (wdiff < -Math.PI) wdiff += Math.PI * 2;
+          a.heading += wdiff * 0.06;
+          a.x += Math.cos(a.heading) * a.speed;
+          a.y += Math.sin(a.heading) * a.speed;
+          continue;
+        }
         // Find nearest player HQ (main + extras)
         let nearestHQ = playerHQ;
         if (b.playerHQs && b.playerHQs.length > 1) {

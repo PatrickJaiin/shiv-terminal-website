@@ -144,27 +144,37 @@ html.dark a {
    generated `.dark .dark\:bg-gray-XXX` at (0,2,0) by the element selector.
    So pages that DO have explicit dark: variants get these fallback colors
    instead, which is a small visual drift but consistent and acceptable.
-   The terminal page is scoped via .terminal-page and unaffected. */
-html.dark .bg-white { background-color: #111827; color: #e5e7eb; }
-html.dark .bg-gray-50 { background-color: #0b0f1a; color: #e5e7eb; }
-html.dark .bg-gray-100 { background-color: #1f2937; color: #e5e7eb; }
-html.dark .bg-gray-200 { background-color: #374151; color: #e5e7eb; }
-html.dark .bg-emerald-50 { background-color: #064e3b; }
-html.dark .bg-blue-50 { background-color: #1e3a8a; }
-html.dark .bg-red-50 { background-color: #7f1d1d; }
-html.dark .bg-yellow-50 { background-color: #78350f; }
+   The terminal page is scoped via .terminal-page and unaffected.
 
-html.dark .border-gray-100 { border-color: #1f2937; }
-html.dark .border-gray-200 { border-color: #374151; }
-html.dark .border-gray-300 { border-color: #4b5563; }
-html.dark .border-gray-400 { border-color: #6b7280; }
+   IMPORTANT: these rules use :not(.leaflet-container *, .leaflet-container)
+   to exclude Leaflet's internal map elements so the swarm game/sim pages
+   (which mount a Leaflet map) aren't affected by the dark override. Leaflet
+   default CSS has `.leaflet-div-icon { background: #fff; border: 1px solid #666 }`
+   which the game bypasses via className:"" - but if any internal leaflet
+   element did have bg-white or similar, our override would be catastrophic. */
+html.dark .bg-white:not(.leaflet-container, .leaflet-container *) { background-color: #111827; color: #e5e7eb; }
+html.dark .bg-gray-50:not(.leaflet-container, .leaflet-container *) { background-color: #0b0f1a; color: #e5e7eb; }
+html.dark .bg-gray-100:not(.leaflet-container, .leaflet-container *) { background-color: #1f2937; color: #e5e7eb; }
+html.dark .bg-gray-200:not(.leaflet-container, .leaflet-container *) { background-color: #374151; color: #e5e7eb; }
+html.dark .bg-emerald-50:not(.leaflet-container *) { background-color: #064e3b; }
+html.dark .bg-blue-50:not(.leaflet-container *) { background-color: #1e3a8a; }
+html.dark .bg-red-50:not(.leaflet-container *) { background-color: #7f1d1d; }
+html.dark .bg-yellow-50:not(.leaflet-container *) { background-color: #78350f; }
 
-html.dark .text-gray-900 { color: #f3f4f6; }
-html.dark .text-gray-800 { color: #e5e7eb; }
-html.dark .text-gray-700 { color: #d1d5db; }
-html.dark .text-gray-600 { color: #9ca3af; }
-html.dark .text-gray-500 { color: #9ca3af; }
-html.dark .text-gray-400 { color: #6b7280; }
+html.dark .border-gray-100:not(.leaflet-container *) { border-color: #1f2937; }
+html.dark .border-gray-200:not(.leaflet-container *) { border-color: #374151; }
+html.dark .border-gray-300:not(.leaflet-container *) { border-color: #4b5563; }
+html.dark .border-gray-400:not(.leaflet-container *) { border-color: #6b7280; }
 
-/* Don't remap the game/sim pages which use inline hex colors in style objects
-   (swarm-1v1 / swarm-interception). They already look right in both modes. */
+html.dark .text-gray-900:not(.leaflet-container *) { color: #f3f4f6; }
+html.dark .text-gray-800:not(.leaflet-container *) { color: #e5e7eb; }
+html.dark .text-gray-700:not(.leaflet-container *) { color: #d1d5db; }
+html.dark .text-gray-600:not(.leaflet-container *) { color: #9ca3af; }
+html.dark .text-gray-500:not(.leaflet-container *) { color: #9ca3af; }
+html.dark .text-gray-400:not(.leaflet-container *) { color: #6b7280; }
+
+/* Override Leaflet's default div-icon styling which adds a white background and
+   gray border. The game uses className:"" on all divIcons which SHOULD override
+   this default, but if any internal Leaflet element applies .leaflet-div-icon
+   after the fact, force it transparent so no spurious boxes render on the map. */
+.leaflet-div-icon { background: transparent; border: none; }
