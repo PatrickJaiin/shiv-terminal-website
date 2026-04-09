@@ -16,14 +16,15 @@ const THEATERS = {
 // Repriced per game economics audit (Apr 2026):
 // FPV bumped from $500 → $15K to match Kamikaze interceptor cost (1:1 economics).
 // HP added per threat tier so cheap ADs need more shots vs expensive drones.
-// HP values are calibrated so the Gepard (dmg 1, pk 0.5) takes on average the target
-// "shot count" to kill each drone: 10 shots for FPV, 12 for Shahed, 15 for Lancet, 30 for
-// Mohajer. At 50% pk, each HP point needs ~2 attempts, so hp = desired_shots / 2.
+// HP values are tuned so the Gepard (dmg 1, pk 0.5) needs ~hp*2 attempts on average to
+// kill each drone. FPV nerfed to hp 2 → ~4 Gepard attempts (so it 2-shots on hits).
+// Other drones rebalanced relative to FPV: shahed slightly tankier, lancet medium,
+// mohajer the heavy that needs sustained fire to take down.
 const ATTACK_UNITS = [
-  { key: "fpv", name: "FPV Drone", cost: 15000, speed: 1.5, threat: "cheap", hp: 5 },
-  { key: "shahed", name: "Shahed-136", cost: 20000, speed: 1.0, threat: "cheap", hp: 6 },
-  { key: "lancet", name: "Lancet-3", cost: 35000, speed: 1.8, threat: "medium", hp: 8 },
-  { key: "mohajer", name: "Mohajer-6", cost: 500000, speed: 0.8, threat: "expensive", hp: 15 },
+  { key: "fpv", name: "FPV Drone", cost: 15000, speed: 1.5, threat: "cheap", hp: 2 },
+  { key: "shahed", name: "Shahed-136", cost: 20000, speed: 1.0, threat: "cheap", hp: 3 },
+  { key: "lancet", name: "Lancet-3", cost: 35000, speed: 1.8, threat: "medium", hp: 5 },
+  { key: "mohajer", name: "Mohajer-6", cost: 500000, speed: 0.8, threat: "expensive", hp: 12 },
 ];
 
 const DEFENSE_UNITS = [
@@ -925,6 +926,12 @@ export default function Swarm1v1() {
     if (peerRef.current) { try { peerRef.current.destroy(); } catch {} peerRef.current = null; }
   }, []);
 
+  // Read gameOver via a ref so handleDisconnect always sees the LATEST value, not the
+  // one captured when conn.on("close") was first registered. Without this, an opponent
+  // disconnecting AFTER the game-over screen appears would still bounce the user back
+  // to lobby because the close handler closure was captured with gameOver === null.
+  const gameOverRef = useRef(null);
+  gameOverRef.current = gameOver;
   const handleDisconnect = useCallback(() => {
     const wasIntentional = intentionalCloseRef.current;
     intentionalCloseRef.current = false;
@@ -934,7 +941,7 @@ export default function Swarm1v1() {
     // If the match is already over, let the user stay on the results screen instead
     // of bouncing them back to the lobby. They can click "Back to Lobby" themselves.
     // Only the connection bookkeeping is reset; gameMode/phase/gameOver stay intact.
-    if (gameOver) return;
+    if (gameOverRef.current) return;
     setRoomCode(""); setJoinCode(""); setLobbyView("main");
     setGameMode("bot");
     setCopied(false);
@@ -946,7 +953,7 @@ export default function Swarm1v1() {
     setPhase(PHASE.LOBBY);
     setMapReady(false);
     if (mapInstanceRef.current) { try { mapInstanceRef.current.remove(); } catch {} mapInstanceRef.current = null; layerRef.current = null; battleLayerRef.current = null; LRef.current = null; }
-  }, [teardownPeer, resetMatchState, gameOver]);
+  }, [teardownPeer, resetMatchState]);
 
   const cancelConnection = useCallback(() => {
     teardownPeer(true); // intentional - don't flash "opponent disconnected"
@@ -1884,11 +1891,12 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
       });
     }
 
-    // Player airspace with breach gaps
+    // Player airspace with breach gaps. Bumped opacity/weight for visibility per UX
+    // request - the previous values were too washed out against the satellite tiles.
     if (playerHQ) {
       const breachAngles = battleRef.current?.playerAirBreaches || [];
       if (breachAngles.length === 0) {
-        L.circle(toLL(playerHQ.x, playerHQ.y), { radius: playerAirspace * mpu, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 0.04, weight: 1.5, opacity: 0.5, dashArray: "10 6" }).addTo(layer);
+        L.circle(toLL(playerHQ.x, playerHQ.y), { radius: playerAirspace * mpu, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 0.1, weight: 3, opacity: 0.9, dashArray: "10 6" }).addTo(layer);
       } else {
         const SEG = 24; const segArc = (Math.PI * 2) / SEG; const GAP = 0.15;
         for (let i = 0; i < SEG; i++) {
@@ -1897,7 +1905,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
           if (inGap) continue;
           const pts = [];
           for (let j = 0; j <= 3; j++) { const a = -Math.PI + i * segArc + (j / 3) * segArc; pts.push(toLL(playerHQ.x + Math.cos(a) * playerAirspace, playerHQ.y + Math.sin(a) * playerAirspace)); }
-          L.polyline(pts, { color: "#4a9eff", weight: 1.5, opacity: 0.5, dashArray: "10 6", interactive: false }).addTo(layer);
+          L.polyline(pts, { color: "#4a9eff", weight: 3, opacity: 0.9, dashArray: "10 6", interactive: false }).addTo(layer);
         }
         for (const ba of breachAngles) {
           const bll = toLL(playerHQ.x + Math.cos(ba) * playerAirspace, playerHQ.y + Math.sin(ba) * playerAirspace);
@@ -1917,7 +1925,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     for (const eh of playerExtraHQs) {
       // Each extra HQ has its own small airspace bubble (60% of main airspace radius)
       const ehRadius = playerAirspace * 0.6;
-      L.circle(toLL(eh.x, eh.y), { radius: ehRadius * mpu, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 0.04, weight: 1.5, opacity: 0.4, dashArray: "8 4", interactive: false }).addTo(layer);
+      L.circle(toLL(eh.x, eh.y), { radius: ehRadius * mpu, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 0.08, weight: 2.5, opacity: 0.85, dashArray: "8 4", interactive: false }).addTo(layer);
       L.marker(toLL(eh.x, eh.y), {
         icon: L.divIcon({
           className: "", iconSize: [18, 18], iconAnchor: [9, 9],
@@ -1960,17 +1968,17 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
       if (ad.health <= 0) continue;
       const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
       if (!sys) continue;
-      L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.06, weight: 1.5, opacity: 0.4, dashArray: "6 4", interactive: false }).addTo(layer);
+      L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.12, weight: 2.5, opacity: 0.85, dashArray: "6 4", interactive: false }).addTo(layer);
       L.circleMarker(toLL(ad.x, ad.y), { radius: 7, color: "#ffffff", fillColor: sys.color, fillOpacity: 0.9, weight: 2.5 }).addTo(layer);
     }
 
     // AI - show full enemy intel: HQ, airspace, resources, AD systems with range, interceptor positions
     // In MP mode, hqX/hqY are null until the opponent places their HQ - skip rendering until then
     if (aiSetup && aiSetup.hqX != null && aiSetup.hqY != null) {
-      // Airspace
+      // Airspace - bumped opacity/weight for visibility
       const airBreaches = battleRef.current?.aiAirBreaches || [];
       if (airBreaches.length === 0) {
-        L.circle(toLL(aiSetup.hqX, aiSetup.hqY), { radius: aiSetup.airspace * mpu, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 0.04, weight: 1, opacity: 0.4, dashArray: "10 6" }).addTo(layer);
+        L.circle(toLL(aiSetup.hqX, aiSetup.hqY), { radius: aiSetup.airspace * mpu, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 0.1, weight: 3, opacity: 0.9, dashArray: "10 6" }).addTo(layer);
       } else {
         const SEG = 24; const segArc = (Math.PI * 2) / SEG; const GAP = 0.15;
         for (let i = 0; i < SEG; i++) {
@@ -1979,7 +1987,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
           if (inGap) continue;
           const pts = [];
           for (let j = 0; j <= 3; j++) { const a = -Math.PI + i * segArc + (j / 3) * segArc; pts.push(toLL(aiSetup.hqX + Math.cos(a) * aiSetup.airspace, aiSetup.hqY + Math.sin(a) * aiSetup.airspace)); }
-          L.polyline(pts, { color: "#ff5555", weight: 1, opacity: 0.4, dashArray: "10 6", interactive: false }).addTo(layer);
+          L.polyline(pts, { color: "#ff5555", weight: 3, opacity: 0.9, dashArray: "10 6", interactive: false }).addTo(layer);
         }
       }
       // Enemy HQ: bigger square
@@ -2008,7 +2016,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
         if (ad.health <= 0) continue;
         const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
         if (!sys) continue;
-        L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: "#ff5555", fillOpacity: 0.04, weight: 1.5, opacity: 0.45, dashArray: "6 4", interactive: false }).addTo(layer);
+        L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: "#ff5555", fillOpacity: 0.1, weight: 2.5, opacity: 0.85, dashArray: "6 4", interactive: false }).addTo(layer);
         L.circleMarker(toLL(ad.x, ad.y), { radius: 7, color: "#ff3333", fillColor: sys.color, fillOpacity: 0.9, weight: 2.5 }).addTo(layer);
       }
       // Enemy interceptors at base. Same shape distinction as player but red-tinted:
@@ -2039,12 +2047,12 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
       for (const ad of (b.pAD || [])) {
         if (ad.health <= 0) continue;
         const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
-        if (sys) L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.06, weight: 1.5, opacity: 0.4, dashArray: "6 4", interactive: false }).addTo(bl);
+        if (sys) L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.12, weight: 2.5, opacity: 0.85, dashArray: "6 4", interactive: false }).addTo(bl);
       }
       for (const ad of (b.aAD || [])) {
         if (ad.health <= 0) continue;
         const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
-        if (sys) L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.04, weight: 1.5, opacity: 0.3, dashArray: "6 4", interactive: false }).addTo(bl);
+        if (sys) L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.1, weight: 2.5, opacity: 0.75, dashArray: "6 4", interactive: false }).addTo(bl);
       }
     }
     // Helper: pie-chart SVG that fills clockwise from 12 o'clock as reloadPct goes 0 → 1.
@@ -2391,19 +2399,29 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     const pInts = [];
     playerInterceptors.forEach((d, groupIdx) => {
       const def = DEFENSE_UNITS.find((dd) => dd.key === d.key);
-      for (let i = 0; i < d.count; i++) {
+      const count = d.count || 4;
+      for (let i = 0; i < count; i++) {
+        // Spawn jittered around the placement marker for visual spread, but RTB to a
+        // FIXED slot in a small ring around the EXACT placement position so they always
+        // land at the marker (not at the random initial scatter point). Each interceptor
+        // gets its own slot on the ring so they don't all overlap when landed.
         const sx = d.x + (Math.random() - 0.5) * 300;
         const sy = d.y + (Math.random() - 0.5) * 300;
+        const slotAngle = (i / count) * Math.PI * 2;
+        const slotRadius = 25; // small ring so they cluster tightly at the placement marker
+        const homeX = d.x + Math.cos(slotAngle) * slotRadius;
+        const homeY = d.y + Math.sin(slotAngle) * slotRadius;
         pInts.push({
-          id: 30000 + pInts.length, x: sx, y: sy, spawnX: sx, spawnY: sy,
+          id: 30000 + pInts.length, x: sx, y: sy, spawnX: homeX, spawnY: homeY,
           speed: def?.speed || 2.0, status: "active", targetId: null,
           destroyOnKill: def?.destroyOnKill !== false, survivalRate: def?.survivalRate || 0,
           groupIdx,
         });
       }
     });
-    // AI interceptors with spawn positions
-    const aInts = aiSetup.interceptors.filter((i) => i.status === "active").map((i) => ({ ...i, spawnX: i.x, spawnY: i.y }));
+    // AI interceptors with spawn positions. Use the entity's stored x,y as RTB target
+    // (these come from the guest's group placements via place_interceptor_group).
+    const aInts = aiSetup.interceptors.filter((i) => i.status === "active").map((i) => ({ ...i, spawnX: i.groupX ?? i.x, spawnY: i.groupY ?? i.y }));
 
     log.push(`You sent ${pAttackers.length} drones | ${opponentName} sent ${aAttackers.length} drones`);
     setCombatLog((prev) => [...prev, ...log]);
@@ -3042,17 +3060,45 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
       `}</style>
 
       <div style={{ background: "#0a0a0f", color: "#e0e0e0", fontFamily: "'Segoe UI', system-ui, sans-serif", height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-        <div style={{ background: "#111118", borderBottom: "1px solid #2a2a35", padding: "8px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 48, flexShrink: 0 }}>
+        <div style={{ background: "#111118", borderBottom: "1px solid #2a2a35", padding: "8px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 56, flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             <Link href="/projects/swarm-interception" style={{ color: "#4a9eff", fontSize: 13, textDecoration: "none" }}>&larr; Simulation</Link>
             <h1 style={{ fontSize: 16, fontWeight: 600, color: "#ff6688", letterSpacing: 0.5, margin: 0 }}>SWARM 1v1</h1>
           </div>
           {phase !== PHASE.LOBBY && phase !== PHASE.MATCHMAKING && (
-            <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 11 }}>
-              <span style={{ color: "#4a9eff" }}>{username}: ${formatUSD(Math.max(0, playerBudget))}</span>
-              <span style={{ color: "#666" }}>vs</span>
-              <span style={{ color: "#ff5555" }}>{opponentName}: ${formatUSD(Math.max(0, aiBudget))}</span>
-              {phase === PHASE.COMBAT && <span style={{ color: "#888" }}>Round {currentRound}</span>}
+            // Top-right budget panel: prominent card-style display with both players'
+            // running budgets. Shakes when triggerShake() fires from an illegal spend
+            // attempt (canAfford check failure). The shake reuses the same budgetShake
+            // state that the left-panel budget already uses.
+            <div style={{
+              display: "flex", gap: 14, alignItems: "center",
+              background: "rgba(17, 17, 24, 0.95)",
+              border: `2px solid ${budgetShake ? "#ff5555" : "#2a2a35"}`,
+              borderRadius: 8,
+              padding: "8px 16px",
+              transition: budgetShake ? "none" : "border-color 0.3s",
+              transform: budgetShake ? `translateX(${Math.random() > 0.5 ? 6 : -6}px)` : "none",
+              boxShadow: budgetShake ? "0 0 12px rgba(255,85,85,0.5)" : "0 0 8px rgba(0,0,0,0.3)",
+            }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                <div style={{ fontSize: 9, color: "#666", textTransform: "uppercase", letterSpacing: 1 }}>{username}</div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: "#4a9eff", fontFamily: "monospace", lineHeight: 1.1 }}>
+                  ${formatUSD(Math.max(0, playerBudget))}
+                </div>
+              </div>
+              <div style={{ fontSize: 14, color: "#666", fontWeight: 700 }}>VS</div>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+                <div style={{ fontSize: 9, color: "#666", textTransform: "uppercase", letterSpacing: 1 }}>{opponentName}</div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: "#ff5555", fontFamily: "monospace", lineHeight: 1.1 }}>
+                  ${formatUSD(Math.max(0, aiBudget))}
+                </div>
+              </div>
+              {phase === PHASE.COMBAT && (
+                <div style={{ marginLeft: 8, paddingLeft: 12, borderLeft: "1px solid #2a2a35", display: "flex", flexDirection: "column", alignItems: "center" }}>
+                  <div style={{ fontSize: 9, color: "#666", textTransform: "uppercase", letterSpacing: 1 }}>Round</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: "#ff9800", fontFamily: "monospace", lineHeight: 1.1 }}>{currentRound + 1}</div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -3309,8 +3355,12 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
                       <div style={{ fontSize: 10, textTransform: "uppercase", color: "#4a9eff", margin: "8px 0 4px" }}>Interceptor Drones</div>
                       {DEFENSE_UNITS.map((d) => (
                         <button key={d.key} onClick={() => setPlacingWhat("def_" + d.key)}
-                          style={{ ...inputStyle, width: "100%", marginBottom: 3, cursor: "pointer", textAlign: "left", fontSize: 10, border: placingWhat === "def_" + d.key ? "1px solid #4a9eff" : "1px solid #2a2a35" }}>
-                          {d.name} x4 ${formatUSD(d.cost * 4)} {d.destroyOnKill ? "(kamikaze)" : `(${Math.round(d.survivalRate * 100)}% survive)`}
+                          style={{ ...inputStyle, width: "100%", marginBottom: 3, cursor: "pointer", textAlign: "left", fontSize: 10, border: placingWhat === "def_" + d.key ? "1px solid #4a9eff" : "1px solid #2a2a35", display: "flex", alignItems: "center", gap: 8 }}>
+                          {/* Inline icon matching the placement marker shape so users see what they're buying */}
+                          <span dangerouslySetInnerHTML={{ __html: d.destroyOnKill
+                            ? `<svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="#4a9eff" stroke="#ffffff" stroke-width="1.5"/></svg>`
+                            : `<svg width="18" height="18" viewBox="0 0 18 18"><polygon points="9,2 16,15 9,12 2,15" fill="#4a9eff" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round"/></svg>` }} />
+                          <span>{d.name} x4 ${formatUSD(d.cost * 4)} {d.destroyOnKill ? "(kamikaze)" : `(${Math.round(d.survivalRate * 100)}% survive)`}</span>
                         </button>
                       ))}
 
@@ -3508,8 +3558,11 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
                       {DEFENSE_UNITS.map((d) => (
                         <button key={d.key} onClick={() => setPlacingWhat("def_" + d.key)}
                           style={{ ...inputStyle, width: "100%", marginBottom: 3, cursor: "pointer", textAlign: "left", fontSize: 9,
-                            border: placingWhat === "def_" + d.key ? "1px solid #4a9eff" : "1px solid #2a2a35" }}>
-                          {d.name} x4 ${formatUSD(d.cost * 4)}
+                            border: placingWhat === "def_" + d.key ? "1px solid #4a9eff" : "1px solid #2a2a35", display: "flex", alignItems: "center", gap: 8 }}>
+                          <span dangerouslySetInnerHTML={{ __html: d.destroyOnKill
+                            ? `<svg width="16" height="16" viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="#4a9eff" stroke="#ffffff" stroke-width="1.5"/></svg>`
+                            : `<svg width="16" height="16" viewBox="0 0 18 18"><polygon points="9,2 16,15 9,12 2,15" fill="#4a9eff" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round"/></svg>` }} />
+                          <span>{d.name} x4 ${formatUSD(d.cost * 4)}</span>
                         </button>
                       ))}
 
