@@ -1679,7 +1679,17 @@ export default function Swarm1v1() {
         if (sys) L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.04, weight: 1.5, opacity: 0.3, dashArray: "6 4", interactive: false }).addTo(bl);
       }
     }
-    // Helper: draw an AD marker with type color, side-indicating border, and reload arc
+    // Helper: pie-chart SVG that fills clockwise from 12 o'clock as reloadPct goes 0 → 1.
+    // Uses stroke-dasharray on a circle so the fill grows around the perimeter.
+    const reloadPieSvg = (pct, color, ringOpacity = 0.9) => {
+      const r = 13;
+      const circumference = 2 * Math.PI * r;
+      const filled = pct * circumference;
+      const empty = circumference - filled;
+      // Center at 16,16 in a 32x32 box. Rotate -90 to start at top.
+      return `<svg width="32" height="32" viewBox="0 0 32 32" style="transform:rotate(-90deg)"><circle cx="16" cy="16" r="${r}" fill="none" stroke="${color}" stroke-width="3" stroke-dasharray="${filled} ${empty}" opacity="${ringOpacity}"/></svg>`;
+    };
+    // Helper: draw an AD marker with type color, side-indicating border, and pie-chart reload
     const drawAdMarker = (ad, sideColor, labelColor) => {
       const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
       if (!sys) return;
@@ -1688,27 +1698,30 @@ export default function Swarm1v1() {
       L.circleMarker(toLL(ad.x, ad.y), { radius: 9, color: alive ? sideColor : "#222", fillColor: alive ? sys.color : "#1a1a1a", fillOpacity: alive ? 0.95 : 0.3, weight: 2.5 }).addTo(bl);
       // Inner crosshair
       L.circleMarker(toLL(ad.x, ad.y), { radius: 2, color: "#ffffff", fillColor: "#ffffff", fillOpacity: alive ? 1 : 0.3, weight: 0 }).addTo(bl);
-      // Reload arc: shows cooldown progress as a thin colored ring around the AD.
-      // Reload completes when (b.step - lastFired) >= cooldown. Empty ring = ready, filling = reloading.
-      if (alive && ad.lastFired !== undefined) {
+      // Reload pie chart: fills clockwise as cooldown progresses. Solid green when ready.
+      if (alive && ad.ammo > 0) {
         const cooldown = Math.max(3, Math.round(sys.engageRate * 5));
-        const elapsed = b.step - ad.lastFired;
-        if (elapsed < cooldown) {
-          // Reloading - draw a faint ring whose opacity grows as reload completes
-          const reloadPct = Math.min(1, elapsed / cooldown);
-          L.circleMarker(toLL(ad.x, ad.y), {
-            radius: 13, color: "#ffaa00", fillColor: "transparent",
-            opacity: 0.3 + reloadPct * 0.5, weight: 2,
-          }).addTo(bl);
-        } else if (ad.ammo > 0) {
-          // Ready to fire - bright green ring
-          L.circleMarker(toLL(ad.x, ad.y), {
-            radius: 13, color: "#4caf50", fillColor: "transparent",
-            opacity: 0.7, weight: 1.5,
-          }).addTo(bl);
-        }
+        const elapsed = ad.lastFired !== undefined ? b.step - ad.lastFired : cooldown;
+        const reloadPct = Math.min(1, elapsed / cooldown);
+        const pieColor = reloadPct >= 1 ? "#4caf50" : "#ffaa00";
+        L.marker(toLL(ad.x, ad.y), {
+          icon: L.divIcon({
+            className: "", iconSize: [32, 32], iconAnchor: [16, 16],
+            html: reloadPieSvg(reloadPct, pieColor, 0.85),
+          }),
+          interactive: false,
+        }).addTo(bl);
+      } else if (alive && ad.ammo === 0) {
+        // Out of ammo - red ring with X icon
+        L.marker(toLL(ad.x, ad.y), {
+          icon: L.divIcon({
+            className: "", iconSize: [32, 32], iconAnchor: [16, 16],
+            html: `<svg width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="13" fill="none" stroke="#ff3333" stroke-width="2" stroke-dasharray="3 3"/></svg>`,
+          }),
+          interactive: false,
+        }).addTo(bl);
       }
-      // Label with name + ammo count
+      // Label with name + LIVE ammo count (renderBattleFrame is called every frame so this updates)
       if (alive) {
         L.marker(toLL(ad.x, ad.y - 180), {
           icon: L.divIcon({
@@ -3130,6 +3143,19 @@ export default function Swarm1v1() {
               )}
               {unitInspect && (() => {
                 const u = unitInspect;
+                // Look up LIVE data each render so combat state (ammo, health) updates in the popup.
+                // unitInspect stores identifiers (kind, side, key, x, y); the ammo/health are read fresh.
+                const liveAd = u.kind === "ad"
+                  ? (u.side === "player" ? playerAD : (aiSetup?.adUnits || [])).find((a) => a.key === u.key && a.x === u.x && a.y === u.y)
+                  : null;
+                // Also pull live battle ammo if combat is active (battleRef has the most recent values)
+                const battleLiveAd = (battleActive && battleRef.current && u.kind === "ad")
+                  ? (u.side === "player" ? battleRef.current.pAD : battleRef.current.aAD)?.find((a) => a.key === u.key && a.x === u.x && a.y === u.y)
+                  : null;
+                const adData = battleLiveAd || liveAd || u.ad;
+                const liveRes = u.kind === "resource"
+                  ? (u.side === "player" ? playerResources : (aiSetup?.resources || [])).find((r) => r.key === u.key && r.x === u.x && r.y === u.y)
+                  : null;
                 let title = "", subtitle = "", stats = [], color = "#4a9eff", svg = null;
                 if (u.kind === "hq" || u.kind === "hq_extra") {
                   title = u.side === "player" ? (u.kind === "hq_extra" ? "Your Forward HQ" : "Your HQ") : "Enemy HQ";
@@ -3143,13 +3169,16 @@ export default function Swarm1v1() {
                     title = sys.name;
                     subtitle = u.side === "player" ? "Your Ground AD" : "Enemy Ground AD";
                     color = sys.color;
+                    const liveAmmo = adData?.ammo ?? sys.missiles;
+                    const liveHealth = adData?.health ?? 1;
                     stats = [
                       ["Cost", `$${formatUSD(sys.cost)}`],
                       ["Range", `${sys.range}m`],
-                      ["Missiles", `${u.ad?.ammo ?? sys.missiles} / ${sys.missiles}`],
-                      ["Pk", `${Math.round(sys.pk * 100)}%`],
+                      ["Missiles", `${liveAmmo} / ${sys.missiles}`],
+                      ["Hit chance", `${Math.round(sys.pk * 100)}%`],
+                      ["Damage/hit", `${sys.dmg}`],
                       ["Reload", `${sys.engageRate}s`],
-                      ["Health", u.ad?.health > 0 ? "Operational" : "DESTROYED"],
+                      ["Status", liveHealth > 0 ? (liveAmmo === 0 ? "OUT OF AMMO" : "Operational") : "DESTROYED"],
                     ];
                     svg = `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="22" fill="${color}" stroke="${u.side === 'player' ? '#fff' : '#ff3333'}" stroke-width="3"/><circle cx="30" cy="30" r="4" fill="#fff"/><line x1="30" y1="8" x2="30" y2="20" stroke="#fff" stroke-width="2"/><line x1="30" y1="40" x2="30" y2="52" stroke="#fff" stroke-width="2"/><line x1="8" y1="30" x2="20" y2="30" stroke="#fff" stroke-width="2"/><line x1="40" y1="30" x2="52" y2="30" stroke="#fff" stroke-width="2"/></svg>`;
                   }
@@ -3164,7 +3193,7 @@ export default function Swarm1v1() {
                       ["Income", `$${formatUSD(res.income)}/round`],
                       ["ROI", `${(res.cost / res.income).toFixed(1)} rounds`],
                       ["Breach loss", `$${formatUSD(res.breachDmg)}`],
-                      ["Status", u.res?.alive ? "Online" : "DESTROYED"],
+                      ["Status", (liveRes ?? u.res)?.alive ? "Online" : "DESTROYED"],
                     ];
                     svg = `<svg width="60" height="60" viewBox="0 0 60 60"><polygon points="30,8 52,50 8,50" fill="${color}" stroke="#fff" stroke-width="3" stroke-linejoin="round"/><text x="30" y="44" text-anchor="middle" font-size="20" font-weight="800" font-family="monospace" fill="#fff">${res.icon}</text></svg>`;
                   }
