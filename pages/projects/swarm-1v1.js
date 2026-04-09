@@ -1044,6 +1044,16 @@ export default function Swarm1v1() {
     if (battleActive && (placingWhat === "sell" || placingWhat === "delete")) return;
 
     if (placingWhat === "hq") {
+      // Prevent placing HQ inside enemy airspace + buffer for player's own min airspace (1000)
+      if (aiSetup) {
+        const enemyDist = dist({ x, y }, { x: aiSetup.hqX, y: aiSetup.hqY });
+        const minSafeDist = (aiSetup.airspace || 2500) + 1000 + 400; // enemy airspace + min player airspace + buffer
+        if (enemyDist < minSafeDist) {
+          setInfoPopup({ text: `HQ too close to enemy airspace. Place at least ${Math.round(minSafeDist)}m away.` });
+          setTimeout(() => setInfoPopup(null), 2500);
+          return;
+        }
+      }
       setPlayerHQ({ x, y }); setPlacingWhat(null);
       broadcast({ type: "place_hq", x, y });
     } else if (placingWhat === "extra_hq") {
@@ -1060,6 +1070,15 @@ export default function Swarm1v1() {
       for (const eh of playerExtraHQs) {
         if (dist({ x, y }, eh) < 1500) {
           setInfoPopup({ text: "Place additional HQ at least 1500m from other HQs" });
+          setTimeout(() => setInfoPopup(null), 2500);
+          return;
+        }
+      }
+      // Also block placement inside enemy airspace
+      if (aiSetup) {
+        const enemyDist = dist({ x, y }, { x: aiSetup.hqX, y: aiSetup.hqY });
+        if (enemyDist < (aiSetup.airspace || 2500) + 800) {
+          setInfoPopup({ text: "Cannot place HQ inside enemy airspace" });
           setTimeout(() => setInfoPopup(null), 2500);
           return;
         }
@@ -2197,6 +2216,16 @@ export default function Swarm1v1() {
 
   useEffect(() => () => { if (frameRef.current) cancelAnimationFrame(frameRef.current); }, []);
 
+  // ── Auto-clamp playerAirspace so it can never overlap enemy airspace ──
+  // Triggered whenever playerHQ or aiSetup changes (e.g. HQ placed, enemy setup arrives).
+  useEffect(() => {
+    if (!playerHQ || !aiSetup) return;
+    const enemyDist = dist(playerHQ, { x: aiSetup.hqX, y: aiSetup.hqY });
+    const maxSafe = Math.floor(enemyDist - (aiSetup.airspace || 2500) - 400);
+    if (maxSafe < 1000) return; // HQ placement validation should have prevented this
+    if (playerAirspace > maxSafe) setPlayerAirspace(maxSafe);
+  }, [playerHQ, aiSetup, playerAirspace]);
+
   // ── Audit fix #4: grant free starting kamikaze interceptors after HQ placement ──
   // Player gets 10 free kamikazes positioned just south of their HQ so round 1 isn't an auto-loss.
   // Only fires once per match (when going from no HQ → HQ placed and no interceptors yet).
@@ -2253,6 +2282,10 @@ export default function Swarm1v1() {
       />
       <style jsx global>{`
         .leaflet-container { background: #0a0a0f; }
+        /* Per visuals audit: dim ONLY the satellite tile layer so unit colors pop.
+           Markers, popups, range circles, and SVG overlays render on separate panes
+           and stay at full brightness. */
+        .leaflet-tile-pane { filter: brightness(0.65) contrast(1.05) saturate(0.7); }
         @keyframes fadeUp { 0% { opacity: 1; transform: translate(-50%, -50%); } 100% { opacity: 0; transform: translate(-50%, -120%); } }
       `}</style>
 
@@ -2444,7 +2477,7 @@ export default function Swarm1v1() {
                     <>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, marginTop: 8 }}>
                         <span style={{ fontSize: 10, color: "#888" }}>Airspace:</span>
-                        <input type="range" min="1000" max={playerHQ && aiSetup ? Math.max(1000, Math.floor(dist(playerHQ, { x: aiSetup.hqX, y: aiSetup.hqY }) - aiSetup.airspace - 200)) : 4000} step="200" value={playerAirspace} onChange={(e) => setPlayerAirspace(parseInt(e.target.value))} style={{ flex: 1 }} />
+                        <input type="range" min="1000" max={playerHQ && aiSetup ? Math.max(1000, Math.floor(dist(playerHQ, { x: aiSetup.hqX, y: aiSetup.hqY }) - aiSetup.airspace - 400)) : 4000} step="200" value={playerAirspace} onChange={(e) => setPlayerAirspace(parseInt(e.target.value))} style={{ flex: 1 }} />
                         <span style={{ fontSize: 10, color: "#4a9eff" }}>{playerAirspace}m</span>
                       </div>
                       {(() => {
@@ -2651,7 +2684,7 @@ export default function Swarm1v1() {
                     <>
                       <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
                         <span style={{ fontSize: 9, color: "#888" }}>Airspace:</span>
-                        <input type="range" min="1000" max={playerHQ && aiSetup ? Math.max(1000, Math.floor(dist(playerHQ, { x: aiSetup.hqX, y: aiSetup.hqY }) - aiSetup.airspace - 200)) : 4000} step="200" value={playerAirspace} onChange={(e) => setPlayerAirspace(parseInt(e.target.value))} style={{ flex: 1 }} />
+                        <input type="range" min="1000" max={playerHQ && aiSetup ? Math.max(1000, Math.floor(dist(playerHQ, { x: aiSetup.hqX, y: aiSetup.hqY }) - aiSetup.airspace - 400)) : 4000} step="200" value={playerAirspace} onChange={(e) => setPlayerAirspace(parseInt(e.target.value))} style={{ flex: 1 }} />
                         <span style={{ fontSize: 9, color: "#4a9eff" }}>{playerAirspace}m</span>
                       </div>
                       <div style={{ fontSize: 9, color: "#4caf50", marginBottom: 6 }}>+${formatUSD(Math.floor(playerAirspace * 200))}/rnd from airspace</div>
@@ -2821,7 +2854,7 @@ export default function Swarm1v1() {
             </div>
 
             <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
-              <div ref={mapRef} style={{ width: "100%", height: "100%", cursor: placingWhat ? "crosshair" : "grab", filter: "brightness(0.55) contrast(1.1) saturate(0.6)", transition: "transform 0.05s" }} />
+              <div ref={mapRef} style={{ width: "100%", height: "100%", cursor: placingWhat ? "crosshair" : "grab", transition: "transform 0.05s" }} />
               {infoPopup && (
                 <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "rgba(17,17,24,0.95)", border: "1px solid #4a9eff", borderRadius: 6, padding: "8px 16px", fontSize: 11, color: "#e0e0e0", zIndex: 500, maxWidth: 400, textAlign: "center" }}>
                   {infoPopup.text}
