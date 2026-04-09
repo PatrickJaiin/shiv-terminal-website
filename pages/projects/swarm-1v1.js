@@ -677,6 +677,12 @@ export default function Swarm1v1() {
         setAiSetup((prev) => ({ ...(prev || {}), _posture: msg.value }));
         break;
       }
+      case "trajectory": {
+        // Guest sent updated trajectory waypoints. Stash on aiSetup so launchRound can
+        // pass them to spawnDrones when generating the guest's attackers.
+        setAiSetup((prev) => ({ ...(prev || {}), _trajectory: Array.isArray(msg.waypoints) ? msg.waypoints : [] }));
+        break;
+      }
       case "ready": {
         setOpponentReady(!!msg.ready);
         break;
@@ -1452,7 +1458,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
 
   // ── Phase 2: broadcast state changes for fields not handled by handleMapClick ──
   // Skip broadcast on first render via a "mounted" sentinel per field.
-  const lastBroadcastRef = useRef({ airspace: null, attack: null, priority: null, posture: null, ready: null });
+  const lastBroadcastRef = useRef({ airspace: null, attack: null, priority: null, posture: null, ready: null, trajectory: null });
   useEffect(() => {
     if (gameMode === "bot") return;
     if (lastBroadcastRef.current.airspace === playerAirspace) return;
@@ -1484,6 +1490,16 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     lastBroadcastRef.current.ready = meReady;
     if (connRef.current?.open) broadcast({ type: "ready", ready: meReady });
   }, [meReady, gameMode, broadcast]);
+  // Phase 2 fix: broadcast guest's trajectory waypoints to host. Without this, the host
+  // (which runs the authoritative sim) spawns the guest's drones with no trajectory and
+  // they beeline to the priority target, ignoring every waypoint the guest placed.
+  useEffect(() => {
+    if (gameMode === "bot") return;
+    const json = JSON.stringify(playerTrajectory);
+    if (lastBroadcastRef.current.trajectory === json) return;
+    lastBroadcastRef.current.trajectory = json;
+    if (connRef.current?.open) broadcast({ type: "trajectory", waypoints: playerTrajectory });
+  }, [playerTrajectory, gameMode, broadcast]);
 
   // Init map
   useEffect(() => {
@@ -1994,7 +2010,10 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
 
     // Spawn player's attack drones flying toward AI HQ (via trajectory waypoints if defined)
     const pAttackers = spawnDrones(playerAttack, playerHQ.x, playerHQ.y - 500, aiSetup.hqX, aiSetup.hqY, 10000 + round * 1000, playerTrajectory.length > 0 ? playerTrajectory : null);
-    const aAttackers = spawnDrones(aiWave, aiSetup.hqX, aiSetup.hqY + 500, playerHQ.x, playerHQ.y, 20000 + round * 1000);
+    // Guest's trajectory arrives via the "trajectory" net message and is stashed at aiSetup._trajectory.
+    // Without this, host-spawned guest drones ignore the waypoints the guest placed locally.
+    const aiTrajectory = (gameMode === "host" && Array.isArray(aiSetup._trajectory) && aiSetup._trajectory.length > 0) ? aiSetup._trajectory : null;
+    const aAttackers = spawnDrones(aiWave, aiSetup.hqX, aiSetup.hqY + 500, playerHQ.x, playerHQ.y, 20000 + round * 1000, aiTrajectory);
 
     // Player interceptors with spawn positions for RTB.
     // Tag each entity with groupIdx so the round-end survival count only counts its own group
