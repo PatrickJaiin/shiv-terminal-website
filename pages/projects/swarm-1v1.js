@@ -159,6 +159,87 @@ function generateAIAttack(round) {
   };
 }
 
+// AI spends accumulated budget on defenses between rounds.
+// Priorities: (1) replace destroyed AD, (2) top up interceptors, (3) upgrade AD over time,
+// (4) claim more deposits if budget is huge.
+function aiSpendBudget(aiSetup, deposits, currentBudget, round) {
+  let budget = currentBudget;
+  const newAdUnits = [...(aiSetup.adUnits || [])];
+  const newInterceptors = [...(aiSetup.interceptors || [])];
+  const newResources = [...(aiSetup.resources || [])];
+  const newDeposits = [...deposits];
+
+  // Priority 1: replace destroyed AD systems back up to 4 baseline ADs
+  while (newAdUnits.length < 4 && budget >= 5000000) {
+    budget -= 5000000;
+    newAdUnits.push({
+      key: "gepard",
+      x: aiSetup.hqX + (Math.random() - 0.5) * 1500,
+      y: aiSetup.hqY + 600 + Math.random() * 600,
+      health: 1, ammo: 680,
+    });
+  }
+
+  // Priority 2: top up interceptors if active count is low
+  const activeCount = newInterceptors.filter((i) => i.status === "active").length;
+  const targetInts = 12 + round * 2;
+  if (activeCount < targetInts && budget >= 60000) {
+    const toBuy = Math.min(8, targetInts - activeCount);
+    budget -= 15000 * toBuy;
+    for (let i = 0; i < toBuy; i++) {
+      newInterceptors.push({
+        id: 5000 + Date.now() + i,
+        x: aiSetup.hqX + (Math.random() - 0.5) * 800,
+        y: aiSetup.hqY + 1200 + Math.random() * 400,
+        speed: 2.4, status: "active", targetId: null,
+        destroyOnKill: true, survivalRate: 0.75,
+      });
+    }
+  }
+
+  // Priority 3: upgrade AD - add a Pantsir every 2 rounds, NASAMS at round 5+
+  if (round >= 2 && round % 2 === 0 && budget >= 15000000 && newAdUnits.filter((a) => a.key === "pantsir").length < 2) {
+    budget -= 15000000;
+    newAdUnits.push({
+      key: "pantsir",
+      x: aiSetup.hqX + (Math.random() - 0.5) * 1000,
+      y: aiSetup.hqY + 400 + Math.random() * 400,
+      health: 1, ammo: 12,
+    });
+  }
+  if (round >= 5 && budget >= 40000000 && !newAdUnits.some((a) => a.key === "nasams")) {
+    budget -= 40000000;
+    newAdUnits.push({
+      key: "nasams",
+      x: aiSetup.hqX + (Math.random() - 0.5) * 800,
+      y: aiSetup.hqY + 800 + Math.random() * 600,
+      health: 1, ammo: 20,
+    });
+  }
+
+  // Priority 4: claim more resources if there's budget headroom
+  for (const key of ["solar", "arms", "oil", "hydro"]) {
+    const res = RESOURCES.find((r) => r.key === key);
+    if (!res || budget < res.cost * 1.5) continue;
+    // Already claimed 2+ of this type? Skip.
+    if (newResources.filter((r) => r.key === key && r.alive).length >= 2) continue;
+    // Find a deposit near AI HQ that isn't claimed
+    const candidates = newDeposits
+      .filter((d) => d.key === key && !d.claimed && Math.hypot(d.x - aiSetup.hqX, d.y - aiSetup.hqY) < (aiSetup.airspace || 2500))
+      .map((d) => ({ d, dist: Math.hypot(d.x - aiSetup.hqX, d.y - aiSetup.hqY) }))
+      .sort((a, b) => a.dist - b.dist);
+    if (candidates.length > 0) {
+      const claimed = candidates[0].d;
+      const idx = newDeposits.findIndex((dd) => dd.id === claimed.id);
+      if (idx >= 0) newDeposits[idx] = { ...newDeposits[idx], claimed: true };
+      newResources.push({ key, x: claimed.x, y: claimed.y, alive: true, depositId: claimed.id });
+      budget -= res.cost;
+    }
+  }
+
+  return { budget, adUnits: newAdUnits, interceptors: newInterceptors, resources: newResources, deposits: newDeposits };
+}
+
 // ── Multiplayer helpers ──
 const ROOM_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no ambiguous 0/O/I/1
 function generateRoomCode() {
@@ -1759,8 +1840,33 @@ export default function Swarm1v1() {
     for (const r of playerResources) { if (r.alive) { const res = RESOURCES.find((rr) => rr.key === r.key); if (res) pIncome += res.income; } }
     for (const r of aiSetup.resources) { if (r.alive) { const res = RESOURCES.find((rr) => rr.key === r.key); if (res) aIncome += res.income; } }
     setPlayerBudget((p) => p + pIncome);
-    setAiBudget((p) => p + aIncome);
     setTotalIncome((p) => p + pIncome);
+
+    // ── Bot mode: AI spends accumulated budget on defenses + pays for attack wave ──
+    let aiBudgetWorking = aiBudget + aIncome;
+    let aiWave;
+    if (gameMode === "bot") {
+      // Spend on defenses (mutates aiSetup.adUnits / interceptors / resources, returns new deposits)
+      const spent = aiSpendBudget(aiSetup, resourceDeposits, aiBudgetWorking, round);
+      aiBudgetWorking = spent.budget;
+      aiSetup.adUnits = spent.adUnits;
+      aiSetup.interceptors = spent.interceptors;
+      aiSetup.resources = spent.resources;
+      if (spent.deposits !== resourceDeposits) setResourceDeposits(spent.deposits);
+      // Build attack wave and pay for it. If broke, scale down.
+      aiWave = generateAIAttack(round);
+      let waveCostAi = Object.entries(aiWave).reduce((s, [k, n]) => { const u = ATTACK_UNITS.find((a) => a.key === k); return s + (u ? u.cost * n : 0); }, 0);
+      if (waveCostAi > aiBudgetWorking) {
+        const scale = Math.max(0.1, aiBudgetWorking / waveCostAi);
+        for (const k of Object.keys(aiWave)) aiWave[k] = Math.max(0, Math.floor(aiWave[k] * scale));
+        waveCostAi = Object.entries(aiWave).reduce((s, [k, n]) => { const u = ATTACK_UNITS.find((a) => a.key === k); return s + (u ? u.cost * n : 0); }, 0);
+      }
+      aiBudgetWorking -= waveCostAi;
+    } else {
+      // MP host mode: opponent's wave comes from the network
+      aiWave = (gameMode === "host" && aiSetup._attackWave) ? aiSetup._attackWave : generateAIAttack(round);
+    }
+    setAiBudget(aiBudgetWorking);
     log.push(`Round ${round + 1}: You +$${formatUSD(pIncome)} | ${opponentName} +$${formatUSD(aIncome)}`);
 
     // In MP host mode, broadcast round-start so guest enters battle phase
@@ -1772,11 +1878,6 @@ export default function Swarm1v1() {
 
     // Spawn player's attack drones flying toward AI HQ (via trajectory waypoints if defined)
     const pAttackers = spawnDrones(playerAttack, playerHQ.x, playerHQ.y - 500, aiSetup.hqX, aiSetup.hqY, 10000 + round * 1000, playerTrajectory.length > 0 ? playerTrajectory : null);
-    // In MP host mode, opponent's attack wave comes from network (aiSetup._attackWave)
-    // In bot mode, generate via AI logic
-    const aiWave = gameMode === "host" && aiSetup._attackWave
-      ? aiSetup._attackWave
-      : generateAIAttack(round);
     const aAttackers = spawnDrones(aiWave, aiSetup.hqX, aiSetup.hqY + 500, playerHQ.x, playerHQ.y, 20000 + round * 1000);
 
     // Player interceptors with spawn positions for RTB
