@@ -469,6 +469,9 @@ export default function Swarm1v1() {
   // Phase 4 matchmaking
   const mmPollRef = useRef(null); // setInterval id for polling
   const mmDeadlineRef = useRef(null); // overall timeout deadline
+  const [mmElapsed, setMmElapsed] = useState(0); // seconds since matchmaking started
+  const [mmStats, setMmStats] = useState({ queueing: 0, activeMatches: 0 }); // global counts
+  const mmStartedAtRef = useRef(0); // timestamp when matchmaking started
   // Phase 2 ready handshake
   const [meReady, setMeReady] = useState(false);
   const [opponentReady, setOpponentReady] = useState(false);
@@ -832,7 +835,8 @@ export default function Swarm1v1() {
         const deposits = generateResourceDeposits();
         setResourceDeposits(deposits);
         // Empty opponent placeholder (filled via guest's messages)
-        setAiSetup({ hqX: 5000, hqY: 2500, airspace: 2000, resources: [], interceptors: [], adUnits: [] });
+        // Start with null HQ coords so we don't draw a placeholder enemy base before they place.
+setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: [], adUnits: [] });
         // Send deposits to guest as soon as conn is open
         try { conn.send({ type: "deposits", deposits }); } catch {}
       });
@@ -906,7 +910,8 @@ export default function Swarm1v1() {
         resetMatchState();
         // Deposits will arrive from host in Phase 2; empty for now
         setResourceDeposits([]);
-        setAiSetup({ hqX: 5000, hqY: 2500, airspace: 2000, resources: [], interceptors: [], adUnits: [] });
+        // Start with null HQ coords so we don't draw a placeholder enemy base before they place.
+setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: [], adUnits: [] });
       });
       conn.on("close", () => { if (connRef.current === conn) handleDisconnect(); });
       conn.on("error", () => { if (connRef.current === conn) handleDisconnect(); });
@@ -992,7 +997,8 @@ export default function Swarm1v1() {
         setPhase(PHASE.SETUP);
         resetMatchState();
         setResourceDeposits([]);
-        setAiSetup({ hqX: 5000, hqY: 2500, airspace: 2000, resources: [], interceptors: [], adUnits: [] });
+        // Start with null HQ coords so we don't draw a placeholder enemy base before they place.
+setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: [], adUnits: [] });
       });
       conn.on("close", () => { if (connRef.current === conn) handleDisconnect(); });
       conn.on("error", () => { if (connRef.current === conn) handleDisconnect(); });
@@ -1017,7 +1023,8 @@ export default function Swarm1v1() {
           setMeReady(false); setOpponentReady(false);
           const deposits = generateResourceDeposits();
           setResourceDeposits(deposits);
-          setAiSetup({ hqX: 5000, hqY: 2500, airspace: 2000, resources: [], interceptors: [], adUnits: [] });
+          // Start with null HQ coords so we don't draw a placeholder enemy base before they place.
+setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: [], adUnits: [] });
           try { conn.send({ type: "deposits", deposits }); } catch {}
         });
         conn.on("close", () => { if (connRef.current === conn) handleDisconnect(); });
@@ -1117,6 +1124,34 @@ export default function Swarm1v1() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => () => { teardownPeer(true); }, []);
 
+  // ── Matchmaking elapsed timer + stats poll ──
+  // Runs while user is on the matchmaking lobby view. Polls /api/match/stats every 3s
+  // for global counts. Increments local elapsed counter every second for the timer display.
+  useEffect(() => {
+    if (lobbyView !== "matchmaking") return;
+    mmStartedAtRef.current = Date.now();
+    setMmElapsed(0);
+    const tickIv = setInterval(() => {
+      setMmElapsed(Math.floor((Date.now() - mmStartedAtRef.current) / 1000));
+    }, 1000);
+    const fetchStats = async () => {
+      try {
+        const r = await fetch("/api/match/stats");
+        if (!r.ok) return;
+        const data = await r.json();
+        if (data && typeof data === "object") {
+          setMmStats({
+            queueing: data.queueing || 0,
+            activeMatches: data.activeMatches || 0,
+          });
+        }
+      } catch {}
+    };
+    fetchStats();
+    const statsIv = setInterval(fetchStats, 3000);
+    return () => { clearInterval(tickIv); clearInterval(statsIv); };
+  }, [lobbyView]);
+
   // Attack wave cost (computed live for display, deducted on launch)
   const attackWaveCost = Object.entries(playerAttack).reduce((s, [k, n]) => {
     const u = ATTACK_UNITS.find((a) => a.key === k);
@@ -1158,10 +1193,10 @@ export default function Swarm1v1() {
     if (battleActive && (placingWhat === "sell" || placingWhat === "delete")) return;
 
     if (placingWhat === "hq") {
-      // Prevent placing HQ inside enemy airspace + buffer for player's own min airspace (1000)
-      if (aiSetup) {
+      // Prevent placing HQ inside enemy airspace + buffer (only check if enemy has placed)
+      if (aiSetup && aiSetup.hqX != null) {
         const enemyDist = dist({ x, y }, { x: aiSetup.hqX, y: aiSetup.hqY });
-        const minSafeDist = (aiSetup.airspace || 2500) + 1000 + 400; // enemy airspace + min player airspace + buffer
+        const minSafeDist = (aiSetup.airspace || 2500) + 1000 + 400;
         if (enemyDist < minSafeDist) {
           setInfoPopup({ text: `HQ too close to enemy airspace. Place at least ${Math.round(minSafeDist)}m away.` });
           setTimeout(() => setInfoPopup(null), 2500);
@@ -1188,8 +1223,8 @@ export default function Swarm1v1() {
           return;
         }
       }
-      // Also block placement inside enemy airspace
-      if (aiSetup) {
+      // Also block placement inside enemy airspace (skip if not yet placed)
+      if (aiSetup && aiSetup.hqX != null) {
         const enemyDist = dist({ x, y }, { x: aiSetup.hqX, y: aiSetup.hqY });
         if (enemyDist < (aiSetup.airspace || 2500) + 800) {
           setInfoPopup({ text: "Cannot place HQ inside enemy airspace" });
@@ -1315,8 +1350,8 @@ export default function Swarm1v1() {
       const d = dist({ x, y }, eh);
       if (d < bestD) { bestD = d; best = { kind: "hq_extra", side: "player", x: eh.x, y: eh.y }; }
     }
-    // Enemy HQ
-    if (aiSetup) {
+    // Enemy HQ (only if placed)
+    if (aiSetup && aiSetup.hqX != null) {
       const d = dist({ x, y }, { x: aiSetup.hqX, y: aiSetup.hqY });
       if (d < bestD) { bestD = d; best = { kind: "hq", side: "enemy", x: aiSetup.hqX, y: aiSetup.hqY }; }
     }
@@ -1481,7 +1516,7 @@ export default function Swarm1v1() {
       if (!res) continue;
       const isHighlighted = placingWhat === dep.key;
       const inPlayerAirspace = playerHQ && dist(dep, playerHQ) <= playerAirspace;
-      const inAiAirspace = aiSetup && dist(dep, { x: aiSetup.hqX, y: aiSetup.hqY }) <= aiSetup.airspace;
+      const inAiAirspace = aiSetup && aiSetup.hqX != null && dist(dep, { x: aiSetup.hqX, y: aiSetup.hqY }) <= aiSetup.airspace;
       // Draw deposit as triangle outline (matches the resource shape it'll become)
       const sz = isHighlighted ? 18 : 14;
       const halfsz = sz / 2;
@@ -1501,7 +1536,7 @@ export default function Swarm1v1() {
       const pathPts = [toLL(playerHQ.x, playerHQ.y - 500)];
       for (const wp of playerTrajectory) pathPts.push(toLL(wp.x, wp.y));
       // Final segment ends at the actual priority target the drones will hit, not always HQ
-      if (aiSetup) {
+      if (aiSetup && aiSetup.hqX != null) {
         const lastWp = playerTrajectory[playerTrajectory.length - 1] || { x: playerHQ.x, y: playerHQ.y - 500 };
         let finalTarget = { x: aiSetup.hqX, y: aiSetup.hqY }; // default = HQ
         if (attackPriority === "ad" && Array.isArray(aiSetup.adUnits)) {
@@ -1602,7 +1637,8 @@ export default function Swarm1v1() {
     }
 
     // AI - show full enemy intel: HQ, airspace, resources, AD systems with range, interceptor positions
-    if (aiSetup) {
+    // In MP mode, hqX/hqY are null until the opponent places their HQ - skip rendering until then
+    if (aiSetup && aiSetup.hqX != null && aiSetup.hqY != null) {
       // Airspace
       const airBreaches = battleRef.current?.aiAirBreaches || [];
       if (airBreaches.length === 0) {
@@ -2498,12 +2534,11 @@ export default function Swarm1v1() {
   useEffect(() => () => { if (frameRef.current) cancelAnimationFrame(frameRef.current); }, []);
 
   // ── Auto-clamp playerAirspace so it can never overlap enemy airspace ──
-  // Triggered whenever playerHQ or aiSetup changes (e.g. HQ placed, enemy setup arrives).
   useEffect(() => {
-    if (!playerHQ || !aiSetup) return;
+    if (!playerHQ || !aiSetup || aiSetup.hqX == null) return;
     const enemyDist = dist(playerHQ, { x: aiSetup.hqX, y: aiSetup.hqY });
     const maxSafe = Math.floor(enemyDist - (aiSetup.airspace || 2500) - 400);
-    if (maxSafe < 1000) return; // HQ placement validation should have prevented this
+    if (maxSafe < 1000) return;
     if (playerAirspace > maxSafe) setPlayerAirspace(maxSafe);
   }, [playerHQ, aiSetup, playerAirspace]);
 
@@ -2563,11 +2598,10 @@ export default function Swarm1v1() {
       />
       <style jsx global>{`
         .leaflet-container { background: #0a0a0f; }
-        /* Per visuals audit: dim ONLY the satellite tile layer so unit colors pop.
-           Markers, popups, range circles, and SVG overlays render on separate panes
-           and stay at full brightness. */
+        /* Per visuals audit: dim ONLY the satellite tile layer so unit colors pop. */
         .leaflet-tile-pane { filter: brightness(0.65) contrast(1.05) saturate(0.7); }
         @keyframes fadeUp { 0% { opacity: 1; transform: translate(-50%, -50%); } 100% { opacity: 0; transform: translate(-50%, -120%); } }
+        @keyframes mmSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
 
       <div style={{ background: "#0a0a0f", color: "#e0e0e0", fontFamily: "'Segoe UI', system-ui, sans-serif", height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
@@ -2688,16 +2722,42 @@ export default function Swarm1v1() {
               {lobbyView === "matchmaking" && (
                 <>
                   <div style={{ fontSize: 11, color: "#888", marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>Finding Opponent</div>
-                  <div style={{ fontSize: 56, marginBottom: 16, color: "#4caf50" }}>
-                    {connectionStatus === "error" ? "✕" : "⟳"}
+                  {/* Rotating spinner (CSS keyframe) */}
+                  <div style={{
+                    fontSize: 64, marginBottom: 8, color: connectionStatus === "error" ? "#ff5555" : "#4caf50",
+                    display: "inline-block",
+                    animation: connectionStatus === "error" || connectionStatus === "connected" ? "none" : "mmSpin 1.4s linear infinite",
+                    transformOrigin: "center",
+                  }}>
+                    {connectionStatus === "error" ? "✕" : connectionStatus === "connected" ? "✓" : "⟳"}
                   </div>
-                  <div style={{ fontSize: 12, color: connectionStatus === "connected" ? "#4caf50" : connectionStatus === "error" ? "#ff5555" : "#4caf50", marginBottom: 16, padding: 12, background: "rgba(76,175,80,0.08)", border: "1px solid rgba(76,175,80,0.25)", borderRadius: 6 }}>
+                  {/* Elapsed timer */}
+                  {connectionStatus !== "error" && connectionStatus !== "connected" && (
+                    <div style={{ fontSize: 28, fontWeight: 700, color: "#4caf50", fontFamily: "monospace", marginBottom: 12, letterSpacing: 2 }}>
+                      {Math.floor(mmElapsed / 60).toString().padStart(2, "0")}:{(mmElapsed % 60).toString().padStart(2, "0")}
+                    </div>
+                  )}
+                  {/* Status message */}
+                  <div style={{ fontSize: 12, color: connectionStatus === "connected" ? "#4caf50" : connectionStatus === "error" ? "#ff5555" : "#4caf50", marginBottom: 12, padding: 12, background: "rgba(76,175,80,0.08)", border: "1px solid rgba(76,175,80,0.25)", borderRadius: 6 }}>
                     {connectionStatus === "creating" && "Initializing..."}
                     {connectionStatus === "waiting" && "Waiting for an opponent..."}
                     {connectionStatus === "connecting" && "Opponent found! Connecting..."}
                     {connectionStatus === "connected" && "Connected. Loading match..."}
                     {connectionStatus === "error" && (connectionError || "Error")}
                   </div>
+                  {/* Live global stats */}
+                  {connectionStatus !== "error" && (
+                    <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                      <div style={{ flex: 1, padding: "10px 8px", background: "#1a1a24", border: "1px solid #2a2a35", borderRadius: 6, textAlign: "center" }}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: "#4a9eff", lineHeight: 1 }}>{mmStats.queueing}</div>
+                        <div style={{ fontSize: 8, color: "#888", textTransform: "uppercase", letterSpacing: 1, marginTop: 4 }}>In queue</div>
+                      </div>
+                      <div style={{ flex: 1, padding: "10px 8px", background: "#1a1a24", border: "1px solid #2a2a35", borderRadius: 6, textAlign: "center" }}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: "#ff6688", lineHeight: 1 }}>{mmStats.activeMatches}</div>
+                        <div style={{ fontSize: 8, color: "#888", textTransform: "uppercase", letterSpacing: 1, marginTop: 4 }}>Active matches</div>
+                      </div>
+                    </div>
+                  )}
                   <button onClick={() => { cancelMatchmaking(); cancelConnection(); }}
                     style={{ ...inputStyle, width: "100%", cursor: "pointer", textAlign: "center", fontSize: 12, color: "#888" }}>
                     Cancel
@@ -2758,7 +2818,7 @@ export default function Swarm1v1() {
                     <>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, marginTop: 8 }}>
                         <span style={{ fontSize: 10, color: "#888" }}>Airspace:</span>
-                        <input type="range" min="1000" max={playerHQ && aiSetup ? Math.max(1000, Math.floor(dist(playerHQ, { x: aiSetup.hqX, y: aiSetup.hqY }) - aiSetup.airspace - 400)) : 4000} step="200" value={playerAirspace} onChange={(e) => setPlayerAirspace(parseInt(e.target.value))} style={{ flex: 1 }} />
+                        <input type="range" min="1000" max={playerHQ && aiSetup && aiSetup.hqX != null ? Math.max(1000, Math.floor(dist(playerHQ, { x: aiSetup.hqX, y: aiSetup.hqY }) - aiSetup.airspace - 400)) : 4000} step="200" value={playerAirspace} onChange={(e) => setPlayerAirspace(parseInt(e.target.value))} style={{ flex: 1 }} />
                         <span style={{ fontSize: 10, color: "#4a9eff" }}>{playerAirspace}m</span>
                       </div>
                       {(() => {
@@ -2965,10 +3025,22 @@ export default function Swarm1v1() {
                     <>
                       <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
                         <span style={{ fontSize: 9, color: "#888" }}>Airspace:</span>
-                        <input type="range" min="1000" max={playerHQ && aiSetup ? Math.max(1000, Math.floor(dist(playerHQ, { x: aiSetup.hqX, y: aiSetup.hqY }) - aiSetup.airspace - 400)) : 4000} step="200" value={playerAirspace} onChange={(e) => setPlayerAirspace(parseInt(e.target.value))} style={{ flex: 1 }} />
+                        <input type="range" min="1000" max={playerHQ && aiSetup && aiSetup.hqX != null ? Math.max(1000, Math.floor(dist(playerHQ, { x: aiSetup.hqX, y: aiSetup.hqY }) - aiSetup.airspace - 400)) : 4000} step="200" value={playerAirspace} onChange={(e) => setPlayerAirspace(parseInt(e.target.value))} style={{ flex: 1 }} />
                         <span style={{ fontSize: 9, color: "#4a9eff" }}>{playerAirspace}m</span>
                       </div>
                       <div style={{ fontSize: 9, color: "#4caf50", marginBottom: 6 }}>+${formatUSD(Math.floor(playerAirspace * 200))}/rnd from airspace</div>
+
+                      {/* + Add HQ button (mid-match) - same as setup phase, costs 25M / 50M */}
+                      {playerHQ && playerExtraHQs.length < 2 && (
+                        <button onClick={() => setPlacingWhat(placingWhat === "extra_hq" ? null : "extra_hq")}
+                          style={{ ...inputStyle, width: "100%", marginBottom: 6, cursor: "pointer", textAlign: "center", fontSize: 9,
+                            border: placingWhat === "extra_hq" ? "1px solid #4a9eff" : "1px solid #2a2a35",
+                            color: placingWhat === "extra_hq" ? "#4a9eff" : "#888" }}>
+                          {placingWhat === "extra_hq"
+                            ? `Click map ($${formatUSD(EXTRA_HQ_COSTS[playerExtraHQs.length])})...`
+                            : `+ Add HQ #${playerExtraHQs.length + 2} ($${formatUSD(EXTRA_HQ_COSTS[playerExtraHQs.length])})`}
+                        </button>
+                      )}
 
                       <div style={{ fontSize: 9, textTransform: "uppercase", color: "#aa88ff", marginBottom: 3 }}>Defense Posture</div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 2, marginBottom: 6 }}>
