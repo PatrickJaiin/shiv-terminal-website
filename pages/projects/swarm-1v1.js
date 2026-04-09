@@ -878,23 +878,38 @@ export default function Swarm1v1() {
   // guest hangs until our handshake timeout fires.
   const wirePeerResilience = (peer, getActive) => {
     let reconnectAttempts = 0;
+    const MAX_ATTEMPTS = 10;
     peer.on("disconnected", () => {
       if (!getActive()) return; // user already cancelled / replaced peer
       if (peer.destroyed) return;
-      if (reconnectAttempts >= 5) return; // give up - peer.on("error") will surface it
+      if (reconnectAttempts >= MAX_ATTEMPTS) {
+        // Exhausted retries - surface a clear, actionable error. India / long-haul
+        // international connections to the public PeerJS broker (0.peerjs.com) are
+        // particularly prone to drops. Tell the user what's actually wrong instead
+        // of leaving them staring at a stale "reconnecting..." message.
+        setConnectionError("Lost connection to signaling server after 10 retries. Long-haul international links (e.g. India to US) sometimes can't keep a stable WebSocket to the public PeerJS broker. Try: 1) refresh and re-enter the match, 2) different network/wifi, or 3) wait a minute and retry.");
+        setConnectionStatus("error");
+        return;
+      }
       reconnectAttempts++;
-      setConnectionError("Reconnecting to matchmaking server...");
-      try { peer.reconnect(); } catch {}
-      // PeerJS doesn't re-fire "open" after reconnect; check status after a short delay
-      // and clear the warning if we're back online.
+      // Exponential backoff capped at 8 seconds. Hammering the broker with reconnect()
+      // calls when it's already overloaded just wastes the retry budget faster.
+      const backoffMs = Math.min(8000, 500 * Math.pow(1.5, reconnectAttempts - 1));
+      setConnectionError(`Reconnecting to signaling server (attempt ${reconnectAttempts}/${MAX_ATTEMPTS})...`);
       setTimeout(() => {
-        if (!getActive()) return;
-        if (peer.destroyed) return;
-        if (!peer.disconnected) {
-          setConnectionError("");
-          reconnectAttempts = 0; // success - reset budget
-        }
-      }, 2000);
+        if (!getActive() || peer.destroyed) return;
+        try { peer.reconnect(); } catch {}
+        // PeerJS doesn't re-fire "open" after reconnect; check status after a short
+        // delay and clear the warning if we're back online. Reset the attempt counter
+        // on success so a single successful reconnect restores the full retry budget.
+        setTimeout(() => {
+          if (!getActive() || peer.destroyed) return;
+          if (!peer.disconnected) {
+            setConnectionError("");
+            reconnectAttempts = 0;
+          }
+        }, 1500);
+      }, backoffMs);
     });
   };
 
