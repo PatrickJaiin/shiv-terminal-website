@@ -74,15 +74,15 @@ function generateResourceDeposits() {
       deposits.push({ id: id++, key, x, y, claimed: false });
     }
   }
-  // Hydro: scarce, placed near map edges (representing rivers/coastlines)
+  // Hydro: scarce, placed tight to map edges (representing rivers/coastlines).
+  // Tighter bands prevent edge-0 from clashing with the AI HQ spawn area.
   for (let i = 0; i < 4; i++) {
-    // Pick an edge bias: top, right, bottom, or left band
     const edge = i % 4;
     let x, y;
-    if (edge === 0) { x = 600 + Math.random() * (ARENA - 1200); y = 500 + Math.random() * 800; }
-    else if (edge === 1) { x = ARENA - 500 - Math.random() * 800; y = 600 + Math.random() * (ARENA - 1200); }
-    else if (edge === 2) { x = 600 + Math.random() * (ARENA - 1200); y = ARENA - 500 - Math.random() * 800; }
-    else { x = 500 + Math.random() * 800; y = 600 + Math.random() * (ARENA - 1200); }
+    if (edge === 0) { x = 600 + Math.random() * (ARENA - 1200); y = 300 + Math.random() * 500; }
+    else if (edge === 1) { x = ARENA - 400 - Math.random() * 500; y = 600 + Math.random() * (ARENA - 1200); }
+    else if (edge === 2) { x = 600 + Math.random() * (ARENA - 1200); y = ARENA - 400 - Math.random() * 500; }
+    else { x = 400 + Math.random() * 500; y = 600 + Math.random() * (ARENA - 1200); }
     deposits.push({ id: id++, key: "hydro", x, y, claimed: false });
   }
   return deposits;
@@ -166,6 +166,10 @@ export default function Swarm1v1() {
 
   // Player setup
   const [playerHQ, setPlayerHQ] = useState(null);
+  // Phase B: additional HQs at increasing cost. Each is a fortified position with its own
+  // small airspace circle, providing redundancy. Diminishing returns: 2nd costs 25M, 3rd costs 50M.
+  const [playerExtraHQs, setPlayerExtraHQs] = useState([]); // [{x, y}, ...]
+  const EXTRA_HQ_COSTS = [25000000, 50000000]; // cost for placing 2nd, 3rd HQ
   const [playerAirspace, setPlayerAirspace] = useState(2000);
   const [playerResources, setPlayerResources] = useState([]);
   const [playerInterceptors, setPlayerInterceptors] = useState([]);
@@ -244,7 +248,7 @@ export default function Swarm1v1() {
 
   // Reset match-level state (used by all 3 modes when a match starts)
   const resetMatchState = useCallback(() => {
-    setPlayerHQ(null); setPlayerResources([]); setPlayerInterceptors([]); setPlayerAD([]);
+    setPlayerHQ(null); setPlayerExtraHQs([]); setPlayerResources([]); setPlayerInterceptors([]); setPlayerAD([]);
     setPlayerBudget(STARTING_BUDGET); setAiBudget(STARTING_BUDGET);
     setCurrentRound(0); setCombatLog([]); setGameOver(null); setTotalIncome(0);
     setBattleActive(false); setBattleDrones({ playerAttackers: [], aiAttackers: [], playerInts: [], aiInts: [] });
@@ -321,6 +325,14 @@ export default function Swarm1v1() {
       }
       case "place_hq": {
         setAiSetup((prev) => ({ ...(prev || {}), hqX: msg.x, hqY: msg.y, airspace: prev?.airspace ?? 2000, resources: prev?.resources || [], interceptors: prev?.interceptors || [], adUnits: prev?.adUnits || [] }));
+        break;
+      }
+      case "place_extra_hq": {
+        setAiSetup((prev) => {
+          const next = prev ? { ...prev } : { hqX: 5000, hqY: 2500, airspace: 2000, resources: [], interceptors: [], adUnits: [] };
+          next.extraHQs = [...(next.extraHQs || []), { x: msg.x, y: msg.y }];
+          return next;
+        });
         break;
       }
       case "airspace": {
@@ -872,6 +884,29 @@ export default function Swarm1v1() {
     if (placingWhat === "hq") {
       setPlayerHQ({ x, y }); setPlacingWhat(null);
       broadcast({ type: "place_hq", x, y });
+    } else if (placingWhat === "extra_hq") {
+      // Additional HQ - costs 25M for 2nd, 50M for 3rd. Max 3 total.
+      if (playerExtraHQs.length >= 2) { setPlacingWhat(null); return; }
+      const cost = EXTRA_HQ_COSTS[playerExtraHQs.length] || 50000000;
+      if (!canAfford(cost)) { triggerShake(); return; }
+      // Must be at least 1500 units from existing HQ to spread out coverage
+      if (playerHQ && dist({ x, y }, playerHQ) < 1500) {
+        setInfoPopup({ text: "Place additional HQ at least 1500m from your main HQ" });
+        setTimeout(() => setInfoPopup(null), 2500);
+        return;
+      }
+      for (const eh of playerExtraHQs) {
+        if (dist({ x, y }, eh) < 1500) {
+          setInfoPopup({ text: "Place additional HQ at least 1500m from other HQs" });
+          setTimeout(() => setInfoPopup(null), 2500);
+          return;
+        }
+      }
+      setPlayerBudget((p) => p - cost);
+      setPlayerExtraHQs((prev) => [...prev, { x, y }]);
+      broadcast({ type: "place_extra_hq", x, y });
+      // Stay in placement mode if more can be added (so user can quickly place 2nd then 3rd)
+      if (playerExtraHQs.length + 1 >= 2) setPlacingWhat(null);
     } else if (placingWhat === "trajectory") {
       // Add a waypoint to the attack drone trajectory. Stay in placement mode for chaining waypoints.
       setPlayerTrajectory((prev) => [...prev, { x, y }]);
@@ -968,7 +1003,7 @@ export default function Swarm1v1() {
       setPlayerResources((prev) => [...prev, { key: placingWhat, x: bestDeposit.x, y: bestDeposit.y, alive: true, depositId: bestDeposit.id }]);
       broadcast({ type: "place_resource", key: placingWhat, x: bestDeposit.x, y: bestDeposit.y, depositId: bestDeposit.id });
     }
-  }, [phase, placingWhat, playerHQ, playerAirspace, battleActive, playerResources, playerInterceptors, playerAD, resourceDeposits, canAfford, triggerShake, broadcast]);
+  }, [phase, placingWhat, playerHQ, playerExtraHQs, playerAirspace, battleActive, playerResources, playerInterceptors, playerAD, resourceDeposits, canAfford, triggerShake, broadcast]);
 
   handleMapClickRef.current = handleMapClick;
   theaterRef.current = theater;
@@ -1077,7 +1112,9 @@ export default function Swarm1v1() {
     L.polyline([toLL(0, 5000), toLL(ARENA, 5000)], { color: "#fff", weight: 1, opacity: 0.15, dashArray: "8 8", interactive: false }).addTo(layer);
 
     // Resource deposits - shown as faint icons. Highlighted when in matching placement mode.
-    for (const dep of resourceDeposits) {
+    // Perf: skip deposit redraws during combat (they don't change mid-battle and the
+    // render effect re-runs ~60Hz from battleDrones updates).
+    if (!battleActive) for (const dep of resourceDeposits) {
       if (dep.claimed) continue;
       const res = RESOURCES.find((rr) => rr.key === dep.key);
       if (!res) continue;
@@ -1140,6 +1177,19 @@ export default function Swarm1v1() {
         icon: L.divIcon({
           className: "", iconSize: [22, 22], iconAnchor: [11, 11],
           html: `<div style="width:22px;height:22px;background:#4a9eff;border:2.5px solid #fff;box-sizing:border-box;box-shadow:0 0 6px rgba(74,158,255,0.7)"></div>`,
+        }),
+        interactive: false,
+      }).addTo(layer);
+    }
+    // Additional player HQs (slightly smaller to indicate "secondary")
+    for (const eh of playerExtraHQs) {
+      // Each extra HQ has its own small airspace bubble (60% of main airspace radius)
+      const ehRadius = playerAirspace * 0.6;
+      L.circle(toLL(eh.x, eh.y), { radius: ehRadius * mpu, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 0.04, weight: 1.5, opacity: 0.4, dashArray: "8 4", interactive: false }).addTo(layer);
+      L.marker(toLL(eh.x, eh.y), {
+        icon: L.divIcon({
+          className: "", iconSize: [18, 18], iconAnchor: [9, 9],
+          html: `<div style="width:18px;height:18px;background:#4a9eff;border:2px solid #fff;box-sizing:border-box;box-shadow:0 0 5px rgba(74,158,255,0.6)"></div>`,
         }),
         interactive: false,
       }).addTo(layer);
@@ -1223,7 +1273,7 @@ export default function Swarm1v1() {
         L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 0.55, weight: 1 }).addTo(layer);
       }
     }
-  }, [mapReady, theater, playerHQ, playerAirspace, playerResources, playerInterceptors, playerAD, aiSetup, phase, battleDrones, resourceDeposits, placingWhat, playerTrajectory]);
+  }, [mapReady, theater, playerHQ, playerExtraHQs, playerAirspace, playerResources, playerInterceptors, playerAD, aiSetup, phase, battleDrones, resourceDeposits, placingWhat, playerTrajectory]);
 
   // ── Phase 3: Render battle frame to leaflet (used by host tick + guest render loop) ──
   const renderBattleFrame = useCallback((b) => {
@@ -1408,7 +1458,9 @@ export default function Swarm1v1() {
     const pAD = playerAD.map((a) => ({ ...a }));
     const aAD = aiSetup.adUnits.map((a) => ({ ...a }));
 
-    battleRef.current = { pAttackers, aAttackers, pInts, aInts, pAD, aAD, step: 0, pKills: 0, aKills: 0, pBreaches: 0, aBreaches: 0, flashes: [], playerAirBreaches: [], aiAirBreaches: [] };
+    // Snapshot all of player's HQs (main + extras) into battleRef so the sim can read them
+    const allPlayerHQs = [{ x: playerHQ.x, y: playerHQ.y }, ...playerExtraHQs.map((h) => ({ x: h.x, y: h.y }))];
+    battleRef.current = { pAttackers, aAttackers, pInts, aInts, pAD, aAD, step: 0, pKills: 0, aKills: 0, pBreaches: 0, aBreaches: 0, flashes: [], playerAirBreaches: [], aiAirBreaches: [], playerHQs: allPlayerHQs };
 
     // Animate
     function tick() {
@@ -1421,7 +1473,13 @@ export default function Swarm1v1() {
       // Move AI attackers - medium/expensive target player AD first
       for (const a of b.aAttackers) {
         if (a.status !== "active") continue;
-        let tx = playerHQ.x, ty = playerHQ.y;
+        // Find nearest player HQ (main + extras)
+        let nearestHQ = playerHQ;
+        if (b.playerHQs && b.playerHQs.length > 1) {
+          let bestD = Infinity;
+          for (const h of b.playerHQs) { const d2 = dist(a, h); if (d2 < bestD) { bestD = d2; nearestHQ = h; } }
+        }
+        let tx = nearestHQ.x, ty = nearestHQ.y;
         // Medium/expensive AI drones hunt player ground AD
         if ((a.threat === "medium" || a.threat === "expensive") && b.pAD.some((ad) => ad.health > 0)) {
           const alive = b.pAD.filter((ad) => ad.health > 0);
@@ -1444,7 +1502,11 @@ export default function Swarm1v1() {
         a.heading += diff * 0.06;
         a.x += Math.cos(a.heading) * a.speed;
         a.y += Math.sin(a.heading) * a.speed;
-        if (dist(a, playerHQ) < 200) {
+        // Breach if drone is within 200 of ANY player HQ (main or extras)
+        let breachedHQ = null;
+        const hqList = b.playerHQs || [playerHQ];
+        for (const h of hqList) { if (dist(a, h) < 200) { breachedHQ = h; break; } }
+        if (breachedHQ) {
           a.status = "breached"; b.aBreaches++;
           b.flashes.push({ x: a.x, y: a.y, time: b.step, type: "breach" });
           b.flashes.push({ x: a.x, y: a.y + 100, time: b.step, type: "dmgtext", text: "-$500K", color: "#ff5555" });
@@ -1937,7 +1999,7 @@ export default function Swarm1v1() {
     }
 
     frameRef.current = requestAnimationFrame(tick);
-  }, [playerHQ, aiSetup, currentRound, playerResources, playerInterceptors, playerAD, playerAttack, playerTrajectory, playerBudget, aiBudget, gameOver, battleActive, username, opponentName, attackPriority, defPosture, playerAirspace, gameMode, broadcast, serializeBattleSnapshot]);
+  }, [playerHQ, playerExtraHQs, aiSetup, currentRound, playerResources, playerInterceptors, playerAD, playerAttack, playerTrajectory, playerBudget, aiBudget, gameOver, battleActive, username, opponentName, attackPriority, defPosture, playerAirspace, gameMode, broadcast, serializeBattleSnapshot]);
 
   // Wire forward ref so the per-turn timer effect can call into us without a TDZ issue
   launchRoundRef.current = launchRound;
@@ -2154,6 +2216,22 @@ export default function Swarm1v1() {
                     style={{ ...inputStyle, width: "100%", marginBottom: 6, cursor: playerHQ ? "not-allowed" : "pointer", opacity: playerHQ ? 0.4 : 1, textAlign: "center", fontSize: 11, border: placingWhat === "hq" ? "1px solid #4a9eff" : "1px solid #2a2a35" }}>
                     {playerHQ ? "HQ Placed" : placingWhat === "hq" ? "Click on map..." : "Place HQ"}
                   </button>
+
+                  {playerHQ && playerExtraHQs.length < 2 && (
+                    <button onClick={() => setPlacingWhat(placingWhat === "extra_hq" ? null : "extra_hq")}
+                      style={{ ...inputStyle, width: "100%", marginBottom: 6, cursor: "pointer", textAlign: "center", fontSize: 10,
+                        border: placingWhat === "extra_hq" ? "1px solid #4a9eff" : "1px solid #2a2a35",
+                        color: placingWhat === "extra_hq" ? "#4a9eff" : "#888" }}>
+                      {placingWhat === "extra_hq"
+                        ? `Click map (${formatUSD(EXTRA_HQ_COSTS[playerExtraHQs.length])})...`
+                        : `+ Add HQ #${playerExtraHQs.length + 2} ($${formatUSD(EXTRA_HQ_COSTS[playerExtraHQs.length])})`}
+                    </button>
+                  )}
+                  {playerHQ && playerExtraHQs.length > 0 && (
+                    <div style={{ fontSize: 9, color: "#666", marginBottom: 6 }}>
+                      Extra HQs: {playerExtraHQs.length} (each adds 60% airspace coverage at its location)
+                    </div>
+                  )}
 
                   {playerHQ && (
                     <>
