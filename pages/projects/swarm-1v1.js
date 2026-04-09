@@ -256,11 +256,17 @@ function getPeerId(code) { return `swarm1v1-${code}`; }
 let _audioCtx = null;
 const _audioThrottle = {};
 function _initAudio() {
-  if (_audioCtx) return _audioCtx;
   if (typeof window === "undefined") return null;
-  try {
-    _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  } catch { _audioCtx = null; }
+  if (!_audioCtx) {
+    try {
+      _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch { _audioCtx = null; }
+  }
+  // Browsers start AudioContext in "suspended" state until a user gesture calls resume().
+  // Without this, every playSfx() call is silently dropped.
+  if (_audioCtx && _audioCtx.state === "suspended") {
+    try { _audioCtx.resume(); } catch {}
+  }
   return _audioCtx;
 }
 function playSfx(name, throttleMs = 40) {
@@ -268,7 +274,7 @@ function playSfx(name, throttleMs = 40) {
   if (_audioThrottle[name] && now - _audioThrottle[name] < throttleMs) return;
   _audioThrottle[name] = now;
   const ctx = _audioCtx;
-  if (!ctx) return;
+  if (!ctx || ctx.state !== "running") return;
   const t = ctx.currentTime;
   try {
     if (name === "ad_fire") {
@@ -1023,6 +1029,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
       setConnectionStatus("error");
       return;
     }
+    _initAudio(); // unlock Web Audio on first user gesture
     teardownPeer(true);
     setConnectionError("");
     setRoomCode("");
@@ -1206,6 +1213,21 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
   // ── Cleanup peer on unmount only (intentionally omit deps to avoid mid-match cleanup if teardownPeer ref changes) ──
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => () => { teardownPeer(true); }, []);
+
+  // ── Safety net: unlock Web Audio on ANY user gesture ──
+  // Not every entry path (e.g. resuming after an auto-suspend) hits findMatch/createRoom/joinRoom,
+  // and iOS Safari re-suspends the context on tab hide. Listen once for a gesture and resume.
+  useEffect(() => {
+    const unlock = () => { _initAudio(); };
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    window.addEventListener("touchstart", unlock, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+      window.removeEventListener("touchstart", unlock);
+    };
+  }, []);
 
   // ── Matchmaking elapsed timer + stats poll ──
   // Runs while user is on the matchmaking lobby view. Polls /api/match/stats every 3s
