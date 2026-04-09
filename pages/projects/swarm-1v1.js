@@ -631,19 +631,25 @@ export default function Swarm1v1() {
       }
       case "place_extra_hq": {
         setAiSetup((prev) => {
-          const next = prev ? { ...prev } : { hqX: 5000, hqY: 2500, airspace: 2000, resources: [], interceptors: [], adUnits: [] };
+          // Null HQ default is CRITICAL: the previous hardcoded `{ hqX: 5000, hqY: 2500 }`
+          // default painted a phantom enemy HQ in the center of the map before the guest
+          // had actually placed one. Any message arriving before place_hq would trigger it.
+          const next = prev ? { ...prev } : { hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: [], adUnits: [] };
           next.extraHQs = [...(next.extraHQs || []), { x: msg.x, y: msg.y }];
           return next;
         });
         break;
       }
       case "airspace": {
-        setAiSetup((prev) => ({ ...(prev || {}), airspace: msg.radius, hqX: prev?.hqX ?? 5000, hqY: prev?.hqY ?? 2500, resources: prev?.resources || [], interceptors: prev?.interceptors || [], adUnits: prev?.adUnits || [] }));
+        // Same null-default fix: nullish-coalescing prev.hqX with 5000 was triggering
+        // the moment prev.hqX was null (which it always is pre-place_hq), so the airspace
+        // broadcast from conn-open-resync was spawning a phantom HQ at center-map.
+        setAiSetup((prev) => ({ ...(prev || {}), airspace: msg.radius, hqX: prev?.hqX ?? null, hqY: prev?.hqY ?? null, resources: prev?.resources || [], interceptors: prev?.interceptors || [], adUnits: prev?.adUnits || [] }));
         break;
       }
       case "place_resource": {
         setAiSetup((prev) => {
-          const next = prev ? { ...prev } : { hqX: 5000, hqY: 2500, airspace: 2000, resources: [], interceptors: [], adUnits: [] };
+          const next = prev ? { ...prev } : { hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: [], adUnits: [] };
           next.resources = [...(next.resources || []), { key: msg.key, x: msg.x, y: msg.y, alive: true, depositId: msg.depositId }];
           return next;
         });
@@ -665,7 +671,7 @@ export default function Swarm1v1() {
       }
       case "place_ad": {
         setAiSetup((prev) => {
-          const next = prev ? { ...prev } : { hqX: 5000, hqY: 2500, airspace: 2000, resources: [], interceptors: [], adUnits: [] };
+          const next = prev ? { ...prev } : { hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: [], adUnits: [] };
           const sys = AD_SYSTEMS_1V1.find((s) => s.key === msg.key);
           next.adUnits = [...(next.adUnits || []), { key: msg.key, x: msg.x, y: msg.y, health: 1, ammo: sys?.missiles || 100 }];
           return next;
@@ -683,7 +689,7 @@ export default function Swarm1v1() {
         // Opponent places a group of N interceptors. We expand into individual entities
         // so the existing static-draw code (which expects individual interceptors) renders them.
         setAiSetup((prev) => {
-          const next = prev ? { ...prev } : { hqX: 5000, hqY: 2500, airspace: 2000, resources: [], interceptors: [], adUnits: [] };
+          const next = prev ? { ...prev } : { hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: [], adUnits: [] };
           const expanded = [];
           let baseId = (next.interceptors?.length || 0) + 90000;
           for (let i = 0; i < (msg.count || 4); i++) {
