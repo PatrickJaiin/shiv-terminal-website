@@ -1416,8 +1416,28 @@ export default function Swarm1v1() {
     if (playerTrajectory.length > 0 && playerHQ) {
       const pathPts = [toLL(playerHQ.x, playerHQ.y - 500)];
       for (const wp of playerTrajectory) pathPts.push(toLL(wp.x, wp.y));
-      // Final segment to AI HQ if known (visualizes the full intended path)
-      if (aiSetup) pathPts.push(toLL(aiSetup.hqX, aiSetup.hqY));
+      // Final segment ends at the actual priority target the drones will hit, not always HQ
+      if (aiSetup) {
+        const lastWp = playerTrajectory[playerTrajectory.length - 1] || { x: playerHQ.x, y: playerHQ.y - 500 };
+        let finalTarget = { x: aiSetup.hqX, y: aiSetup.hqY }; // default = HQ
+        if (attackPriority === "ad" && Array.isArray(aiSetup.adUnits)) {
+          const alive = aiSetup.adUnits.filter((a) => a.health > 0);
+          if (alive.length > 0) {
+            finalTarget = alive.reduce((best, a) => dist(lastWp, a) < dist(lastWp, best) ? a : best, alive[0]);
+          }
+        } else if (attackPriority === "resources" && Array.isArray(aiSetup.resources)) {
+          const alive = aiSetup.resources.filter((r) => r.alive);
+          if (alive.length > 0) {
+            finalTarget = alive.reduce((best, r) => dist(lastWp, r) < dist(lastWp, best) ? r : best, alive[0]);
+          }
+        } else if (attackPriority === "interceptors" && Array.isArray(aiSetup.interceptors)) {
+          const alive = aiSetup.interceptors.filter((i) => i.status === "active");
+          if (alive.length > 0) {
+            finalTarget = alive.reduce((best, i) => dist(lastWp, i) < dist(lastWp, best) ? i : best, alive[0]);
+          }
+        }
+        pathPts.push(toLL(finalTarget.x, finalTarget.y));
+      }
       L.polyline(pathPts, { color: "#00ddff", weight: 2.5, opacity: 0.7, dashArray: "8 6", interactive: false }).addTo(layer);
       playerTrajectory.forEach((wp, idx) => {
         L.circleMarker(toLL(wp.x, wp.y), { radius: 6, color: "#ffffff", fillColor: "#00ddff", fillOpacity: 0.9, weight: 2 }).addTo(layer);
@@ -1553,7 +1573,7 @@ export default function Swarm1v1() {
         L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 0.55, weight: 1 }).addTo(layer);
       }
     }
-  }, [mapReady, theater, playerHQ, playerExtraHQs, playerAirspace, playerResources, playerInterceptors, playerAD, aiSetup, phase, battleDrones, resourceDeposits, placingWhat, playerTrajectory]);
+  }, [mapReady, theater, playerHQ, playerExtraHQs, playerAirspace, playerResources, playerInterceptors, playerAD, aiSetup, phase, battleDrones, resourceDeposits, placingWhat, playerTrajectory, attackPriority]);
 
   // ── Phase 3: Render battle frame to leaflet (used by host tick + guest render loop) ──
   const renderBattleFrame = useCallback((b) => {
