@@ -173,8 +173,11 @@ html.dark .text-gray-600:not(.leaflet-container *) { color: #9ca3af; }
 html.dark .text-gray-500:not(.leaflet-container *) { color: #9ca3af; }
 html.dark .text-gray-400:not(.leaflet-container *) { color: #6b7280; }
 
-/* Override Leaflet's default div-icon styling which adds a white background and
-   gray border. The game uses className:"" on all divIcons which SHOULD override
-   this default, but if any internal Leaflet element applies .leaflet-div-icon
-   after the fact, force it transparent so no spurious boxes render on the map. */
-.leaflet-div-icon { background: transparent; border: none; }
+/* Defensive override: Leaflet's default .leaflet-div-icon CSS adds
+   background:#fff and border:1px solid #666. The game uses className:"" to
+   bypass this on all divIcons, but as a safety net in case any divIcon path
+   applies the class, keep them transparent. */
+.leaflet-div-icon {
+  background: transparent;
+  border: none;
+}

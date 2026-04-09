@@ -551,6 +551,13 @@ export default function Swarm1v1() {
     setPlayerAirspace(2000);
     setAttackPriority("hq");
     setDefPosture("pursuing");
+    // Also clear opponent setup and deposits. Without this, going Lobby -> Create Room
+    // carries aiSetup from a previous match forward into the static-draw effect's first
+    // render of the new map, painting a stale "pre-placed" enemy base on the new match's
+    // map until the next setAiSetup call overwrites it. Clearing here means the default
+    // state is guaranteed empty.
+    setAiSetup(null);
+    setResourceDeposits([]);
     // Reset Phase 2 broadcast sentinels so a fresh match re-broadcasts current values
     if (lastBroadcastRef.current) {
       lastBroadcastRef.current.airspace = null;
@@ -558,6 +565,7 @@ export default function Swarm1v1() {
       lastBroadcastRef.current.priority = null;
       lastBroadcastRef.current.posture = null;
       lastBroadcastRef.current.ready = null;
+      lastBroadcastRef.current.trajectory = null;
     }
   }, []);
 
