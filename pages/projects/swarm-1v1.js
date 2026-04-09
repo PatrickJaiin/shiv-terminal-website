@@ -887,7 +887,8 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     const thisPeer = peer;
     peerRef.current = peer;
 
-    // H4: 10s timeout for the whole handshake
+    // H4: 45s timeout for the whole handshake. Long enough for transcontinental
+    // WebRTC (ICE gathering + TURN relay over high-latency links) without hanging forever.
     if (joinTimeoutRef.current) clearTimeout(joinTimeoutRef.current);
     joinTimeoutRef.current = setTimeout(() => {
       if (peerRef.current !== thisPeer) return;
@@ -895,7 +896,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
       setConnectionStatus("error");
       try { peer.destroy(); } catch {}
       if (peerRef.current === thisPeer) peerRef.current = null;
-    }, 10000);
+    }, 45000);
 
     peer.on("open", () => {
       if (peerRef.current !== thisPeer) return;
@@ -981,7 +982,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
       setConnectionStatus("connecting");
       const conn = peer.connect(opponentPeerId, { reliable: true });
       connRef.current = conn;
-      // H1 fix: 10s timeout for the WebRTC handshake
+      // H1 fix: 45s timeout for the WebRTC handshake (transcontinental friendly)
       if (joinTimeoutRef.current) clearTimeout(joinTimeoutRef.current);
       joinTimeoutRef.current = setTimeout(() => {
         if (peerRef.current !== thisPeer || connRef.current !== conn) return;
@@ -989,7 +990,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
         setConnectionStatus("error");
         try { peer.destroy(); } catch {}
         if (peerRef.current === thisPeer) peerRef.current = null;
-      }, 10000);
+      }, 45000);
       conn.on("open", () => {
         if (connRef.current !== conn) return;
         if (joinTimeoutRef.current) { clearTimeout(joinTimeoutRef.current); joinTimeoutRef.current = null; }
@@ -1088,8 +1089,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
             // We're matched - just wait for incoming PeerJS connection
             if (mmPollRef.current) { clearInterval(mmPollRef.current); mmPollRef.current = null; }
             setConnectionStatus("waiting");
-            // H3 fix: 20s timeout for the guest's incoming PeerJS connection. If the guest crashed
-            // between matching and dialing, this surfaces an error instead of hanging forever.
+            // H3 fix: 60s timeout for the guest's incoming PeerJS connection. Long enough
+            // for transcontinental WebRTC handshakes (ICE + TURN over high-latency links)
+            // without hanging forever if the guest crashed between matching and dialing.
             if (joinTimeoutRef.current) clearTimeout(joinTimeoutRef.current);
             joinTimeoutRef.current = setTimeout(() => {
               if (peerRef.current !== thisPeer) return;
@@ -1098,7 +1100,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
               setConnectionStatus("error");
               try { peer.destroy(); } catch {}
               if (peerRef.current === thisPeer) peerRef.current = null;
-            }, 20000);
+            }, 60000);
           }
         } catch {}
       };
