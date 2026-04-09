@@ -470,7 +470,7 @@ export default function Swarm1v1() {
   const mmPollRef = useRef(null); // setInterval id for polling
   const mmDeadlineRef = useRef(null); // overall timeout deadline
   const [mmElapsed, setMmElapsed] = useState(0); // seconds since matchmaking started
-  const [mmStats, setMmStats] = useState({ queueing: 0, activeMatches: 0 }); // global counts
+  const [mmStats, setMmStats] = useState({ queueing: 0, inMatchPlayers: 0 }); // global counts
   const mmStartedAtRef = useRef(0); // timestamp when matchmaking started
   // Phase 2 ready handshake
   const [meReady, setMeReady] = useState(false);
@@ -964,7 +964,8 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
 
     let myPeerId = null;
     let role = null; // "host" | "guest" - decided after queue response
-    let pollDeadline = Date.now() + 60000; // 60s overall timeout
+    const MM_TIMEOUT_MS = 12 * 60 * 1000; // 12 minutes - long enough that the user really wants to give up
+    let pollDeadline = Date.now() + MM_TIMEOUT_MS;
     mmDeadlineRef.current = pollDeadline;
 
     const finishAsHost = () => {
@@ -1067,13 +1068,13 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
       role = "host"; // we'll be the one accepting an incoming connection
       finishAsHost();
       // H2 fix: reset deadline now that polling actually starts (don't burn budget on broker latency)
-      pollDeadline = Date.now() + 60000;
+      pollDeadline = Date.now() + MM_TIMEOUT_MS;
       mmDeadlineRef.current = pollDeadline;
       const poll = async () => {
         if (peerRef.current !== thisPeer) return;
         if (Date.now() > pollDeadline) {
           if (mmPollRef.current) { clearInterval(mmPollRef.current); mmPollRef.current = null; }
-          setConnectionError("No match found in 60 seconds. Try again or use Create/Join Room.");
+          setConnectionError("No match found after 12 minutes. Try again or use Create/Join Room.");
           setConnectionStatus("error");
           try { peer.destroy(); } catch {}
           if (peerRef.current === thisPeer) peerRef.current = null;
@@ -1142,7 +1143,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
         if (data && typeof data === "object") {
           setMmStats({
             queueing: data.queueing || 0,
-            activeMatches: data.activeMatches || 0,
+            inMatchPlayers: data.inMatchPlayers || 0,
           });
         }
       } catch {}
@@ -2763,8 +2764,8 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
                         <div style={{ fontSize: 8, color: "#888", textTransform: "uppercase", letterSpacing: 1, marginTop: 4 }}>In queue</div>
                       </div>
                       <div style={{ flex: 1, padding: "10px 8px", background: "#1a1a24", border: "1px solid #2a2a35", borderRadius: 6, textAlign: "center" }}>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: "#ff6688", lineHeight: 1 }}>{mmStats.activeMatches}</div>
-                        <div style={{ fontSize: 8, color: "#888", textTransform: "uppercase", letterSpacing: 1, marginTop: 4 }}>Active matches</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: "#ff6688", lineHeight: 1 }}>{mmStats.inMatchPlayers}</div>
+                        <div style={{ fontSize: 8, color: "#888", textTransform: "uppercase", letterSpacing: 1, marginTop: 4 }}>Players in game</div>
                       </div>
                     </div>
                   )}
