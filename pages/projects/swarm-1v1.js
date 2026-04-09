@@ -751,6 +751,34 @@ export default function Swarm1v1() {
     }
   }, [opponentName, username]);
 
+  // ── Helper: wire broker-resilience on a freshly created PeerJS peer ──
+  // The free public PeerJS broker drops websocket connections often, especially over
+  // high-latency / international links. PeerJS fires "disconnected" (NOT "error") when
+  // the broker drops us; the peer object is still alive and peer.reconnect() re-registers
+  // it under the same id. Without this, the host silently goes offline mid-lobby and the
+  // guest hangs until our handshake timeout fires.
+  const wirePeerResilience = (peer, getActive) => {
+    let reconnectAttempts = 0;
+    peer.on("disconnected", () => {
+      if (!getActive()) return; // user already cancelled / replaced peer
+      if (peer.destroyed) return;
+      if (reconnectAttempts >= 5) return; // give up - peer.on("error") will surface it
+      reconnectAttempts++;
+      setConnectionError("Reconnecting to matchmaking server...");
+      try { peer.reconnect(); } catch {}
+      // PeerJS doesn't re-fire "open" after reconnect; check status after a short delay
+      // and clear the warning if we're back online.
+      setTimeout(() => {
+        if (!getActive()) return;
+        if (peer.destroyed) return;
+        if (!peer.disconnected) {
+          setConnectionError("");
+          reconnectAttempts = 0; // success - reset budget
+        }
+      }, 2000);
+    });
+  };
+
   // ── Multiplayer: cleanup peer & connection ──
   // intentional=true suppresses the "opponent disconnected" message in handleDisconnect
   const teardownPeer = useCallback((intentional = false) => {
@@ -813,6 +841,7 @@ export default function Swarm1v1() {
     const peer = new window.Peer(getPeerId(code), { debug: 0 });
     const thisPeer = peer; // captured for stale-closure guards
     peerRef.current = peer;
+    wirePeerResilience(peer, () => peerRef.current === thisPeer);
 
     peer.on("open", () => {
       if (peerRef.current !== thisPeer) return; // user cancelled or replaced
@@ -860,9 +889,17 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
       let msg = err?.message || String(err) || "Connection error";
       if (err?.type === "network") msg = "Network error - check your connection";
       else if (err?.type === "server-error") msg = "PeerJS broker unavailable - try again";
+      // Non-fatal errors: peer is still recoverable (e.g. broker blip). Don't destroy -
+      // wirePeerResilience() will reconnect us. Show a transient warning instead of
+      // tearing down the lobby and stranding the guest mid-handshake.
+      const NON_FATAL = new Set(["network", "disconnected", "peer-unavailable"]);
+      if (NON_FATAL.has(err?.type) && !peer.destroyed) {
+        setConnectionError(msg + " (retrying...)");
+        return; // keep peer alive, do NOT destroy
+      }
       setConnectionError(msg);
       setConnectionStatus("error");
-      // H2: clean up the failed peer
+      // Fatal error: PeerJS already destroyed; this is just bookkeeping.
       try { peer.destroy(); } catch {}
       if (peerRef.current === thisPeer) peerRef.current = null;
     });
@@ -886,6 +923,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     const peer = new window.Peer({ debug: 0 });
     const thisPeer = peer;
     peerRef.current = peer;
+    wirePeerResilience(peer, () => peerRef.current === thisPeer);
 
     // H4: 45s timeout for the whole handshake. Long enough for transcontinental
     // WebRTC (ICE gathering + TURN relay over high-latency links) without hanging forever.
@@ -920,11 +958,18 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     });
     peer.on("error", (err) => {
       if (peerRef.current !== thisPeer) return;
-      if (joinTimeoutRef.current) { clearTimeout(joinTimeoutRef.current); joinTimeoutRef.current = null; }
       let msg = err?.message || String(err) || "Connection error";
       if (err?.type === "peer-unavailable") msg = "Room not found - check the code";
       else if (err?.type === "network") msg = "Network error - check your connection";
       else if (err?.type === "server-error") msg = "PeerJS broker unavailable - try again";
+      // peer-unavailable IS fatal here (specific code lookup failed). network/disconnected
+      // are recoverable - keep the peer alive so wirePeerResilience can reconnect.
+      const RECOVERABLE = new Set(["network", "disconnected"]);
+      if (RECOVERABLE.has(err?.type) && !peer.destroyed) {
+        setConnectionError(msg + " (retrying...)");
+        return;
+      }
+      if (joinTimeoutRef.current) { clearTimeout(joinTimeoutRef.current); joinTimeoutRef.current = null; }
       setConnectionError(msg);
       setConnectionStatus("error");
       try { peer.destroy(); } catch {}
@@ -962,6 +1007,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     const peer = new window.Peer({ debug: 0 });
     const thisPeer = peer;
     peerRef.current = peer;
+    wirePeerResilience(peer, () => peerRef.current === thisPeer);
 
     let myPeerId = null;
     let role = null; // "host" | "guest" - decided after queue response
@@ -1115,6 +1161,13 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
       if (err?.type === "peer-unavailable") msg = "Opponent disconnected before match could start";
       else if (err?.type === "network") msg = "Network error - check your connection";
       else if (err?.type === "server-error") msg = "PeerJS broker unavailable - try again";
+      // Recoverable: keep peer alive so wirePeerResilience can reconnect us instead of
+      // bouncing the user back to the lobby on every broker hiccup.
+      const RECOVERABLE = new Set(["network", "disconnected"]);
+      if (RECOVERABLE.has(err?.type) && !peer.destroyed) {
+        setConnectionError(msg + " (retrying...)");
+        return;
+      }
       setConnectionError(msg);
       setConnectionStatus("error");
       if (mmPollRef.current) { clearInterval(mmPollRef.current); mmPollRef.current = null; }
