@@ -741,6 +741,12 @@ export default function Swarm1v1() {
         }
         const b = battleRef.current;
         if (!b) break;
+        // Drop late snapshots arriving after round_end. The host emits a final combat_snapshot
+        // immediately before round_end and on a laggy link these can swap order. Without this
+        // guard, the snapshot merges into a stopped guestTick (battleRef still truthy but
+        // _guestRoundOver=true) and the next round_start re-uses the polluted ref - guest's
+        // view freezes until round_start recreates everything.
+        if (b._guestRoundOver) break;
         b.step = msg.step || 0;
         b._lastSnapshotTime = performance.now(); // for dead-reckoning extrapolation in guestTick
         // Swap: host's "p" → guest's "a", host's "a" → guest's "p"
@@ -767,6 +773,16 @@ export default function Swarm1v1() {
             if (id == null || b._seenFlashIds.has(id)) continue;
             b._seenFlashIds.add(id);
             b.flashes.push({ ...f, wallTime: guestNow });
+            // Guest-side audio: playSfx lives only inside the host's tick, so the guest
+            // never hears any sound from their own units. Route flash types to sfx here so
+            // the guest gets the full audio experience. Throttling inside playSfx prevents
+            // sound spam at high battle speeds. Skip dmgtext (visual only).
+            if (f.type === "adshot") playSfx("ad_fire", 50);
+            else if (f.type === "kill") playSfx("drone_kill", 60);
+            else if (f.type === "drone_clash") playSfx("drone_kill", 60);
+            else if (f.type === "ad_explosion") playSfx("hq_destroyed", 200);
+            else if (f.type === "resource_explosion") playSfx("hq_destroyed", 200);
+            else if (f.type === "breach") playSfx("breach_alarm", 250);
           }
           // Cap the seen set so it doesn't grow unbounded across long rounds.
           if (b._seenFlashIds.size > 2000) {
@@ -1578,33 +1594,43 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
   // value was set BEFORE the connection opened (or right at the moment of open before
   // the conn fully wired), the broadcast is silently dropped and never re-attempted.
   // This effect fires once when connectionStatus transitions to "connected" and
-  // re-broadcasts every piece of guest state at that moment, ensuring the host has
-  // an authoritative view of the guest's intent before any round launches.
+  // re-broadcasts every piece of guest state at that moment.
+  // Latest values are read via syncStateRef (updated every render) so the effect
+  // doesn't need to list state values in deps and capture stale closures.
+  const syncStateRef = useRef({});
+  syncStateRef.current = { playerAirspace, playerAttack, attackPriority, defPosture, meReady, playerTrajectory };
   useEffect(() => {
     if (gameMode === "bot") return;
     if (connectionStatus !== "connected") return;
     if (!connRef.current?.open) return;
+    const s = syncStateRef.current;
     try {
-      broadcast({ type: "airspace", radius: playerAirspace });
-      broadcast({ type: "attack_wave", wave: playerAttack });
-      broadcast({ type: "attack_priority", value: attackPriority });
-      broadcast({ type: "def_posture", value: defPosture });
-      broadcast({ type: "ready", ready: meReady });
-      broadcast({ type: "trajectory", waypoints: playerTrajectory });
+      broadcast({ type: "airspace", radius: s.playerAirspace });
+      broadcast({ type: "attack_wave", wave: s.playerAttack });
+      broadcast({ type: "attack_priority", value: s.attackPriority });
+      broadcast({ type: "def_posture", value: s.defPosture });
+      broadcast({ type: "ready", ready: s.meReady });
+      broadcast({ type: "trajectory", waypoints: s.playerTrajectory });
     } catch {}
     // Reset dedup so subsequent value changes still pass through normally.
-    lastBroadcastRef.current.airspace = playerAirspace;
-    lastBroadcastRef.current.attack = JSON.stringify(playerAttack);
-    lastBroadcastRef.current.priority = attackPriority;
-    lastBroadcastRef.current.posture = defPosture;
-    lastBroadcastRef.current.ready = meReady;
-    lastBroadcastRef.current.trajectory = JSON.stringify(playerTrajectory);
+    lastBroadcastRef.current.airspace = s.playerAirspace;
+    lastBroadcastRef.current.attack = JSON.stringify(s.playerAttack);
+    lastBroadcastRef.current.priority = s.attackPriority;
+    lastBroadcastRef.current.posture = s.defPosture;
+    lastBroadcastRef.current.ready = s.meReady;
+    lastBroadcastRef.current.trajectory = JSON.stringify(s.playerTrajectory);
   }, [connectionStatus, gameMode, broadcast]);
 
   // Init map
   useEffect(() => {
     if (typeof window === "undefined" || phase === PHASE.LOBBY || phase === PHASE.MATCHMAKING) return;
     let cancelled = false;
+    // Capture handler and observer references in closure scope so the effect cleanup
+    // can tear them down on theater change. Without this, every theater change adds
+    // another mousedown listener and ResizeObserver to the same map div.
+    let middleClickHandler = null;
+    let resizeObserver = null;
+    let attachedEl = null;
     (async () => {
       const L = await import("leaflet");
       if (cancelled) return;
@@ -1646,8 +1672,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
         infoRef.setInfoPopup({ text: `Coordinates: (${Math.round(cx)}, ${Math.round(cy)})` });
         setTimeout(() => infoRef.setInfoPopup(null), 3000);
       });
-      // Middle-click hit test: shows unit inspector popup
-      mapRef.current.addEventListener("mousedown", (ev) => {
+      // Middle-click hit test: shows unit inspector popup. Stored in a closure variable
+      // so the effect cleanup can removeEventListener it on unmount/theater change.
+      middleClickHandler = (ev) => {
         if (ev.button !== 1) return; // middle button only
         ev.preventDefault();
         const fn = inspectClickRef.current;
@@ -1662,16 +1689,26 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
         const simX = ((latlng.lng - b.west) / (b.east - b.west)) * ARENA;
         const simY = ((latlng.lat - b.south) / (b.north - b.south)) * ARENA;
         fn(simX, simY);
-      });
+      };
+      attachedEl = mapRef.current;
+      attachedEl.addEventListener("mousedown", middleClickHandler);
       setMapReady(true);
       // Fix map sizing after render - multiple attempts
       setTimeout(() => map.invalidateSize(), 100);
       setTimeout(() => map.invalidateSize(), 500);
       // Watch for container resizes
-      const ro = new ResizeObserver(() => map.invalidateSize());
-      ro.observe(mapRef.current);
+      resizeObserver = new ResizeObserver(() => map.invalidateSize());
+      resizeObserver.observe(mapRef.current);
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (middleClickHandler && attachedEl) {
+        try { attachedEl.removeEventListener("mousedown", middleClickHandler); } catch {}
+      }
+      if (resizeObserver) {
+        try { resizeObserver.disconnect(); } catch {}
+      }
+    };
   }, [phase, theater]);
 
   // Draw static elements
