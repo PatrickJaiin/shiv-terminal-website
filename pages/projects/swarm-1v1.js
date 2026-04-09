@@ -1544,6 +1544,34 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     if (connRef.current?.open) broadcast({ type: "trajectory", waypoints: playerTrajectory });
   }, [playerTrajectory, gameMode, broadcast]);
 
+  // Connection-open re-sync: each per-field broadcast effect above guards on
+  // connRef.current?.open at runtime - but connRef is a ref, not a dep, so if a state
+  // value was set BEFORE the connection opened (or right at the moment of open before
+  // the conn fully wired), the broadcast is silently dropped and never re-attempted.
+  // This effect fires once when connectionStatus transitions to "connected" and
+  // re-broadcasts every piece of guest state at that moment, ensuring the host has
+  // an authoritative view of the guest's intent before any round launches.
+  useEffect(() => {
+    if (gameMode === "bot") return;
+    if (connectionStatus !== "connected") return;
+    if (!connRef.current?.open) return;
+    try {
+      broadcast({ type: "airspace", radius: playerAirspace });
+      broadcast({ type: "attack_wave", wave: playerAttack });
+      broadcast({ type: "attack_priority", value: attackPriority });
+      broadcast({ type: "def_posture", value: defPosture });
+      broadcast({ type: "ready", ready: meReady });
+      broadcast({ type: "trajectory", waypoints: playerTrajectory });
+    } catch {}
+    // Reset dedup so subsequent value changes still pass through normally.
+    lastBroadcastRef.current.airspace = playerAirspace;
+    lastBroadcastRef.current.attack = JSON.stringify(playerAttack);
+    lastBroadcastRef.current.priority = attackPriority;
+    lastBroadcastRef.current.posture = defPosture;
+    lastBroadcastRef.current.ready = meReady;
+    lastBroadcastRef.current.trajectory = JSON.stringify(playerTrajectory);
+  }, [connectionStatus, gameMode, broadcast]);
+
   // Init map
   useEffect(() => {
     if (typeof window === "undefined" || phase === PHASE.LOBBY || phase === PHASE.MATCHMAKING) return;
@@ -1858,16 +1886,20 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
       // Reload pie chart: fills clockwise as cooldown progresses. Solid green when ready.
       if (alive && ad.ammo > 0) {
         const cooldown = Math.max(3, Math.round(sys.engageRate * 5));
-        const elapsed = ad.lastFired !== undefined ? b.step - ad.lastFired : cooldown;
+        const elapsed = ad.lastFired != null ? b.step - ad.lastFired : cooldown;
         const reloadPct = Math.min(1, elapsed / cooldown);
-        const pieColor = reloadPct >= 1 ? "#4caf50" : "#ffaa00";
-        L.marker(toLL(ad.x, ad.y), {
-          icon: L.divIcon({
-            className: "", iconSize: [32, 32], iconAnchor: [16, 16],
-            html: reloadPieSvg(reloadPct, pieColor, 0.85),
-          }),
-          interactive: false,
-        }).addTo(bl);
+        // Only draw the reload pie chart while ACTUALLY reloading. Idle/ready ADs got rendered
+        // as solid green rings before, which made the screen look green when many ADs were
+        // placed but had no targets. The colored AD marker (line ~1855) already conveys "ready".
+        if (reloadPct < 1) {
+          L.marker(toLL(ad.x, ad.y), {
+            icon: L.divIcon({
+              className: "", iconSize: [32, 32], iconAnchor: [16, 16],
+              html: reloadPieSvg(reloadPct, "#ffaa00", 0.85),
+            }),
+            interactive: false,
+          }).addTo(bl);
+        }
       } else if (alive && ad.ammo === 0) {
         // Out of ammo - red ring with X icon
         L.marker(toLL(ad.x, ad.y), {
