@@ -58,17 +58,19 @@ const RESOURCES = [
   { key: "hydro", name: "Hydropower Plant", cost: 14000000, income: 3600000, breachDmg: 22000000, color: "#44aadd", icon: "H" },
 ];
 
-// Sci-fi unit sketches for the inspector preview popup. Each is a compact 60x60
-// inline SVG silhouette evoking the actual hardware (modeled on real military systems
-// for AD, generic sci-fi for resources/interceptors). Strokes are white for contrast
-// against the dark popup background; fills are the unit's brand color so they read
-// at a glance even when shrunk.
+// Unit sketches for the inspector preview popup. AD systems use real reference photos
+// from Wikimedia Commons (CC-licensed, downloaded to /public/images/units/). Resources
+// keep their inline SVG silhouettes (the simulator's "industrial building" stylized
+// shapes) since they're abstract gameplay elements without specific real-world referents.
+// Interceptors stay as inline SVG since the kamikaze/armed types are fictional gameplay
+// units rather than specific real platforms.
+const UNIT_IMG_PATH = "/images/units/";
 const UNIT_SKETCHES = {
   ad: {
-    iron_dome: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="6" y="42" width="48" height="6" fill="#44bbff" stroke="#fff" stroke-width="1.5"/><circle cx="14" cy="51" r="3" fill="#222" stroke="#fff" stroke-width="1"/><circle cx="46" cy="51" r="3" fill="#222" stroke="#fff" stroke-width="1"/><rect x="9" y="14" width="9" height="28" fill="#44bbff" stroke="#fff" stroke-width="1.5"/><rect x="20" y="14" width="9" height="28" fill="#44bbff" stroke="#fff" stroke-width="1.5"/><rect x="31" y="14" width="9" height="28" fill="#44bbff" stroke="#fff" stroke-width="1.5"/><rect x="42" y="14" width="9" height="28" fill="#44bbff" stroke="#fff" stroke-width="1.5"/><line x1="13" y1="14" x2="13" y2="9" stroke="#fff" stroke-width="1"/><line x1="24" y1="14" x2="24" y2="9" stroke="#fff" stroke-width="1"/><line x1="35" y1="14" x2="35" y2="9" stroke="#fff" stroke-width="1"/><line x1="46" y1="14" x2="46" y2="9" stroke="#fff" stroke-width="1"/></svg>`,
-    gepard: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="4" y="46" width="52" height="6" fill="#222" stroke="#fff" stroke-width="1"/><rect x="6" y="32" width="48" height="14" fill="#88aa44" stroke="#fff" stroke-width="1.5"/><rect x="20" y="22" width="20" height="11" fill="#88aa44" stroke="#fff" stroke-width="1.5"/><rect x="22" y="6" width="3" height="18" fill="#88aa44" stroke="#fff" stroke-width="1"/><rect x="35" y="6" width="3" height="18" fill="#88aa44" stroke="#fff" stroke-width="1"/><circle cx="30" cy="27" r="2" fill="#fff"/></svg>`,
-    nasams: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="6" y="42" width="48" height="8" fill="#4488ff" stroke="#fff" stroke-width="1.5"/><circle cx="14" cy="52" r="3" fill="#222" stroke="#fff" stroke-width="1"/><circle cx="30" cy="52" r="3" fill="#222" stroke="#fff" stroke-width="1"/><circle cx="46" cy="52" r="3" fill="#222" stroke="#fff" stroke-width="1"/><g transform="rotate(-25 30 30)"><rect x="10" y="20" width="10" height="22" fill="#4488ff" stroke="#fff" stroke-width="1.2"/><rect x="22" y="20" width="10" height="22" fill="#4488ff" stroke="#fff" stroke-width="1.2"/><rect x="34" y="20" width="10" height="22" fill="#4488ff" stroke="#fff" stroke-width="1.2"/></g></svg>`,
-    pantsir: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="4" y="46" width="52" height="6" fill="#222" stroke="#fff" stroke-width="1"/><rect x="4" y="34" width="52" height="12" fill="#cc8800" stroke="#fff" stroke-width="1.5"/><rect x="14" y="22" width="32" height="12" fill="#cc8800" stroke="#fff" stroke-width="1.5"/><rect x="16" y="14" width="3" height="10" fill="#cc8800" stroke="#fff" stroke-width="0.8"/><rect x="20" y="14" width="3" height="10" fill="#cc8800" stroke="#fff" stroke-width="0.8"/><rect x="24" y="14" width="3" height="10" fill="#cc8800" stroke="#fff" stroke-width="0.8"/><rect x="33" y="14" width="3" height="10" fill="#cc8800" stroke="#fff" stroke-width="0.8"/><rect x="37" y="14" width="3" height="10" fill="#cc8800" stroke="#fff" stroke-width="0.8"/><rect x="41" y="14" width="3" height="10" fill="#cc8800" stroke="#fff" stroke-width="0.8"/><circle cx="30" cy="10" r="3" fill="none" stroke="#fff" stroke-width="1.2"/><line x1="30" y1="13" x2="30" y2="22" stroke="#fff" stroke-width="1"/></svg>`,
+    iron_dome: `<img src="${UNIT_IMG_PATH}iron_dome.jpg" alt="Iron Dome" width="80" height="60" style="object-fit:cover;border-radius:4px;border:1px solid #2a2a35"/>`,
+    gepard: `<img src="${UNIT_IMG_PATH}gepard.jpg" alt="Flakpanzer Gepard" width="80" height="60" style="object-fit:cover;border-radius:4px;border:1px solid #2a2a35"/>`,
+    nasams: `<img src="${UNIT_IMG_PATH}nasams.jpg" alt="NASAMS" width="80" height="60" style="object-fit:cover;border-radius:4px;border:1px solid #2a2a35"/>`,
+    pantsir: `<img src="${UNIT_IMG_PATH}pantsir.jpg" alt="Pantsir-S1" width="80" height="60" style="object-fit:cover;border-radius:4px;border:1px solid #2a2a35"/>`,
   },
   resource: {
     solar: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="6" y="14" width="48" height="32" fill="#44bb44" stroke="#fff" stroke-width="2"/><line x1="6" y1="22" x2="54" y2="22" stroke="#fff" stroke-width="1"/><line x1="6" y1="30" x2="54" y2="30" stroke="#fff" stroke-width="1"/><line x1="6" y1="38" x2="54" y2="38" stroke="#fff" stroke-width="1"/><line x1="22" y1="14" x2="22" y2="46" stroke="#fff" stroke-width="1"/><line x1="38" y1="14" x2="38" y2="46" stroke="#fff" stroke-width="1"/><rect x="26" y="46" width="8" height="8" fill="#44bb44" stroke="#fff" stroke-width="1"/></svg>`,
@@ -789,9 +791,28 @@ export default function Swarm1v1() {
         // _guestRoundOver=true) and the next round_start re-uses the polluted ref - guest's
         // view freezes until round_start recreates everything.
         if (b._guestRoundOver) break;
-        b.step = msg.step || 0;
-        b._lastSnapshotTime = performance.now(); // for dead-reckoning extrapolation in guestTick
-        b._hostBattleSpeed = msg.bs || 1; // host's speed multiplier so guest can scale interpolation
+        // Observed step rate: compute actual host sim-steps-per-ms from the gap between
+        // this snapshot and the previous one. Much more accurate than assuming 60fps *
+        // battleSpeed (which can be wrong if the host's requestAnimationFrame isn't
+        // hitting 60fps, which it doesn't at high battleSpeed due to sim work per frame).
+        // This is what drove the 'RTB drones shake on guest' jitter - the assumption was
+        // that the host always ran at exactly 60*speed sims/sec but in practice at 16x
+        // it was more like 40x effective, so the guest extrapolation overshot and kept
+        // snapping back.
+        const nowMs = performance.now();
+        const prevStep = b.step || 0;
+        const prevTime = b._lastSnapshotTime || nowMs;
+        const newStep = msg.step || 0;
+        const dtMs = Math.max(1, nowMs - prevTime);
+        const stepsDelta = Math.max(0, newStep - prevStep);
+        // Blend with previous observed rate (EMA) so a single missed/delayed snapshot
+        // doesn't swing the rate wildly. Seed with msg.bs at round start.
+        const observed = stepsDelta / dtMs;
+        const prev = b._obsHostStepsPerMs || ((msg.bs || 1) / 16.67);
+        b._obsHostStepsPerMs = prev * 0.6 + observed * 0.4;
+        b.step = newStep;
+        b._lastSnapshotTime = nowMs;
+        b._hostBattleSpeed = msg.bs || 1;
         // Swap: host's "p" → guest's "a", host's "a" → guest's "p"
         // hd/spd carry heading+speed so the guest can extrapolate position between snapshots.
         b.aAttackers = (msg.pAtt || []).map((a) => ({ id: a.id, x: a.x, y: a.y, status: a.s, threat: "cheap", heading: a.hd, speed: a.spd }));
@@ -1383,6 +1404,16 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     setTimeout(() => setBudgetShake(false), 500);
   }, []);
 
+  // Live shake whenever the attack-wave cost slider crosses the budget into overspend.
+  // Only fires on the transition (not-overspending -> overspending) so dragging deeper
+  // into red doesn't constantly re-shake. Resets when the user pulls back under budget.
+  const wasAttackOverspendRef = useRef(false);
+  useEffect(() => {
+    const isOver = attackWaveCost > playerBudget;
+    if (isOver && !wasAttackOverspendRef.current) triggerShake();
+    wasAttackOverspendRef.current = isOver;
+  }, [attackWaveCost, playerBudget, triggerShake]);
+
   // Screen shake on the map container - per visuals audit, the cheapest juice tool ever invented
   const shakeMap = useCallback((intensity = 6, frames = 8) => {
     const el = mapRef.current;
@@ -1694,6 +1725,11 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     if (was && !battleActive && phase === PHASE.COMBAT && !gameOver) {
       setMeReady(false);
       setOpponentReady(false);
+      // Belt-and-braces: also clear the auto-advance guard so the next ready pair can
+      // fire even if some other effect path managed to leave it stuck. Without this,
+      // round 3+ could observe a stale guardRef true from round 2 and refuse to auto-
+      // launch even though both players are ready.
+      readyAdvanceGuardRef.current = false;
     }
   }, [battleActive, phase, gameOver]);
 
@@ -1780,10 +1816,12 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
         infoRef.setInfoPopup({ text: `Coordinates: (${Math.round(cx)}, ${Math.round(cy)})` });
         setTimeout(() => infoRef.setInfoPopup(null), 3000);
       });
-      // Middle-click hit test: shows unit inspector popup. Stored in a closure variable
-      // so the effect cleanup can removeEventListener it on unmount/theater change.
+      // Double-click hit test: shows unit inspector popup. Switched from middle-click
+      // because middle button isn't accessible on most laptop trackpads. dblclick is
+      // also Leaflet's "zoom in" gesture, so we preventDefault + disable doubleClickZoom
+      // to suppress the zoom behavior when the user is trying to inspect a unit.
+      map.doubleClickZoom.disable();
       middleClickHandler = (ev) => {
-        if (ev.button !== 1) return; // middle button only
         ev.preventDefault();
         const fn = inspectClickRef.current;
         if (!fn) return;
@@ -1799,7 +1837,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
         fn(simX, simY);
       };
       attachedEl = mapRef.current;
-      attachedEl.addEventListener("mousedown", middleClickHandler);
+      attachedEl.addEventListener("dblclick", middleClickHandler);
       setMapReady(true);
       // Fix map sizing after render - multiple attempts
       setTimeout(() => map.invalidateSize(), 100);
@@ -1811,7 +1849,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     return () => {
       cancelled = true;
       if (middleClickHandler && attachedEl) {
-        try { attachedEl.removeEventListener("mousedown", middleClickHandler); } catch {}
+        try { attachedEl.removeEventListener("dblclick", middleClickHandler); } catch {}
       }
       if (resizeObserver) {
         try { resizeObserver.disconnect(); } catch {}
@@ -2290,26 +2328,26 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     function guestTick() {
       const b = battleRef.current;
       if (!b || b._guestRoundOver) return;
-      // Dead-reckoning: extrapolate drone positions between snapshots using heading+speed
-      // so they glide smoothly instead of teleporting every ~67ms. When the next snapshot
-      // arrives it overwrites everything with authoritative positions.
-      // IMPORTANT: scale by the host's battleSpeed so interpolation keeps up with the
-      // host's effective step rate. At 16x speed, the host advances 16 sim steps per
-      // render frame; without the scale factor, the guest would only show 1/16th of
-      // the actual movement between snapshots, making units (especially RTBing
-      // interceptors) appear to crawl compared to attackers that jump on every snapshot.
-      if (b._lastSnapshotTime) {
+      // Dead-reckoning: extrapolate drone positions between snapshots using heading+
+      // speed + the OBSERVED host step rate. Previously used a theoretical rate
+      // (assumed 60fps * battleSpeed) which was wrong in practice - at 16x the host's
+      // tick loop does 16 sim steps per render frame but requestAnimationFrame drops
+      // below 60fps due to the sim work, so the effective step rate is lower than
+      // theoretical. That mismatch caused RTBing interceptors to visibly shake on the
+      // guest: extrapolation would overshoot, then snap back on the next snapshot.
+      // Now we compute steps-per-ms from the actual gap between received snapshots
+      // (EMA-smoothed in the handler) and extrapolate using that.
+      if (b._lastSnapshotTime && b._obsHostStepsPerMs) {
         const elapsed = performance.now() - b._lastSnapshotTime;
-        const hostSpeed = b._hostBattleSpeed || 1;
-        // frames = how many HOST sim steps elapsed since last snapshot. Cap at 6x the
-        // host speed so we never extrapolate more than ~100ms worth of movement even
-        // when snapshots are delayed (prevents overshoot-then-snapback on packet loss).
-        const frames = Math.min((elapsed / 16.67) * hostSpeed, 6 * hostSpeed);
+        // Expected host steps since last snapshot based on the observed rate.
+        // Cap so we never extrapolate beyond ~2 snapshot intervals even on packet loss.
+        const maxSteps = b._obsHostStepsPerMs * 134; // 134ms = 2 * expected 67ms interval
+        const steps = Math.min(b._obsHostStepsPerMs * elapsed, maxSteps);
         for (const list of [b.pAttackers, b.aAttackers, b.pInts, b.aInts]) {
           for (const d of list) {
             if (d.status !== "active" || d.heading == null || !d.speed) continue;
-            d._renderX = d.x + Math.cos(d.heading) * d.speed * frames;
-            d._renderY = d.y + Math.sin(d.heading) * d.speed * frames;
+            d._renderX = d.x + Math.cos(d.heading) * d.speed * steps;
+            d._renderY = d.y + Math.sin(d.heading) * d.speed * steps;
           }
         }
       }
@@ -3065,42 +3103,54 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
             <Link href="/projects/swarm-interception" style={{ color: "#4a9eff", fontSize: 13, textDecoration: "none" }}>&larr; Simulation</Link>
             <h1 style={{ fontSize: 16, fontWeight: 600, color: "#ff6688", letterSpacing: 0.5, margin: 0 }}>SWARM 1v1</h1>
           </div>
-          {phase !== PHASE.LOBBY && phase !== PHASE.MATCHMAKING && (
-            // Top-right budget panel: prominent card-style display with both players'
-            // running budgets. Shakes when triggerShake() fires from an illegal spend
-            // attempt (canAfford check failure). The shake reuses the same budgetShake
-            // state that the left-panel budget already uses.
-            <div style={{
-              display: "flex", gap: 14, alignItems: "center",
-              background: "rgba(17, 17, 24, 0.95)",
-              border: `2px solid ${budgetShake ? "#ff5555" : "#2a2a35"}`,
-              borderRadius: 8,
-              padding: "8px 16px",
-              transition: budgetShake ? "none" : "border-color 0.3s",
-              transform: budgetShake ? `translateX(${Math.random() > 0.5 ? 6 : -6}px)` : "none",
-              boxShadow: budgetShake ? "0 0 12px rgba(255,85,85,0.5)" : "0 0 8px rgba(0,0,0,0.3)",
-            }}>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-                <div style={{ fontSize: 9, color: "#666", textTransform: "uppercase", letterSpacing: 1 }}>{username}</div>
-                <div style={{ fontSize: 17, fontWeight: 800, color: "#4a9eff", fontFamily: "monospace", lineHeight: 1.1 }}>
-                  ${formatUSD(Math.max(0, playerBudget))}
+          {phase !== PHASE.LOBBY && phase !== PHASE.MATCHMAKING && (() => {
+            // Top-right budget panel: shows AVAILABLE money (playerBudget - pending
+            // attackWaveCost) so the user sees the live impact of their wave-size
+            // sliders. Goes red and shakes when the pending wave costs more than what
+            // they have. Same budgetShake state the left-panel budget uses, plus a
+            // dedicated transition to red border on overspend that doesn't depend on
+            // a click - the shake fires the moment the slider goes past the budget.
+            const availablePlayer = playerBudget - attackWaveCost;
+            const overspend = availablePlayer < 0;
+            const showShake = budgetShake || overspend;
+            return (
+              <div style={{
+                display: "flex", gap: 14, alignItems: "center",
+                background: "rgba(17, 17, 24, 0.95)",
+                border: `2px solid ${showShake ? "#ff5555" : "#2a2a35"}`,
+                borderRadius: 8,
+                padding: "10px 18px",
+                transition: showShake ? "none" : "border-color 0.3s",
+                transform: budgetShake ? `translateX(${Math.random() > 0.5 ? 6 : -6}px)` : "none",
+                boxShadow: showShake ? "0 0 14px rgba(255,85,85,0.55)" : "0 0 8px rgba(0,0,0,0.3)",
+              }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                  <div style={{ fontSize: 9, color: "#666", textTransform: "uppercase", letterSpacing: 1 }}>{username} avail</div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: overspend ? "#ff5555" : "#4a9eff", fontFamily: "monospace", lineHeight: 1.05 }}>
+                    {overspend ? "-" : ""}${formatUSD(Math.abs(availablePlayer))}
+                  </div>
+                  {attackWaveCost > 0 && (
+                    <div style={{ fontSize: 9, color: overspend ? "#ff8888" : "#ff9800", marginTop: 1, fontFamily: "monospace" }}>
+                      wave: -${formatUSD(attackWaveCost)}
+                    </div>
+                  )}
                 </div>
+                <div style={{ fontSize: 14, color: "#666", fontWeight: 700 }}>VS</div>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+                  <div style={{ fontSize: 9, color: "#666", textTransform: "uppercase", letterSpacing: 1 }}>{opponentName}</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: "#ff5555", fontFamily: "monospace", lineHeight: 1.05 }}>
+                    ${formatUSD(Math.max(0, aiBudget))}
+                  </div>
+                </div>
+                {phase === PHASE.COMBAT && (
+                  <div style={{ marginLeft: 8, paddingLeft: 12, borderLeft: "1px solid #2a2a35", display: "flex", flexDirection: "column", alignItems: "center" }}>
+                    <div style={{ fontSize: 9, color: "#666", textTransform: "uppercase", letterSpacing: 1 }}>Round</div>
+                    <div style={{ fontSize: 17, fontWeight: 800, color: "#ff9800", fontFamily: "monospace", lineHeight: 1.05 }}>{currentRound + 1}</div>
+                  </div>
+                )}
               </div>
-              <div style={{ fontSize: 14, color: "#666", fontWeight: 700 }}>VS</div>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
-                <div style={{ fontSize: 9, color: "#666", textTransform: "uppercase", letterSpacing: 1 }}>{opponentName}</div>
-                <div style={{ fontSize: 17, fontWeight: 800, color: "#ff5555", fontFamily: "monospace", lineHeight: 1.1 }}>
-                  ${formatUSD(Math.max(0, aiBudget))}
-                </div>
-              </div>
-              {phase === PHASE.COMBAT && (
-                <div style={{ marginLeft: 8, paddingLeft: 12, borderLeft: "1px solid #2a2a35", display: "flex", flexDirection: "column", alignItems: "center" }}>
-                  <div style={{ fontSize: 9, color: "#666", textTransform: "uppercase", letterSpacing: 1 }}>Round</div>
-                  <div style={{ fontSize: 17, fontWeight: 800, color: "#ff9800", fontFamily: "monospace", lineHeight: 1.1 }}>{currentRound + 1}</div>
-                </div>
-              )}
-            </div>
-          )}
+            );
+          })()}
         </div>
 
         {/* Lobby */}
@@ -3817,7 +3867,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
                         </div>
                       ))}
                     </div>
-                    <div style={{ fontSize: 9, color: "#555", marginTop: 8, textAlign: "center" }}>Middle-click any unit to inspect</div>
+                    <div style={{ fontSize: 9, color: "#555", marginTop: 8, textAlign: "center" }}>Double-click any unit to inspect</div>
                   </div>
                 );
               })()}
