@@ -2527,7 +2527,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
           activeA = activeA.filter((a) => playerHQ && dist(a, playerHQ) < playerAirspace);
         } else if (defPosture === "pursuing") {
           // Chase but don't enter enemy airspace circle
-          activeA = activeA.filter((a) => dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) > aiSetup.airspace);
+          activeA = activeA.filter((a) => aiSetup.hqX != null && dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) > aiSetup.airspace);
         }
         // "insane" = no filter, chase anywhere
         let tgt = activeA.find((a) => a.id === int.targetId);
@@ -2536,11 +2536,23 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
           int.heading = Math.atan2(tgt.y - int.y, tgt.x - int.x);
           const nx = int.x + Math.cos(int.heading) * int.speed;
           const ny = int.y + Math.sin(int.heading) * int.speed;
-          // Posture boundary check before moving
-          if (defPosture === "pursuing" && dist({ x: nx, y: ny }, { x: aiSetup.hqX, y: aiSetup.hqY }) < aiSetup.airspace) {
+          // Posture boundary check: block the move if the new position would violate the
+          // posture rule AND we're not actively moving toward the allowed region. Without
+          // the "moving toward allowed" escape clause, an interceptor that's already inside
+          // the forbidden zone (e.g. via switching posture mid-combat) would be permanently
+          // trapped inside, because every move stays inside.
+          let blocked = false;
+          if (defPosture === "pursuing" && aiSetup.hqX != null) {
+            const curDist = dist(int, { x: aiSetup.hqX, y: aiSetup.hqY });
+            const newDist = dist({ x: nx, y: ny }, { x: aiSetup.hqX, y: aiSetup.hqY });
+            if (newDist < aiSetup.airspace && newDist <= curDist) blocked = true;
+          } else if (defPosture === "defensive" && playerHQ) {
+            const curDist = dist(int, playerHQ);
+            const newDist = dist({ x: nx, y: ny }, playerHQ);
+            if (newDist > playerAirspace && newDist >= curDist) blocked = true;
+          }
+          if (blocked) {
             int.targetId = null; // give up this target
-          } else if (defPosture === "defensive" && playerHQ && dist({ x: nx, y: ny }, playerHQ) > playerAirspace) {
-            int.targetId = null;
           } else {
             int.x = nx; int.y = ny;
             if (dist(int, tgt) < KILL_RADIUS) {
@@ -2552,21 +2564,46 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
           }
         }
       }
-      // AI interceptors chase player attackers
+      // AI interceptors chase player attackers (posture-aware via guest's broadcast)
+      // Previously had no posture check at all - guest's interceptors ignored the guest's
+      // posture setting entirely because the host only applied its own defPosture to pInts.
+      // The guest's posture lives in aiSetup._posture (set by the "def_posture" message handler).
+      // Mirror the pInts filter/boundary logic with playerHQ as aInts' enemy HQ.
+      const aiPosture = (aiSetup && aiSetup._posture) || "insane";
       for (const int of b.aInts) {
         if (int.status !== "active") continue;
-        const activeA = b.pAttackers.filter((a) => a.status === "active");
-        let tgt = activeA.find((a) => a.id === int.targetId);
-        if (!tgt) { let best = null, bd = Infinity; for (const a of activeA) { const d2 = dist(int, a); if (d2 < bd) { bd = d2; best = a; } } if (best) { int.targetId = best.id; tgt = best; } }
+        let activeP = b.pAttackers.filter((a) => a.status === "active");
+        if (aiPosture === "defensive") {
+          activeP = activeP.filter((a) => aiSetup.hqX != null && dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) < aiSetup.airspace);
+        } else if (aiPosture === "pursuing") {
+          activeP = activeP.filter((a) => playerHQ && dist(a, playerHQ) > playerAirspace);
+        }
+        let tgt = activeP.find((a) => a.id === int.targetId);
+        if (!tgt) { let best = null, bd = Infinity; for (const a of activeP) { const d2 = dist(int, a); if (d2 < bd) { bd = d2; best = a; } } if (best) { int.targetId = best.id; tgt = best; } }
         if (tgt) {
           int.heading = Math.atan2(tgt.y - int.y, tgt.x - int.x);
-          int.x += Math.cos(int.heading) * int.speed;
-          int.y += Math.sin(int.heading) * int.speed;
-          if (dist(int, tgt) < KILL_RADIUS) {
-            tgt.status = "destroyed"; b.pKills++; int.targetId = null;
-            b.flashes.push({ x: tgt.x, y: tgt.y, time: b.step, wallTime: performance.now(), type: "drone_clash" });
-            if (int.destroyOnKill) int.status = "expended";
-            else if (Math.random() > (int.survivalRate || 0.73)) int.status = "expended";
+          const nx = int.x + Math.cos(int.heading) * int.speed;
+          const ny = int.y + Math.sin(int.heading) * int.speed;
+          let blocked = false;
+          if (aiPosture === "pursuing" && playerHQ) {
+            const curDist = dist(int, playerHQ);
+            const newDist = dist({ x: nx, y: ny }, playerHQ);
+            if (newDist < playerAirspace && newDist <= curDist) blocked = true;
+          } else if (aiPosture === "defensive" && aiSetup.hqX != null) {
+            const curDist = dist(int, { x: aiSetup.hqX, y: aiSetup.hqY });
+            const newDist = dist({ x: nx, y: ny }, { x: aiSetup.hqX, y: aiSetup.hqY });
+            if (newDist > aiSetup.airspace && newDist >= curDist) blocked = true;
+          }
+          if (blocked) {
+            int.targetId = null;
+          } else {
+            int.x = nx; int.y = ny;
+            if (dist(int, tgt) < KILL_RADIUS) {
+              tgt.status = "destroyed"; b.pKills++; int.targetId = null;
+              b.flashes.push({ x: tgt.x, y: tgt.y, time: b.step, wallTime: performance.now(), type: "drone_clash" });
+              if (int.destroyOnKill) int.status = "expended";
+              else if (Math.random() > (int.survivalRate || 0.73)) int.status = "expended";
+            }
           }
         }
       }
@@ -2633,22 +2670,39 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
 
       setBattleDrones({ playerAttackers: [...b.pAttackers], aiAttackers: [...b.aAttackers], playerInts: [...b.pInts], aiInts: [...b.aInts] });
 
-      // RTB phase: interceptors only RTB when ALL attackers on BOTH sides are gone
+      // RTB phase: when all attackers are gone, active interceptors fly back to their
+      // spawn point at normal speed. The round does NOT end until every interceptor has
+      // either landed (arrived within 30 units of its spawn) or expended. This gives the
+      // player/opponent time to see the result of the engagement before the round cuts.
+      // Note: this runs INSIDE the speed-loop (si loop) so at 16x speed the RTB completes
+      // ~16x faster in wall-clock time, matching the rest of the sim's time dilation.
+      // Drones use their normal int.speed - no separate "RTB speed" field, avoiding the
+      // old bug where interceptors flew home at a completely different speed than combat.
       const aAtk = b.aAttackers.filter((a) => a.status === "active").length;
       const pAtk = b.pAttackers.filter((a) => a.status === "active").length;
       const allAttackersGone = aAtk === 0 && pAtk === 0;
 
       if (allAttackersGone) {
-        // Instant RTB - no animation, drones snap home and land immediately.
-        // Animation was pointless filler since combat is over.
-        for (const int of b.pInts) {
-          if (int.status !== "active") continue;
-          int.x = int.spawnX; int.y = int.spawnY; int.status = "landed"; int.targetId = null;
-        }
-        for (const int of b.aInts) {
-          if (int.status !== "active") continue;
-          int.x = int.spawnX; int.y = int.spawnY; int.status = "landed"; int.targetId = null;
-        }
+        const rtbInterceptor = (int) => {
+          if (int.status !== "active") return;
+          int.targetId = null; // RTB mode - no combat targeting
+          const dxh = int.spawnX - int.x;
+          const dyh = int.spawnY - int.y;
+          const dh = Math.sqrt(dxh * dxh + dyh * dyh);
+          if (dh < 30 || dh < int.speed) {
+            // Within one step of spawn - snap home and land.
+            int.x = int.spawnX;
+            int.y = int.spawnY;
+            int.status = "landed";
+            return;
+          }
+          // Move toward spawn at int.speed (same speed as combat - no RTB-specific bugs).
+          int.heading = Math.atan2(dyh, dxh);
+          int.x += Math.cos(int.heading) * int.speed;
+          int.y += Math.sin(int.heading) * int.speed;
+        };
+        for (const int of b.pInts) rtbInterceptor(int);
+        for (const int of b.aInts) rtbInterceptor(int);
       }
 
       // Check if battle is over: all attackers gone AND all interceptors landed/expended
