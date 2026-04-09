@@ -132,3 +132,39 @@ html.dark a {
 }
 
 @tailwind utilities;
+
+/* ===== Dark mode overrides for project pages =====
+   Pages like people-grouper / poker-bot / latent-reasoning / trading-bot /
+   youtube-algorithm use inline bg-white, bg-gray-50, text-gray-XXX classes
+   without explicit dark: variants. Adding dark: variants to each of those
+   files would be hundreds of edits. Instead, we globally remap the most
+   common light-mode Tailwind utility classes when html.dark is set.
+
+   Specificity note: `html.dark .bg-white` is (0,2,1) which beats Tailwind's
+   generated `.dark .dark\:bg-gray-XXX` at (0,2,0) by the element selector.
+   So pages that DO have explicit dark: variants get these fallback colors
+   instead, which is a small visual drift but consistent and acceptable.
+   The terminal page is scoped via .terminal-page and unaffected. */
+html.dark .bg-white { background-color: #111827; color: #e5e7eb; }
+html.dark .bg-gray-50 { background-color: #0b0f1a; color: #e5e7eb; }
+html.dark .bg-gray-100 { background-color: #1f2937; color: #e5e7eb; }
+html.dark .bg-gray-200 { background-color: #374151; color: #e5e7eb; }
+html.dark .bg-emerald-50 { background-color: #064e3b; }
+html.dark .bg-blue-50 { background-color: #1e3a8a; }
+html.dark .bg-red-50 { background-color: #7f1d1d; }
+html.dark .bg-yellow-50 { background-color: #78350f; }
+
+html.dark .border-gray-100 { border-color: #1f2937; }
+html.dark .border-gray-200 { border-color: #374151; }
+html.dark .border-gray-300 { border-color: #4b5563; }
+html.dark .border-gray-400 { border-color: #6b7280; }
+
+html.dark .text-gray-900 { color: #f3f4f6; }
+html.dark .text-gray-800 { color: #e5e7eb; }
+html.dark .text-gray-700 { color: #d1d5db; }
+html.dark .text-gray-600 { color: #9ca3af; }
+html.dark .text-gray-500 { color: #9ca3af; }
+html.dark .text-gray-400 { color: #6b7280; }
+
+/* Don't remap the game/sim pages which use inline hex colors in style objects
+   (swarm-1v1 / swarm-interception). They already look right in both modes. */

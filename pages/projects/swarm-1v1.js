@@ -1589,6 +1589,49 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     if (connRef.current?.open) broadcast({ type: "trajectory", waypoints: playerTrajectory });
   }, [playerTrajectory, gameMode, broadcast]);
 
+  // ── Auto-advance on mutual ready (1v1 mode only) ──
+  // When both players mark themselves ready, the round should start automatically
+  // without any extra "START COMBAT" or "LAUNCH ROUND" button press. Host drives the
+  // transition (SETUP->COMBAT) and the round launch (calling launchRoundRef.current()),
+  // then broadcasts the start_combat message for the guest. Ready flags get cleared
+  // inside launchRound/the effect so the next between-round buy phase starts fresh.
+  const readyAdvanceGuardRef = useRef(false);
+  useEffect(() => {
+    if (gameMode !== "host") return;
+    if (!(meReady && opponentReady)) { readyAdvanceGuardRef.current = false; return; }
+    if (battleActive || gameOver) return;
+    if (readyAdvanceGuardRef.current) return; // fire once per ready-pair
+    readyAdvanceGuardRef.current = true;
+    if (phase === PHASE.SETUP) {
+      // SETUP -> COMBAT: broadcast so guest transitions too, then advance local phase.
+      // Clear ready flags so the between-round buy loop starts fresh on both sides.
+      try { broadcast({ type: "start_combat" }); } catch {}
+      setPhase(PHASE.COMBAT);
+      setMeReady(false);
+      setOpponentReady(false);
+    } else if (phase === PHASE.COMBAT) {
+      // Between rounds: launch the round. launchRound resets meReady/opponentReady via
+      // the ready-reset effect below once battleActive flips true.
+      setMeReady(false);
+      setOpponentReady(false);
+      if (launchRoundRef.current) {
+        try { launchRoundRef.current(); } catch {}
+      }
+    }
+  }, [meReady, opponentReady, phase, battleActive, gameOver, gameMode, broadcast]);
+
+  // Reset ready flags when a round ends so both players can re-ready for the next round.
+  // Watches battleActive transitioning from true to false during COMBAT phase.
+  const prevBattleActiveRef = useRef(false);
+  useEffect(() => {
+    const was = prevBattleActiveRef.current;
+    prevBattleActiveRef.current = battleActive;
+    if (was && !battleActive && phase === PHASE.COMBAT && !gameOver) {
+      setMeReady(false);
+      setOpponentReady(false);
+    }
+  }, [battleActive, phase, gameOver]);
+
   // Connection-open re-sync: each per-field broadcast effect above guards on
   // connRef.current?.open at runtime - but connRef is a ref, not a dep, so if a state
   // value was set BEFORE the connection opened (or right at the moment of open before
@@ -3185,15 +3228,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
                             {" | "}
                             {opponentName}: <span style={{ color: opponentReady ? "#4caf50" : "#666" }}>{opponentReady ? "Ready" : "Not ready"}</span>
                           </div>
-                          {gameMode === "host" && meReady && opponentReady && (
-                            <button onClick={() => { broadcast({ type: "start_combat" }); setPhase(PHASE.COMBAT); }}
-                              style={{ ...btnStyle, width: "100%", marginTop: 6, background: "#1a4a2a", borderColor: "#4caf50", color: "#4caf50", fontSize: 12 }}>
-                              START COMBAT
-                            </button>
-                          )}
-                          {gameMode === "guest" && meReady && opponentReady && (
+                          {meReady && opponentReady && (
                             <div style={{ fontSize: 10, color: "#4caf50", marginTop: 6, textAlign: "center" }}>
-                              Both ready - waiting for host to start...
+                              Both ready - starting combat...
                             </div>
                           )}
                         </>
@@ -3345,10 +3382,29 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
                         ))}
                       </div>
 
-                      <button onClick={launchRound}
-                        style={{ ...btnStyle, width: "100%", marginTop: 4, background: "#4a1a2a", borderColor: "#ff6688", color: "#ff6688", fontSize: 12 }}>
-                        LAUNCH ROUND {currentRound + 1}
-                      </button>
+                      {gameMode === "bot" ? (
+                        <button onClick={launchRound}
+                          style={{ ...btnStyle, width: "100%", marginTop: 4, background: "#4a1a2a", borderColor: "#ff6688", color: "#ff6688", fontSize: 12 }}>
+                          LAUNCH ROUND {currentRound + 1}
+                        </button>
+                      ) : (
+                        <>
+                          <button onClick={() => { setPlacingWhat(null); setMeReady((r) => !r); }}
+                            style={{ ...btnStyle, width: "100%", marginTop: 4, background: meReady ? "#1a4a2a" : "#4a1a2a", borderColor: meReady ? "#4caf50" : "#ff6688", color: meReady ? "#4caf50" : "#ff6688", fontSize: 12 }}>
+                            {meReady ? `✓ READY FOR ROUND ${currentRound + 1}` : `MARK READY - ROUND ${currentRound + 1}`}
+                          </button>
+                          <div style={{ fontSize: 9, color: "#888", marginTop: 4, textAlign: "center" }}>
+                            You: <span style={{ color: meReady ? "#4caf50" : "#666" }}>{meReady ? "Ready" : "Not ready"}</span>
+                            {" | "}
+                            {opponentName}: <span style={{ color: opponentReady ? "#4caf50" : "#666" }}>{opponentReady ? "Ready" : "Not ready"}</span>
+                          </div>
+                          {meReady && opponentReady && (
+                            <div style={{ fontSize: 10, color: "#4caf50", marginTop: 4, textAlign: "center" }}>
+                              Both ready - launching round...
+                            </div>
+                          )}
+                        </>
+                      )}
                     </>
                   )}
 
