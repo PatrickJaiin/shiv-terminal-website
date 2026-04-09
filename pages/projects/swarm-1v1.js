@@ -1938,9 +1938,11 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
     const pAttackers = spawnDrones(playerAttack, playerHQ.x, playerHQ.y - 500, aiSetup.hqX, aiSetup.hqY, 10000 + round * 1000, playerTrajectory.length > 0 ? playerTrajectory : null);
     const aAttackers = spawnDrones(aiWave, aiSetup.hqX, aiSetup.hqY + 500, playerHQ.x, playerHQ.y, 20000 + round * 1000);
 
-    // Player interceptors with spawn positions for RTB
+    // Player interceptors with spawn positions for RTB.
+    // Tag each entity with groupIdx so the round-end survival count only counts its own group
+    // (prevents the "doubling" bug when multiple groups overlapped within 1500m).
     const pInts = [];
-    for (const d of playerInterceptors) {
+    playerInterceptors.forEach((d, groupIdx) => {
       const def = DEFENSE_UNITS.find((dd) => dd.key === d.key);
       for (let i = 0; i < d.count; i++) {
         const sx = d.x + (Math.random() - 0.5) * 300;
@@ -1949,9 +1951,10 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
           id: 30000 + pInts.length, x: sx, y: sy, spawnX: sx, spawnY: sy,
           speed: def?.speed || 2.0, status: "active", targetId: null,
           destroyOnKill: def?.destroyOnKill !== false, survivalRate: def?.survivalRate || 0,
+          groupIdx,
         });
       }
-    }
+    });
     // AI interceptors with spawn positions
     const aInts = aiSetup.interceptors.filter((i) => i.status === "active").map((i) => ({ ...i, spawnX: i.x, spawnY: i.y }));
 
@@ -2423,9 +2426,10 @@ setAiSetup({ hqX: null, hqY: null, airspace: 2000, resources: [], interceptors: 
           setTimeout(() => setDamagePopup(null), 2500);
         }
 
-        // Update surviving interceptors
-        setPlayerInterceptors((prev) => prev.map((d) => {
-          const surviving = b.pInts.filter((i) => (i.status === "active" || i.status === "landed") && dist(i, d) < 1500).length;
+        // Update surviving interceptors using groupIdx (not distance) so overlapping
+        // groups don't share/double their survivor counts.
+        setPlayerInterceptors((prev) => prev.map((d, idx) => {
+          const surviving = b.pInts.filter((i) => (i.status === "active" || i.status === "landed") && i.groupIdx === idx).length;
           return { ...d, count: Math.max(0, surviving) };
         }));
         aiSetup.interceptors = b.aInts.filter((i) => i.status === "active");
