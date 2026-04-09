@@ -321,6 +321,7 @@ export default function Swarm1v1() {
   const [defPosture, setDefPosture] = useState("pursuing"); // "insane" | "pursuing" | "defensive"
   const [budgetShake, setBudgetShake] = useState(false);
   const [infoPopup, setInfoPopup] = useState(null);
+  const [unitInspect, setUnitInspect] = useState(null); // { kind, key, side, ad?, res?, intGroup?, x, y } - middle-click inspector
   const [totalIncome, setTotalIncome] = useState(0);
   const [damagePopup, setDamagePopup] = useState(null);
   const [battleSpeed, setBattleSpeed] = useState(1); // 1x, 2x, 4x
@@ -378,6 +379,7 @@ export default function Swarm1v1() {
   const battleLayerRef = useRef(null);
   const LRef = useRef(null);
   const handleMapClickRef = useRef(null);
+  const inspectClickRef = useRef(null); // forward ref for middle-click inspect handler
   const theaterRef = useRef(theater);
   const [mapReady, setMapReady] = useState(false);
 
@@ -1187,6 +1189,53 @@ export default function Swarm1v1() {
   }, [phase, placingWhat, playerHQ, playerExtraHQs, playerAirspace, battleActive, playerResources, playerInterceptors, playerAD, resourceDeposits, canAfford, triggerShake, broadcast]);
 
   handleMapClickRef.current = handleMapClick;
+
+  // Middle-click inspect: hit-test all units within radius and show stats popup
+  const handleInspect = useCallback((x, y) => {
+    const HIT_RADIUS = 250;
+    let best = null, bestD = HIT_RADIUS;
+    // Player HQs (main + extras)
+    if (playerHQ) {
+      const d = dist({ x, y }, playerHQ);
+      if (d < bestD) { bestD = d; best = { kind: "hq", side: "player", x: playerHQ.x, y: playerHQ.y }; }
+    }
+    for (const eh of playerExtraHQs) {
+      const d = dist({ x, y }, eh);
+      if (d < bestD) { bestD = d; best = { kind: "hq_extra", side: "player", x: eh.x, y: eh.y }; }
+    }
+    // Enemy HQ
+    if (aiSetup) {
+      const d = dist({ x, y }, { x: aiSetup.hqX, y: aiSetup.hqY });
+      if (d < bestD) { bestD = d; best = { kind: "hq", side: "enemy", x: aiSetup.hqX, y: aiSetup.hqY }; }
+    }
+    // Player AD
+    for (const ad of playerAD) {
+      const d = dist({ x, y }, ad);
+      if (d < bestD) { bestD = d; best = { kind: "ad", side: "player", key: ad.key, ad }; }
+    }
+    // Enemy AD
+    for (const ad of (aiSetup?.adUnits || [])) {
+      const d = dist({ x, y }, ad);
+      if (d < bestD) { bestD = d; best = { kind: "ad", side: "enemy", key: ad.key, ad }; }
+    }
+    // Player resources
+    for (const r of playerResources) {
+      const d = dist({ x, y }, r);
+      if (d < bestD) { bestD = d; best = { kind: "resource", side: "player", key: r.key, res: r }; }
+    }
+    // Enemy resources
+    for (const r of (aiSetup?.resources || [])) {
+      const d = dist({ x, y }, r);
+      if (d < bestD) { bestD = d; best = { kind: "resource", side: "enemy", key: r.key, res: r }; }
+    }
+    // Player interceptor groups
+    for (const ig of playerInterceptors) {
+      const d = dist({ x, y }, ig);
+      if (d < bestD) { bestD = d; best = { kind: "interceptor", side: "player", key: ig.key, intGroup: ig }; }
+    }
+    if (best) setUnitInspect(best);
+  }, [playerHQ, playerExtraHQs, aiSetup, playerAD, playerResources, playerInterceptors]);
+  inspectClickRef.current = handleInspect;
   theaterRef.current = theater;
   battleSpeedRef.current = battleSpeed;
   showADRangeRef.current = showADRange;
@@ -1271,6 +1320,23 @@ export default function Swarm1v1() {
         let [cx, cy] = latLngToSim(e.latlng.lat, e.latlng.lng, t2.bounds);
         infoRef.setInfoPopup({ text: `Coordinates: (${Math.round(cx)}, ${Math.round(cy)})` });
         setTimeout(() => infoRef.setInfoPopup(null), 3000);
+      });
+      // Middle-click hit test: shows unit inspector popup
+      mapRef.current.addEventListener("mousedown", (ev) => {
+        if (ev.button !== 1) return; // middle button only
+        ev.preventDefault();
+        const fn = inspectClickRef.current;
+        if (!fn) return;
+        const rect = map.getContainer().getBoundingClientRect();
+        const px = ev.clientX - rect.left;
+        const py = ev.clientY - rect.top;
+        const latlng = map.containerPointToLatLng([px, py]);
+        const t2 = THEATERS[theaterRef.current];
+        if (!t2) return;
+        const b = t2.bounds;
+        const simX = ((latlng.lng - b.west) / (b.east - b.west)) * ARENA;
+        const simY = ((latlng.lat - b.south) / (b.north - b.south)) * ARENA;
+        fn(simX, simY);
       });
       setMapReady(true);
       // Fix map sizing after render - multiple attempts
@@ -1399,7 +1465,8 @@ export default function Swarm1v1() {
       if (ad.health > 0) {
         L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.06, weight: 1.5, opacity: 0.4, dashArray: "6 4", interactive: false }).addTo(layer);
       }
-      L.circleMarker(toLL(ad.x, ad.y), { radius: 6, color: ad.health > 0 ? sys.color : "#444", fillColor: ad.health > 0 ? sys.color : "#333", fillOpacity: 0.8, weight: 2 }).addTo(layer);
+      // White-bordered fill (player ownership), size 7 to match new battle layer
+      L.circleMarker(toLL(ad.x, ad.y), { radius: 7, color: ad.health > 0 ? "#ffffff" : "#444", fillColor: ad.health > 0 ? sys.color : "#333", fillOpacity: 0.9, weight: 2.5 }).addTo(layer);
     }
 
     // AI - show full enemy intel: HQ, airspace, resources, AD systems with range, interceptor positions
@@ -1441,14 +1508,16 @@ export default function Swarm1v1() {
           interactive: false,
         }).addTo(layer);
       }
-      // Enemy AD systems with range circles (red-tinted)
+      // Enemy AD systems with range circles
+      // Use the system's own color for the fill (so player can identify the AD type),
+      // but with a red border to indicate enemy ownership (vs player's white border).
       for (const ad of (aiSetup.adUnits || [])) {
         const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
         if (!sys) continue;
         if (ad.health > 0) {
-          L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: "#ff7777", fillColor: "#ff5555", fillOpacity: 0.05, weight: 1.5, opacity: 0.45, dashArray: "6 4", interactive: false }).addTo(layer);
+          L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: "#ff5555", fillOpacity: 0.04, weight: 1.5, opacity: 0.45, dashArray: "6 4", interactive: false }).addTo(layer);
         }
-        L.circleMarker(toLL(ad.x, ad.y), { radius: 6, color: ad.health > 0 ? "#ff7777" : "#444", fillColor: ad.health > 0 ? "#cc4444" : "#333", fillOpacity: 0.85, weight: 2 }).addTo(layer);
+        L.circleMarker(toLL(ad.x, ad.y), { radius: 7, color: ad.health > 0 ? "#ff3333" : "#444", fillColor: ad.health > 0 ? sys.color : "#333", fillOpacity: 0.9, weight: 2.5 }).addTo(layer);
       }
       // Enemy interceptors at base
       for (const i of (aiSetup.interceptors || [])) {
@@ -1478,22 +1547,48 @@ export default function Swarm1v1() {
         if (sys) L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.04, weight: 1.5, opacity: 0.3, dashArray: "6 4", interactive: false }).addTo(bl);
       }
     }
-    for (const ad of (b.pAD || [])) {
+    // Helper: draw an AD marker with type color, side-indicating border, and reload arc
+    const drawAdMarker = (ad, sideColor, labelColor) => {
       const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
-      if (!sys) continue;
+      if (!sys) return;
       const alive = ad.health > 0;
-      L.circleMarker(toLL(ad.x, ad.y), { radius: 9, color: alive ? "#ffffff" : "#222", fillColor: alive ? sys.color : "#1a1a1a", fillOpacity: alive ? 0.95 : 0.3, weight: 2.5 }).addTo(bl);
+      // Outer ring: side color (white for player, red for enemy)
+      L.circleMarker(toLL(ad.x, ad.y), { radius: 9, color: alive ? sideColor : "#222", fillColor: alive ? sys.color : "#1a1a1a", fillOpacity: alive ? 0.95 : 0.3, weight: 2.5 }).addTo(bl);
+      // Inner crosshair
       L.circleMarker(toLL(ad.x, ad.y), { radius: 2, color: "#ffffff", fillColor: "#ffffff", fillOpacity: alive ? 1 : 0.3, weight: 0 }).addTo(bl);
-      if (alive) L.marker(toLL(ad.x, ad.y - 180), { icon: L.divIcon({ className: "", iconSize: [60, 14], iconAnchor: [30, 7], html: `<div style="color:${sys.color};font-size:9px;font-weight:700;font-family:monospace;text-align:center;text-shadow:0 0 4px #000;white-space:nowrap">${sys.name.split(" ")[0]} ${ad.ammo}</div>` }), interactive: false }).addTo(bl);
-    }
-    for (const ad of (b.aAD || [])) {
-      const sys = AD_SYSTEMS_1V1.find((s) => s.key === ad.key);
-      if (!sys) continue;
-      const alive = ad.health > 0;
-      L.circleMarker(toLL(ad.x, ad.y), { radius: 9, color: alive ? "#ff7777" : "#222", fillColor: alive ? "#cc4444" : "#1a1a1a", fillOpacity: alive ? 0.95 : 0.3, weight: 2.5 }).addTo(bl);
-      L.circleMarker(toLL(ad.x, ad.y), { radius: 2, color: "#ffffff", fillColor: "#ffffff", fillOpacity: alive ? 1 : 0.3, weight: 0 }).addTo(bl);
-      if (alive) L.marker(toLL(ad.x, ad.y - 180), { icon: L.divIcon({ className: "", iconSize: [60, 14], iconAnchor: [30, 7], html: `<div style="color:#ff7777;font-size:9px;font-weight:700;font-family:monospace;text-align:center;text-shadow:0 0 4px #000;white-space:nowrap">${sys.name.split(" ")[0]} ${ad.ammo}</div>` }), interactive: false }).addTo(bl);
-    }
+      // Reload arc: shows cooldown progress as a thin colored ring around the AD.
+      // Reload completes when (b.step - lastFired) >= cooldown. Empty ring = ready, filling = reloading.
+      if (alive && ad.lastFired !== undefined) {
+        const cooldown = Math.max(3, Math.round(sys.engageRate * 5));
+        const elapsed = b.step - ad.lastFired;
+        if (elapsed < cooldown) {
+          // Reloading - draw a faint ring whose opacity grows as reload completes
+          const reloadPct = Math.min(1, elapsed / cooldown);
+          L.circleMarker(toLL(ad.x, ad.y), {
+            radius: 13, color: "#ffaa00", fillColor: "transparent",
+            opacity: 0.3 + reloadPct * 0.5, weight: 2,
+          }).addTo(bl);
+        } else if (ad.ammo > 0) {
+          // Ready to fire - bright green ring
+          L.circleMarker(toLL(ad.x, ad.y), {
+            radius: 13, color: "#4caf50", fillColor: "transparent",
+            opacity: 0.7, weight: 1.5,
+          }).addTo(bl);
+        }
+      }
+      // Label with name + ammo count
+      if (alive) {
+        L.marker(toLL(ad.x, ad.y - 180), {
+          icon: L.divIcon({
+            className: "", iconSize: [60, 14], iconAnchor: [30, 7],
+            html: `<div style="color:${labelColor};font-size:9px;font-weight:700;font-family:monospace;text-align:center;text-shadow:0 0 4px #000;white-space:nowrap">${sys.name.split(" ")[0]} ${ad.ammo}</div>`
+          }),
+          interactive: false,
+        }).addTo(bl);
+      }
+    };
+    for (const ad of (b.pAD || [])) drawAdMarker(ad, "#ffffff", AD_SYSTEMS_1V1.find((s) => s.key === ad.key)?.color || "#fff");
+    for (const ad of (b.aAD || [])) drawAdMarker(ad, "#ff3333", "#ff7777");
     for (const a of (b.aAttackers || [])) { if (a.status === "active") L.circleMarker(toLL(a.x, a.y), { radius: 3, color: "#ff4444", fillColor: "#ff4444", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
     for (const a of (b.pAttackers || [])) { if (a.status === "active") L.circleMarker(toLL(a.x, a.y), { radius: 3, color: "#00ddff", fillColor: "#00ddff", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
     for (const i of (b.pInts || [])) {
@@ -2139,6 +2234,22 @@ export default function Swarm1v1() {
           return { ...d, count: Math.max(0, surviving) };
         }));
         aiSetup.interceptors = b.aInts.filter((i) => i.status === "active");
+
+        // Persist AD damage between rounds: destroyed ADs stay destroyed, ammo carries over.
+        // Match by position since the battle copies are separate references from the originals.
+        setPlayerAD((prev) => prev.map((ad) => {
+          const battleAd = b.pAD.find((ba) => ba.x === ad.x && ba.y === ad.y && ba.key === ad.key);
+          if (!battleAd) return ad;
+          return { ...ad, health: battleAd.health, ammo: battleAd.ammo };
+        }).filter((ad) => ad.health > 0));
+        // Mirror for AI's AD systems
+        if (aiSetup && Array.isArray(aiSetup.adUnits)) {
+          aiSetup.adUnits = aiSetup.adUnits.map((ad) => {
+            const battleAd = b.aAD.find((ba) => ba.x === ad.x && ba.y === ad.y && ba.key === ad.key);
+            if (!battleAd) return ad;
+            return { ...ad, health: battleAd.health, ammo: battleAd.ammo };
+          }).filter((ad) => ad.health > 0);
+        }
 
         // Arms factory bonus
         for (const r of playerResources) {
@@ -2860,6 +2971,84 @@ export default function Swarm1v1() {
                   {infoPopup.text}
                 </div>
               )}
+              {unitInspect && (() => {
+                const u = unitInspect;
+                let title = "", subtitle = "", stats = [], color = "#4a9eff", svg = null;
+                if (u.kind === "hq" || u.kind === "hq_extra") {
+                  title = u.side === "player" ? (u.kind === "hq_extra" ? "Your Forward HQ" : "Your HQ") : "Enemy HQ";
+                  subtitle = "Command Center";
+                  color = u.side === "player" ? "#4a9eff" : "#ff5555";
+                  stats = [["Type", u.kind === "hq_extra" ? "Secondary" : "Primary"], ["Defense", "8+ breaches in one round = destroyed"]];
+                  svg = `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="10" y="10" width="40" height="40" fill="${color}" stroke="#fff" stroke-width="3"/><rect x="20" y="20" width="6" height="6" fill="#fff"/><rect x="34" y="20" width="6" height="6" fill="#fff"/><rect x="20" y="34" width="6" height="6" fill="#fff"/><rect x="34" y="34" width="6" height="6" fill="#fff"/></svg>`;
+                } else if (u.kind === "ad") {
+                  const sys = AD_SYSTEMS_1V1.find((s) => s.key === u.key);
+                  if (sys) {
+                    title = sys.name;
+                    subtitle = u.side === "player" ? "Your Ground AD" : "Enemy Ground AD";
+                    color = sys.color;
+                    stats = [
+                      ["Cost", `$${formatUSD(sys.cost)}`],
+                      ["Range", `${sys.range}m`],
+                      ["Missiles", `${u.ad?.ammo ?? sys.missiles} / ${sys.missiles}`],
+                      ["Pk", `${Math.round(sys.pk * 100)}%`],
+                      ["Reload", `${sys.engageRate}s`],
+                      ["Health", u.ad?.health > 0 ? "Operational" : "DESTROYED"],
+                    ];
+                    svg = `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="22" fill="${color}" stroke="${u.side === 'player' ? '#fff' : '#ff3333'}" stroke-width="3"/><circle cx="30" cy="30" r="4" fill="#fff"/><line x1="30" y1="8" x2="30" y2="20" stroke="#fff" stroke-width="2"/><line x1="30" y1="40" x2="30" y2="52" stroke="#fff" stroke-width="2"/><line x1="8" y1="30" x2="20" y2="30" stroke="#fff" stroke-width="2"/><line x1="40" y1="30" x2="52" y2="30" stroke="#fff" stroke-width="2"/></svg>`;
+                  }
+                } else if (u.kind === "resource") {
+                  const res = RESOURCES.find((r) => r.key === u.key);
+                  if (res) {
+                    title = res.name;
+                    subtitle = u.side === "player" ? "Your Resource" : "Enemy Resource";
+                    color = res.color;
+                    stats = [
+                      ["Cost", `$${formatUSD(res.cost)}`],
+                      ["Income", `$${formatUSD(res.income)}/round`],
+                      ["ROI", `${(res.cost / res.income).toFixed(1)} rounds`],
+                      ["Breach loss", `$${formatUSD(res.breachDmg)}`],
+                      ["Status", u.res?.alive ? "Online" : "DESTROYED"],
+                    ];
+                    svg = `<svg width="60" height="60" viewBox="0 0 60 60"><polygon points="30,8 52,50 8,50" fill="${color}" stroke="#fff" stroke-width="3" stroke-linejoin="round"/><text x="30" y="44" text-anchor="middle" font-size="20" font-weight="800" font-family="monospace" fill="#fff">${res.icon}</text></svg>`;
+                  }
+                } else if (u.kind === "interceptor") {
+                  const def = DEFENSE_UNITS.find((d) => d.key === u.key);
+                  if (def) {
+                    title = def.name;
+                    subtitle = `Group of ${u.intGroup?.count || 0}`;
+                    color = "#4a9eff";
+                    stats = [
+                      ["Cost (each)", `$${formatUSD(def.cost)}`],
+                      ["Speed", `${def.speed} u/tick`],
+                      ["Type", def.destroyOnKill ? "Kamikaze (one-shot)" : "Armed (reusable)"],
+                      ["Survival", def.destroyOnKill ? "0%" : `${Math.round((def.survivalRate || 0) * 100)}%`],
+                    ];
+                    svg = `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="20" fill="${color}" stroke="#fff" stroke-width="2.5"/><polygon points="30,12 38,40 30,32 22,40" fill="#fff"/></svg>`;
+                  }
+                }
+                if (!title) return null;
+                return (
+                  <div style={{ position: "absolute", top: 50, right: 12, width: 260, background: "rgba(17,17,24,0.96)", border: `2px solid ${color}`, borderRadius: 8, padding: 14, color: "#e0e0e0", zIndex: 700, boxShadow: "0 4px 20px rgba(0,0,0,0.6)" }}>
+                    <button onClick={() => setUnitInspect(null)} style={{ position: "absolute", top: 6, right: 8, background: "none", border: "none", color: "#888", fontSize: 14, cursor: "pointer", padding: 0 }}>✕</button>
+                    <div style={{ display: "flex", gap: 12, marginBottom: 10, alignItems: "center" }}>
+                      <div dangerouslySetInnerHTML={{ __html: svg || "" }} style={{ flexShrink: 0 }} />
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color }}>{title}</div>
+                        <div style={{ fontSize: 9, color: "#888", textTransform: "uppercase", letterSpacing: 1, marginTop: 2 }}>{subtitle}</div>
+                      </div>
+                    </div>
+                    <div style={{ borderTop: "1px solid #2a2a35", paddingTop: 8 }}>
+                      {stats.map(([k, v], i) => (
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 3 }}>
+                          <span style={{ color: "#888" }}>{k}</span>
+                          <span style={{ color: "#e0e0e0", fontFamily: "monospace" }}>{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 9, color: "#555", marginTop: 8, textAlign: "center" }}>Middle-click any unit to inspect</div>
+                  </div>
+                );
+              })()}
               {damagePopup && (
                 <div style={{ position: "absolute", top: "40%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 600, fontSize: 32, fontWeight: 800, color: damagePopup.color, textShadow: "0 0 20px rgba(0,0,0,0.8)", animation: "fadeUp 2.5s ease-out forwards", pointerEvents: "none" }}>
                   {damagePopup.text}
