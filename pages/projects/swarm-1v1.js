@@ -1629,12 +1629,18 @@ export default function Swarm1v1() {
     }
     if (b.flashes) {
       // Per visuals audit: use wall-clock time for VFX decay so 16x speed doesn't hide flashes.
-      // Each flash carries wallTime (creation timestamp). Aging is computed in milliseconds, not sim steps.
+      // Each flash carries wallTime (creation timestamp). Aging is computed in milliseconds.
+      // PERF: backfill missing wallTime so legacy flash creation sites don't get culled instantly,
+      // and CAP the total count so high-speed combat can't accumulate thousands of DOM elements.
       const nowMs = performance.now();
+      for (const f of b.flashes) { if (!f.wallTime) f.wallTime = nowMs; }
       b.flashes = b.flashes.filter((f) => {
-        const ageMs = nowMs - (f.wallTime || 0);
+        const ageMs = nowMs - f.wallTime;
         return ageMs < (f.type === "dmgtext" ? 2000 : 500);
       });
+      // Cap: keep only the most recent 200 flashes total. Prevents lag spikes during 16x combat
+      // when many AD shots + kills + damage popups can pile up faster than they decay.
+      if (b.flashes.length > 200) b.flashes = b.flashes.slice(-200);
       for (const f of b.flashes) {
         const ageMs = nowMs - (f.wallTime || 0);
         const maxAgeMs = f.type === "dmgtext" ? 2000 : 500;
