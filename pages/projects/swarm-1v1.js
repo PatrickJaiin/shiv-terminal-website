@@ -22,8 +22,8 @@ const THEATERS = {
     mapCenter: [51.2, 33], mapZoom: 5,
     airspace: [1100, 500, 1800],
     zones: {
-      player:   { lat: 49.0, lng: 31.0, label: "UKRAINE" },   // Kyiv-Dnipro area
-      opponent: { lat: 54.5, lng: 37.0, label: "RUSSIA" },     // Moscow approaches
+      player:   { lat: 49.0, lng: 31.0, label: "BLUE SIDE" },   // Kyiv-Dnipro area
+      opponent: { lat: 54.5, lng: 37.0, label: "RED SIDE" },     // Moscow approaches
     },
   },
   kashmir: {
@@ -32,8 +32,8 @@ const THEATERS = {
     mapCenter: [34, 74.5], mapZoom: 7,
     airspace: [2800, 1200, 4000],
     zones: {
-      player:   { lat: 32.8, lng: 74.8, label: "INDIA" },      // Jammu side
-      opponent: { lat: 35.2, lng: 74.3, label: "PAKISTAN" },     // Gilgit-Muzaffarabad
+      player:   { lat: 32.8, lng: 74.8, label: "BLUE SIDE" },      // Jammu side
+      opponent: { lat: 35.2, lng: 74.3, label: "RED SIDE" },     // Gilgit-Muzaffarabad
     },
   },
   israel_iran: {
@@ -42,8 +42,8 @@ const THEATERS = {
     mapCenter: [32, 44], mapZoom: 5,
     airspace: [1200, 500, 2000],
     zones: {
-      player:   { lat: 31.5, lng: 35.0, label: "ISRAEL" },     // Central Israel
-      opponent: { lat: 34.5, lng: 51.5, label: "IRAN" },        // Tehran area
+      player:   { lat: 31.5, lng: 35.0, label: "BLUE SIDE" },     // Central Israel
+      opponent: { lat: 34.5, lng: 51.5, label: "RED SIDE" },        // Tehran area
     },
   },
   taiwan_strait: {
@@ -52,8 +52,8 @@ const THEATERS = {
     mapCenter: [24, 120], mapZoom: 6,
     airspace: [2200, 1000, 3500],
     zones: {
-      player:   { lat: 24.0, lng: 121.0, label: "TAIWAN" },    // Western Taiwan
-      opponent: { lat: 24.5, lng: 118.5, label: "CHINA" },      // Fujian coast
+      player:   { lat: 24.0, lng: 121.0, label: "BLUE SIDE" },    // Western Taiwan
+      opponent: { lat: 24.5, lng: 118.5, label: "RED SIDE" },      // Fujian coast
     },
   },
 };
@@ -69,10 +69,10 @@ const THEATERS = {
 // FPV: 130km/h racing drone repurposed for combat. Lancet: 100km/h slow loitering munition.
 // Mohajer: 175km/h fast MALE UAV. These ratios match reality unlike the old arbitrary values.
 const ATTACK_UNITS = [
-  { key: "fpv", name: "FPV Drone", cost: 15000, speed: 1.5, threat: "cheap", hp: 2, speed_kmh: 130 },
-  { key: "shahed", name: "Shahed-136", cost: 20000, speed: 2.0, threat: "cheap", hp: 3, speed_kmh: 180 },
-  { key: "lancet", name: "Lancet-3", cost: 35000, speed: 1.1, threat: "medium", hp: 5, speed_kmh: 100 },
-  { key: "mohajer", name: "Mohajer-6", cost: 500000, speed: 1.9, threat: "expensive", hp: 12, speed_kmh: 175 },
+  { key: "fpv", name: "FPV Drone", cost: 21000, speed: 1.5, threat: "cheap", hp: 2, speed_kmh: 130 },
+  { key: "shahed", name: "Shahed-136", cost: 28000, speed: 2.0, threat: "cheap", hp: 3, speed_kmh: 180 },
+  { key: "lancet", name: "Lancet-3", cost: 50000, speed: 1.1, threat: "medium", hp: 5, speed_kmh: 100 },
+  { key: "mohajer", name: "Mohajer-6", cost: 710000, speed: 1.9, threat: "expensive", hp: 12, speed_kmh: 175 },
 ];
 
 const DEFENSE_UNITS = [
@@ -183,17 +183,30 @@ function latLngToSim(lat, lng, b) {
 // Zone centers are defined in lat/lng per theater, converted to sim coords at runtime.
 const ZONE_RADIUS = 2500;
 
-// Convert a theater's lat/lng zone definitions to sim coordinates
+// Convert a theater's lat/lng zone definitions to sim coordinates.
+// Enforces a minimum gap so a HQ on the zone edge with max airspace can't
+// reach enemy territory: dist >= 2*ZONE_RADIUS + maxAirspace + buffer.
 function getZones(theater) {
   const th = THEATERS[theater];
   if (!th || !th.zones) return { p1: { x: ARENA * 0.35, y: ARENA * 0.3 }, p2: { x: ARENA * 0.65, y: ARENA * 0.7 } };
   const toSim = (lat, lng) => latLngToSim(lat, lng, th.bounds);
-  const p1 = toSim(th.zones.player.lat, th.zones.player.lng);
-  const p2 = toSim(th.zones.opponent.lat, th.zones.opponent.lng);
-  return {
-    p1: { x: Math.max(ZONE_RADIUS, Math.min(ARENA - ZONE_RADIUS, p1[0])), y: Math.max(ZONE_RADIUS, Math.min(ARENA - ZONE_RADIUS, p1[1])) },
-    p2: { x: Math.max(ZONE_RADIUS, Math.min(ARENA - ZONE_RADIUS, p2[0])), y: Math.max(ZONE_RADIUS, Math.min(ARENA - ZONE_RADIUS, p2[1])) },
-  };
+  const r1 = toSim(th.zones.player.lat, th.zones.player.lng);
+  const r2 = toSim(th.zones.opponent.lat, th.zones.opponent.lng);
+  const clamp = (v) => Math.max(ZONE_RADIUS, Math.min(ARENA - ZONE_RADIUS, v));
+  let p1 = { x: clamp(r1[0]), y: clamp(r1[1]) };
+  let p2 = { x: clamp(r2[0]), y: clamp(r2[1]) };
+  // Push zones apart if too close. minGap = both zone radii + max airspace + 500 buffer.
+  const maxAir = (th.airspace || [2000, 500, 4000])[2];
+  const minGap = ZONE_RADIUS * 2 + maxAir + 500;
+  const dx = p2.x - p1.x, dy = p2.y - p1.y;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d < minGap && d > 0) {
+    const scale = minGap / d;
+    const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+    p1 = { x: clamp(mx - dx / 2 * scale), y: clamp(my - dy / 2 * scale) };
+    p2 = { x: clamp(mx + dx / 2 * scale), y: clamp(my + dy / 2 * scale) };
+  }
+  return { p1, p2 };
 }
 
 function randInCircle(cx, cy, r) {
@@ -833,6 +846,16 @@ export default function Swarm1v1() {
         setAiSetup((prev) => {
           if (!prev) return prev;
           return { ...prev, adUnits: (prev.adUnits || []).filter((a) => !(a.x === msg.x && a.y === msg.y)) };
+        });
+        break;
+      }
+      case "ad_priority": {
+        setAiSetup((prev) => {
+          if (!prev) return prev;
+          const adUnits = (prev.adUnits || []).map((a) =>
+            a.x === msg.x && a.y === msg.y ? { ...a, priority: msg.priority } : a
+          );
+          return { ...prev, adUnits };
         });
         break;
       }
@@ -1954,9 +1977,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         const px = e.originalEvent.clientX - rect.left;
         const py = e.originalEvent.clientY - rect.top;
         const latlng = map.containerPointToLatLng([px, py]);
-        const b = th2.bounds;
-        const simX = ((latlng.lng - b.west) / (b.east - b.west)) * ARENA;
-        const simY = ((latlng.lat - b.south) / (b.north - b.south)) * ARENA;
+        const [simX, simY] = latLngToSim(latlng.lat, latlng.lng, th2.bounds);
         fn(simX, simY); // no clamping - allow placement anywhere visible
       });
       // Right click for unit info (uses refs for fresh state)
@@ -1983,9 +2004,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         const latlng = map.containerPointToLatLng([px, py]);
         const t2 = THEATERS[theaterRef.current];
         if (!t2) return;
-        const b = t2.bounds;
-        const simX = ((latlng.lng - b.west) / (b.east - b.west)) * ARENA;
-        const simY = ((latlng.lat - b.south) / (b.north - b.south)) * ARENA;
+        const [simX, simY] = latLngToSim(latlng.lat, latlng.lng, t2.bounds);
         fn(simX, simY);
       };
       attachedEl = mapRef.current;
@@ -2020,12 +2039,17 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     // Deployment zones: two large circles at geographically correct positions.
     // Player zone in blue, opponent zone in red. Labels show country names.
     const zones = getZones(theater);
-    const zoneLabels = th.zones || { player: { label: "YOU" }, opponent: { label: "ENEMY" } };
-    L.circle(toLL(zones.p1.x, zones.p1.y), { radius: ZONE_RADIUS * mpu, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 0.04, weight: 2, opacity: 0.4, dashArray: "12 8", interactive: false }).addTo(layer);
-    L.circle(toLL(zones.p2.x, zones.p2.y), { radius: ZONE_RADIUS * mpu, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 0.04, weight: 2, opacity: 0.4, dashArray: "12 8", interactive: false }).addTo(layer);
-    // Zone labels with country names
-    L.marker(toLL(zones.p1.x, zones.p1.y), { icon: L.divIcon({ className: "", iconSize: [160, 24], iconAnchor: [80, 12], html: `<div style="color:#4a9eff;font-size:12px;font-weight:700;text-align:center;text-shadow:0 0 8px #000,0 0 16px #000;letter-spacing:3px">${zoneLabels.player.label}</div>` }), interactive: false }).addTo(layer);
-    L.marker(toLL(zones.p2.x, zones.p2.y), { icon: L.divIcon({ className: "", iconSize: [160, 24], iconAnchor: [80, 12], html: `<div style="color:#ff5555;font-size:12px;font-weight:700;text-align:center;text-shadow:0 0 8px #000,0 0 16px #000;letter-spacing:3px">${zoneLabels.opponent.label}</div>` }), interactive: false }).addTo(layer);
+    const zoneLabels = th.zones || { player: { label: "BLUE SIDE" }, opponent: { label: "RED SIDE" } };
+    // Zone circles fade to barely visible once HQ is placed (initial placement is done)
+    const zoneOp = playerHQ ? 0.1 : 0.4;
+    const zoneFill = playerHQ ? 0.01 : 0.04;
+    const zoneWeight = playerHQ ? 1 : 2;
+    L.circle(toLL(zones.p1.x, zones.p1.y), { radius: ZONE_RADIUS * mpu, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: zoneFill, weight: zoneWeight, opacity: zoneOp, dashArray: "12 8", interactive: false }).addTo(layer);
+    L.circle(toLL(zones.p2.x, zones.p2.y), { radius: ZONE_RADIUS * mpu, color: "#ff5555", fillColor: "#ff5555", fillOpacity: zoneFill, weight: zoneWeight, opacity: zoneOp, dashArray: "12 8", interactive: false }).addTo(layer);
+    // Zone labels - prominent before HQ placed, faded after
+    const labelOp = playerHQ ? 0.25 : 1;
+    L.marker(toLL(zones.p1.x, zones.p1.y), { icon: L.divIcon({ className: "", iconSize: [160, 24], iconAnchor: [80, 12], html: `<div style="color:#4a9eff;font-size:12px;font-weight:700;text-align:center;text-shadow:0 0 8px #000,0 0 16px #000;letter-spacing:3px;opacity:${labelOp}">${zoneLabels.player.label}</div>` }), interactive: false }).addTo(layer);
+    L.marker(toLL(zones.p2.x, zones.p2.y), { icon: L.divIcon({ className: "", iconSize: [160, 24], iconAnchor: [80, 12], html: `<div style="color:#ff5555;font-size:12px;font-weight:700;text-align:center;text-shadow:0 0 8px #000,0 0 16px #000;letter-spacing:3px;opacity:${labelOp}">${zoneLabels.opponent.label}</div>` }), interactive: false }).addTo(layer);
     // Divider at midpoint between the two zones
     const midZoneY = (zones.p1.y + zones.p2.y) / 2;
     L.polyline([toLL(0, midZoneY), toLL(ARENA, midZoneY)], { color: "#fff", weight: 1, opacity: 0.15, dashArray: "8 8", interactive: false }).addTo(layer);
@@ -3508,7 +3532,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
               {phase === PHASE.SETUP && (
                 <>
                   <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "#ff6688", marginBottom: 8 }}>Setup Phase</div>
-                  <div style={{ fontSize: 10, color: "#666", marginBottom: 8 }}>Place HQ in your blue zone ({THEATERS[theater]?.zones?.player?.label || "your side"}), add resources, defenses, ground AD, then design your attack wave.</div>
+                  <div style={{ fontSize: 10, color: "#666", marginBottom: 8 }}>Place HQ in the blue zone, add resources, defenses, ground AD, then design your attack wave.</div>
                   <div style={{ fontSize: 11, color: "#888", marginBottom: 8, transition: "transform 0.1s", transform: budgetShake ? `translateX(${Math.random() > 0.5 ? 4 : -4}px)` : "none" }}>
                     Budget: <span style={{ color: remaining >= 0 ? "#4caf50" : "#ff5555", fontWeight: 600 }}>${formatUSD(Math.max(0, remaining))}</span>
                     <span style={{ color: "#555", fontSize: 9 }}> / ${formatUSD(playerBudget)}</span>
@@ -3610,7 +3634,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#ff6666", marginBottom: 1 }}>
                             <span>{a.name}</span><span>{playerAttack[a.key] || 0} (${formatUSD((playerAttack[a.key] || 0) * a.cost)})</span>
                           </div>
-                          <input type="range" value={playerAttack[a.key] || 0} min="0" max="100" step="1"
+                          <input type="range" value={playerAttack[a.key] || 0} min="0" max="150" step="1"
                             onChange={(e) => setPlayerAttack((p) => ({ ...p, [a.key]: parseInt(e.target.value) }))}
                             style={{ width: "100%", height: 14, margin: 0, padding: 0 }} />
                         </div>
@@ -3813,7 +3837,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#ff6666", marginBottom: 1 }}>
                             <span>{a.name}</span><span>{playerAttack[a.key] || 0} (${formatUSD((playerAttack[a.key] || 0) * a.cost)})</span>
                           </div>
-                          <input type="range" value={playerAttack[a.key] || 0} min="0" max="100" step="1"
+                          <input type="range" value={playerAttack[a.key] || 0} min="0" max="150" step="1"
                             onChange={(e) => setPlayerAttack((p) => ({ ...p, [a.key]: parseInt(e.target.value) }))}
                             style={{ width: "100%", height: 14, margin: 0, padding: 0 }} />
                         </div>
@@ -4066,7 +4090,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                           <div style={{ display: "flex", gap: 4 }}>
                             {options.map((o) => (
                               <button key={o.key} onClick={() => {
+                                const ad = playerAD[adIdx];
                                 setPlayerAD((prev) => prev.map((a, i) => i === adIdx ? { ...a, priority: o.key } : a));
+                                broadcast({ type: "ad_priority", x: ad.x, y: ad.y, priority: o.key });
                               }} style={{
                                 flex: 1, padding: "4px 6px", fontSize: 9, fontWeight: 600,
                                 background: curPrio === o.key ? "rgba(255,255,255,0.1)" : "rgba(30,30,40,0.9)",
