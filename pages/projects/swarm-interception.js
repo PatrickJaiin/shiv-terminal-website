@@ -1383,7 +1383,7 @@ export default function SwarmInterception() {
                   {DRONE_DB.attack.map((d) => (
                     <div key={d.key} style={{ background: "#1a1a24", border: "1px solid #2a2a35", borderRadius: 6, padding: 12, marginBottom: 6, display: "flex", gap: 12 }}>
                       {/* Sci-fi sketch column - shows the unit's silhouette */}
-                      <div style={{ flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: UNIT_SKETCHES.attack[d.key] || `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="20" fill="#cc3333" stroke="#fff" stroke-width="2"/></svg>` }} />
+                      <div style={{ flexShrink: 0, width: 80, height: 60, display: "flex", alignItems: "center", justifyContent: "center" }} dangerouslySetInnerHTML={{ __html: UNIT_SKETCHES.attack[d.key] || `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="20" fill="#cc3333" stroke="#fff" stroke-width="2"/></svg>` }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                           <span style={{ fontWeight: 600, fontSize: 12, color: "#ff6666" }}>{d.name}</span>
@@ -1403,7 +1403,7 @@ export default function SwarmInterception() {
                   <h3 style={{ fontSize: 12, color: "#4a9eff", margin: "16px 0 8px", textTransform: "uppercase", letterSpacing: 1 }}>Interceptor Drones</h3>
                   {DRONE_DB.interceptor.map((d) => (
                     <div key={d.key} style={{ background: "#1a1a24", border: `1px solid ${d.fictional ? "#333300" : "#2a2a35"}`, borderRadius: 6, padding: 12, marginBottom: 6, display: "flex", gap: 12 }}>
-                      <div style={{ flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: UNIT_SKETCHES.interceptor[d.key] || `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="22" fill="#4a9eff" stroke="#fff" stroke-width="2.5"/></svg>` }} />
+                      <div style={{ flexShrink: 0, width: 80, height: 60, display: "flex", alignItems: "center", justifyContent: "center" }} dangerouslySetInnerHTML={{ __html: UNIT_SKETCHES.interceptor[d.key] || `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="22" fill="#4a9eff" stroke="#fff" stroke-width="2.5"/></svg>` }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                           <span style={{ fontWeight: 600, fontSize: 12, color: "#4a9eff" }}>
@@ -1425,7 +1425,7 @@ export default function SwarmInterception() {
                   <h3 style={{ fontSize: 12, color: "#22aa22", margin: "16px 0 8px", textTransform: "uppercase", letterSpacing: 1 }}>Ground Air Defense Systems</h3>
                   {AD_SYSTEMS.map((s) => (
                     <div key={s.key} style={{ background: "#1a1a24", border: "1px solid #2a2a35", borderRadius: 6, padding: 12, marginBottom: 6, display: "flex", gap: 12 }}>
-                      <div style={{ flexShrink: 0 }} dangerouslySetInnerHTML={{ __html: UNIT_SKETCHES.ad[s.key] || `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="22" fill="${s.color}" stroke="#fff" stroke-width="2.5"/></svg>` }} />
+                      <div style={{ flexShrink: 0, width: 80, height: 60, display: "flex", alignItems: "center", justifyContent: "center" }} dangerouslySetInnerHTML={{ __html: UNIT_SKETCHES.ad[s.key] || `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="22" fill="${s.color}" stroke="#fff" stroke-width="2.5"/></svg>` }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                           <span style={{ fontWeight: 600, fontSize: 12, color: s.color }}>{s.name}</span>

@@ -23,7 +23,12 @@ async function redis(parts) {
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    headers: {
+      "Content-Type": "application/json",
+      // Cache for 5s at the edge - all users polling within the same 5s window share one
+      // Redis call instead of each triggering their own. Cuts invocations ~5x at scale.
+      "Cache-Control": status === 200 ? "public, s-maxage=5, stale-while-revalidate=10" : "no-store",
+    },
   });
 }
 
