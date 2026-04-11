@@ -13,7 +13,6 @@
     "precompute-sample": "node scripts/precompute-sample.mjs"
   },
   "dependencies": {
-    "bootstrap": "^5.1.3",
     "graphology": "^0.26.0",
     "graphology-communities-louvain": "^2.0.2",
     "graphology-layout-forceatlas2": "^0.10.1",
@@ -22,8 +21,6 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-draggable": "^4.4.5",
-    "xterm": "^4.18.0",
-    "yarn": "^1.22.18",
     "youtube-transcript": "^1.3.0"
   },
   "devDependencies": {

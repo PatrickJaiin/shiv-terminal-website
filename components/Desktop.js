@@ -138,52 +138,43 @@ export default function Desktop() {
 
     const handleAppClick = (id) => {
         if (id === 'theme') {
-            setIsDarkMode(!isDarkMode);
+            setIsDarkMode(prev => !prev);
             return;
         }
 
-        setApps(apps.map(app => {
+        setApps(prev => prev.map(app => {
             if (app.id === id) {
-                // Case 1: App is already focused -> Minimize it
                 if (app.isOpen && !app.isMin && app.zIndex === maxZIndex) {
                     return { ...app, isMin: true };
                 }
-                // Case 2: App is minimized -> Restore it
                 if (app.isOpen && app.isMin) {
                     return { ...app, isMin: false, zIndex: maxZIndex + 1 };
                 }
-                // Case 3: App is open but in background -> Bring to front
                 if (app.isOpen && !app.isMin) {
                     return { ...app, zIndex: maxZIndex + 1 };
                 }
-                // Case 4: App is closed -> Open it
                 return { ...app, isOpen: true, isMin: false, zIndex: maxZIndex + 1 };
             }
             return app;
         }));
-        setMaxZIndex(maxZIndex + 1);
+        setMaxZIndex(prev => prev + 1);
     };
 
     const closeApp = (id) => {
-        setApps(apps.map(app => app.id === id ? { ...app, isOpen: false } : app));
+        setApps(prev => prev.map(app => app.id === id ? { ...app, isOpen: false } : app));
     };
 
     const minimizeApp = (id) => {
-        setApps(apps.map(app => app.id === id ? { ...app, isMin: true } : app));
+        setApps(prev => prev.map(app => app.id === id ? { ...app, isMin: true } : app));
     };
 
     const maximizeApp = (id) => {
-        setApps(apps.map(app => app.id === id ? { ...app, isMax: !app.isMax } : app));
+        setApps(prev => prev.map(app => app.id === id ? { ...app, isMax: !app.isMax } : app));
     };
 
     const focusApp = (id) => {
-        setApps(apps.map(app => {
-            if (app.id === id) {
-                return { ...app, zIndex: maxZIndex + 1 };
-            }
-            return app;
-        }));
-        setMaxZIndex(maxZIndex + 1);
+        setApps(prev => prev.map(app => app.id === id ? { ...app, zIndex: maxZIndex + 1 } : app));
+        setMaxZIndex(prev => prev + 1);
     };
 
     return (

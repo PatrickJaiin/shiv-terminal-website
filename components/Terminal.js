@@ -22,14 +22,14 @@ export default function Terminal() {
     const normalizedCommand = command.toLowerCase().trim();
     let output;
     setLoading(true);
-    setCommands([...commands, { command, output: "Loading..." }]);
-    
+    setCommands(prev => [...prev, { command, output: "Loading..." }]);
+
     // Add to command history
     if (command.trim() !== "") {
       setCommandHistory(prev => [...prev, command]);
       setHistoryIndex(-1);
     }
-    
+
     if (`${normalizedCommand}` in CONTENTS) {
       output = await CONTENTS[`${normalizedCommand}`]();
     } else if (normalizedCommand === "clear") {
@@ -40,8 +40,8 @@ export default function Terminal() {
     }
 
     setLoading(false);
-    setCommands([...commands.slice(0, commands.length), { command, output }]);
-    if (terminalRef) {
+    setCommands(prev => [...prev.slice(0, -1), { command, output }]);
+    if (terminalRef.current) {
       terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
     }
   };
