@@ -1934,17 +1934,13 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       try { broadcast({ type: "start_combat" }); } catch {}
       setPhase(PHASE.COMBAT);
     }
-    setMeReady(false);
-    setOpponentReady(false);
-    // Delay launch slightly so React can process the state updates above
-    // (meReady/opponentReady=false, phase=COMBAT) before launchRound runs.
-    // Without this, launchRound could see stale battleActive=true from the
-    // previous render and bail, causing round 2+ to never start.
-    setTimeout(() => {
-      if (launchRoundRef.current) {
-        try { launchRoundRef.current(); } catch {}
-      }
-    }, 50);
+    // Don't reset meReady/opponentReady here - that broadcasts "ready: false" to
+    // the opponent BEFORE the round launches, causing them to see "Opponent: Not ready"
+    // and their auto-advance effect to bail. The ready flags get reset by the
+    // prevBattleActiveRef effect when the battle ends (setBattleActive false→true→false).
+    if (launchRoundRef.current) {
+      try { launchRoundRef.current(); } catch {}
+    }
   }, [meReady, opponentReady, phase, battleActive, gameOver, gameMode, broadcast]);
 
   // Reset ready flags when a round ends so both players can re-ready for the next round.
