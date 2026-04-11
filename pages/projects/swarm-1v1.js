@@ -2776,7 +2776,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         // Breach if drone is within 200 of ANY player HQ (main or extras)
         let breachedHQ = null;
         const hqList = b.playerHQs || [playerHQ];
-        const breachDist = theaterScaleRef.current.killRadius * 2;
+        // Breach only when drone hits the HQ square itself, not a wide radius around it.
+        // Use a tight distance (~500m real) so it's visually precise.
+        const breachDist = Math.max(4, Math.round(500 / theaterScaleRef.current.mpu));
         for (const h of hqList) { if (dist(a, h) < breachDist) { breachedHQ = h; break; } }
         if (breachedHQ) {
           a.status = "breached"; b.aBreaches++;
@@ -2859,7 +2861,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         a.heading += diff * 0.06;
         a.x += Math.cos(a.heading) * a.speed;
         a.y += Math.sin(a.heading) * a.speed;
-        if (dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) < theaterScaleRef.current.killRadius * 2) {
+        if (dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) < Math.max(4, Math.round(500 / theaterScaleRef.current.mpu))) {
           a.status = "breached"; b.pBreaches++;
           const breachCost = Math.max(100000, (a.cost || 500000) * 2);
           b.pBreachDmg = (b.pBreachDmg || 0) + breachCost;
