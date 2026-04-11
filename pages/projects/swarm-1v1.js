@@ -1583,7 +1583,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
   // Runs while user is on the matchmaking lobby view. Polls /api/match/stats every 3s
   // for global counts. Increments local elapsed counter every second for the timer display.
   useEffect(() => {
-    if (lobbyView !== "matchmaking") return;
+    if (lobbyView !== "matchmaking" && lobbyView !== "main") return;
     mmStartedAtRef.current = Date.now();
     setMmElapsed(0);
     const tickIv = setInterval(() => {
@@ -3450,6 +3450,18 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
 
               {lobbyView === "main" && (
                 <>
+                  {(mmStats.queueing > 0 || mmStats.inMatchPlayers > 0) && (
+                    <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                      <div style={{ flex: 1, padding: "6px", background: "#1a1a24", border: "1px solid #2a2a35", borderRadius: 6, textAlign: "center" }}>
+                        <span style={{ fontSize: 16, fontWeight: 800, color: "#4a9eff" }}>{mmStats.queueing}</span>
+                        <span style={{ fontSize: 9, color: "#666", marginLeft: 4 }}>searching</span>
+                      </div>
+                      <div style={{ flex: 1, padding: "6px", background: "#1a1a24", border: "1px solid #2a2a35", borderRadius: 6, textAlign: "center" }}>
+                        <span style={{ fontSize: 16, fontWeight: 800, color: "#ff6688" }}>{mmStats.inMatchPlayers}</span>
+                        <span style={{ fontSize: 9, color: "#666", marginLeft: 4 }}>playing</span>
+                      </div>
+                    </div>
+                  )}
                   <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Enter callsign..."
                     style={{ ...inputStyle, width: "100%", fontSize: 16, textAlign: "center", marginBottom: 12 }}
                     onKeyDown={(e) => e.key === "Enter" && findMatch()} />
