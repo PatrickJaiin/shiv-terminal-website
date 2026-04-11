@@ -9,7 +9,7 @@ export const config = { runtime: "edge" };
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
-const QUEUE_KEY = "swarm1v1:queue";
+const QUEUE_KEY_PREFIX = "swarm1v1:queue:";
 const MATCH_KEY_PREFIX = "swarm1v1:match:";
 const MATCH_TTL = 300; // 5 minutes
 
@@ -38,6 +38,9 @@ export default async function handler(req) {
   try { body = await req.json(); } catch { return jsonResponse({ error: "invalid_json" }, 400); }
   const peerId = typeof body?.peerId === "string" ? body.peerId.trim() : "";
   if (!peerId) return jsonResponse({ error: "peerId_required" }, 400);
+  // Theater-specific queuing: players only match with others on the same theater
+  const theater = typeof body?.theater === "string" ? body.theater.trim() : "ukraine_russia";
+  const QUEUE_KEY = QUEUE_KEY_PREFIX + theater;
 
   if (!REDIS_URL || !REDIS_TOKEN) {
     return jsonResponse({ error: "matchmaking_not_configured", configured: false }, 503);

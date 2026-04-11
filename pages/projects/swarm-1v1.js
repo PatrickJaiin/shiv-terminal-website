@@ -811,6 +811,14 @@ export default function Swarm1v1() {
   const handleNetMessage = useCallback((msg) => {
     if (typeof msg !== "object" || !msg || typeof msg.type !== "string") return;
     switch (msg.type) {
+      case "theater_sync": {
+        // Host tells guest which theater to use (for private rooms)
+        if (msg.theater && THEATERS[msg.theater]) {
+          setTheater(msg.theater);
+          theaterRef.current = msg.theater;
+        }
+        break;
+      }
       case "deposits": {
         // Host pushes the canonical deposit list to guest on connect
         if (Array.isArray(msg.deposits)) setResourceDeposits(msg.deposits);
@@ -1221,7 +1229,8 @@ export default function Swarm1v1() {
         // Empty opponent placeholder (filled via guest's messages)
         // Start with null HQ coords so we don't draw a placeholder enemy base before they place.
 setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airspace || [2000])[0], resources: [], interceptors: [], adUnits: [] });
-        // Send deposits to guest as soon as conn is open
+        // Send theater + deposits to guest so they switch to the same map
+        try { conn.send({ type: "theater_sync", theater: theaterRef.current }); } catch {}
         try { conn.send({ type: "deposits", deposits }); } catch {}
       });
       conn.on("close", () => { if (connRef.current === conn) handleDisconnect(); });
@@ -1340,7 +1349,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     // Best-effort: remove from server queue
     const myPeerId = peerRef.current?.id;
     if (myPeerId) {
-      try { fetch(`/api/match/check?peerId=${encodeURIComponent(myPeerId)}`, { method: "DELETE" }).catch(() => {}); } catch {}
+      try { fetch(`/api/match/check?peerId=${encodeURIComponent(myPeerId)}&theater=${encodeURIComponent(theaterRef.current)}`, { method: "DELETE" }).catch(() => {}); } catch {}
     }
   }, []);
 
@@ -1445,7 +1454,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         const r = await fetch("/api/match/queue", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ peerId: myPeerId }),
+          body: JSON.stringify({ peerId: myPeerId, theater: theaterRef.current }),
         });
         queueResp = await r.json();
         if (r.status === 503 && queueResp?.configured === false) {
@@ -2229,7 +2238,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       // Airspace - bumped opacity/weight for visibility
       const airBreaches = battleRef.current?.aiAirBreaches || [];
       if (airBreaches.length === 0) {
-        L.circle(toLL(aiSetup.hqX, aiSetup.hqY), { radius: aiSetup.airspace * mpu, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 0.1, weight: 3, opacity: 0.9, dashArray: "10 6" }).addTo(layer);
+        L.circle(toLL(aiSetup.hqX, aiSetup.hqY), { radius: aiSetup.airspace * mpu, color: opponentColor, fillColor: opponentColor, fillOpacity: 0.1, weight: 3, opacity: 0.9, dashArray: "10 6" }).addTo(layer);
       } else {
         const SEG = 24; const segArc = (Math.PI * 2) / SEG; const GAP = 0.15;
         for (let i = 0; i < SEG; i++) {
@@ -2238,14 +2247,14 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           if (inGap) continue;
           const pts = [];
           for (let j = 0; j <= 3; j++) { const a = -Math.PI + i * segArc + (j / 3) * segArc; pts.push(toLL(aiSetup.hqX + Math.cos(a) * aiSetup.airspace, aiSetup.hqY + Math.sin(a) * aiSetup.airspace)); }
-          L.polyline(pts, { color: "#ff5555", weight: 3, opacity: 0.9, dashArray: "10 6", interactive: false }).addTo(layer);
+          L.polyline(pts, { color: opponentColor, weight: 3, opacity: 0.9, dashArray: "10 6", interactive: false }).addTo(layer);
         }
       }
       // Enemy HQ: bigger square
       L.marker(toLL(aiSetup.hqX, aiSetup.hqY), {
         icon: L.divIcon({
           className: "", iconSize: [22, 22], iconAnchor: [11, 11],
-          html: `<div style="width:22px;height:22px;background:#ff5555;border:2.5px solid #fff;box-sizing:border-box;box-shadow:0 0 6px rgba(255,85,85,0.7)"></div>`,
+          html: `<div style="width:22px;height:22px;background:${opponentColor};border:2.5px solid #fff;box-sizing:border-box;box-shadow:0 0 6px ${opponentColor}99"></div>`,
         }),
         interactive: false,
       }).addTo(layer);
@@ -2395,10 +2404,10 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       if (i.status === "active") {
         const isKam = i.destroyOnKill !== false;
         if (isKam) {
-          L.circleMarker(toLL(dx(i), dy(i)), { radius: 5, color: "#880000", fillColor: "#ff5555", fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
+          L.circleMarker(toLL(dx(i), dy(i)), { radius: 5, color: oc, fillColor: oc, fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
         } else {
-          L.circleMarker(toLL(dx(i), dy(i)), { radius: 7, color: "#880000", fillColor: "transparent", fillOpacity: 0, weight: 2 }).addTo(bl);
-          L.circleMarker(toLL(dx(i), dy(i)), { radius: 2, color: "#ff5555", fillColor: "#ff5555", fillOpacity: 1, weight: 0 }).addTo(bl);
+          L.circleMarker(toLL(dx(i), dy(i)), { radius: 7, color: oc, fillColor: "transparent", fillOpacity: 0, weight: 2 }).addTo(bl);
+          L.circleMarker(toLL(dx(i), dy(i)), { radius: 2, color: oc, fillColor: oc, fillOpacity: 1, weight: 0 }).addTo(bl);
         }
       } else if (i.status === "landed") {
         L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#663333", fillColor: "#663333", fillOpacity: 0.5, weight: 1 }).addTo(bl);

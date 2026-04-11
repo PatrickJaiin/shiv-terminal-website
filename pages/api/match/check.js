@@ -6,7 +6,7 @@ export const config = { runtime: "edge" };
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 const MATCH_KEY_PREFIX = "swarm1v1:match:";
-const QUEUE_KEY = "swarm1v1:queue";
+const QUEUE_KEY_PREFIX = "swarm1v1:queue:";
 
 async function redis(parts) {
   if (!REDIS_URL || !REDIS_TOKEN) throw new Error("not_configured");
@@ -36,7 +36,9 @@ export default async function handler(req) {
       return jsonResponse({ error: "matchmaking_not_configured", configured: false }, 503);
     }
     try {
-      await redis(["lrem", QUEUE_KEY, "0", peerId]);
+      // Remove from all theater queues (player may have queued on any theater)
+      const theater = url.searchParams.get("theater") || "ukraine_russia";
+      await redis(["lrem", QUEUE_KEY_PREFIX + theater, "0", peerId]);
       await redis(["del", `${MATCH_KEY_PREFIX}${peerId}`]);
       return jsonResponse({ ok: true });
     } catch (e) {
