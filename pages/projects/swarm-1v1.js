@@ -1069,36 +1069,29 @@ export default function Swarm1v1() {
   const wirePeerResilience = (peer, getActive) => {
     let reconnectAttempts = 0;
     const MAX_ATTEMPTS = 10;
+    // Listen for successful reconnect via the "open" event. PeerJS DOES re-fire
+    // "open" after a successful reconnect() call (tested with PeerJS 1.5.x).
+    // Reset the attempt counter so a single success restores the full retry budget.
+    peer.on("open", () => {
+      if (reconnectAttempts > 0) {
+        reconnectAttempts = 0;
+        setConnectionError("");
+      }
+    });
     peer.on("disconnected", () => {
-      if (!getActive()) return; // user already cancelled / replaced peer
+      if (!getActive()) return;
       if (peer.destroyed) return;
       if (reconnectAttempts >= MAX_ATTEMPTS) {
-        // Exhausted retries - surface a clear, actionable error. India / long-haul
-        // international connections to the public PeerJS broker (0.peerjs.com) are
-        // particularly prone to drops. Tell the user what's actually wrong instead
-        // of leaving them staring at a stale "reconnecting..." message.
-        setConnectionError("Lost connection to signaling server after 10 retries. Long-haul international links (e.g. India to US) sometimes can't keep a stable WebSocket to the public PeerJS broker. Try: 1) refresh and re-enter the match, 2) different network/wifi, or 3) wait a minute and retry.");
+        setConnectionError("Lost connection to signaling server after 10 retries. Try: 1) refresh and re-enter the match, 2) different network/wifi, or 3) wait a minute and retry.");
         setConnectionStatus("error");
         return;
       }
       reconnectAttempts++;
-      // Exponential backoff capped at 8 seconds. Hammering the broker with reconnect()
-      // calls when it's already overloaded just wastes the retry budget faster.
       const backoffMs = Math.min(8000, 500 * Math.pow(1.5, reconnectAttempts - 1));
       setConnectionError(`Reconnecting to signaling server (attempt ${reconnectAttempts}/${MAX_ATTEMPTS})...`);
       setTimeout(() => {
         if (!getActive() || peer.destroyed) return;
         try { peer.reconnect(); } catch {}
-        // PeerJS doesn't re-fire "open" after reconnect; check status after a short
-        // delay and clear the warning if we're back online. Reset the attempt counter
-        // on success so a single successful reconnect restores the full retry budget.
-        setTimeout(() => {
-          if (!getActive() || peer.destroyed) return;
-          if (!peer.disconnected) {
-            setConnectionError("");
-            reconnectAttempts = 0;
-          }
-        }, 1500);
       }, backoffMs);
     });
   };
@@ -3289,7 +3282,14 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"
         strategy="afterInteractive"
         onLoad={() => setPeerLoaded(true)}
-        onError={() => setConnectionError("Failed to load network library - reload the page")}
+        onError={() => {
+          // Retry from jsdelivr CDN if unpkg fails
+          const s = document.createElement("script");
+          s.src = "https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js";
+          s.onload = () => setPeerLoaded(true);
+          s.onerror = () => setConnectionError("Failed to load network library - reload the page");
+          document.head.appendChild(s);
+        }}
       />
       <style jsx global>{`
         .leaflet-container { background: #0a0a0f; }
