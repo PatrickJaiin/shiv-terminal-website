@@ -140,6 +140,11 @@ const UNIT_SKETCHES = {
   },
 };
 
+// Mobile AD systems can be repositioned between rounds during prep phase.
+// Gepard: self-propelled AA tank, fires on the move. Pantsir: shoot-and-scoot vehicle.
+// Iron Dome and NASAMS require 30+ min setup, too slow for between-round repositioning.
+const MOBILE_AD_TYPES = new Set(["gepard", "pantsir"]);
+
 const AI_NAMES = ["SKYNET-7", "AEGIS_AI", "IRON_WALL", "RED_FURY", "SHADOW_NET", "VANGUARD", "CERBERUS", "TITAN_DEF"];
 const STARTING_BUDGET = 30000000;
 const AIRSPACE_BREACH_COST = 30; // per drone entering airspace
@@ -700,11 +705,15 @@ export default function Swarm1v1() {
   const [meReady, setMeReady] = useState(false);
   const [opponentReady, setOpponentReady] = useState(false);
 
-  // Fog of war: tracks revealed circles from drone flight paths across rounds.
-  // Enemy units are hidden unless inside a revealed circle. Each circle: {x, y, radius}.
-  // Persists across rounds so intel accumulates. Only covers enemy half of map.
+  // Fog of war (snapshot-based): drone flight paths capture frozen snapshots of enemy
+  // units at the time of observation. Between rounds you see stale intel that may be outdated.
+  // Each snapshot: { x, y, radius, round, units: [{kind, key, x, y, health, ammo}] }
+  // revealedAreas: used for isRevealed() checks (just circles for gating)
+  // fogSnapshots: stores the actual unit data for rendering ghosted positions
   const [revealedAreas, setRevealedAreas] = useState([]);
   const revealedAreasRef = useRef([]);
+  const [fogSnapshots, setFogSnapshots] = useState([]);
+  const fogSnapshotsRef = useRef([]);
   const pendingRevealsRef = useRef([]); // accumulates during battle, merged after
 
   // Combat
@@ -753,6 +762,7 @@ export default function Swarm1v1() {
     setPlayerAttack({ fpv: 10, shahed: 3 });
     setPlayerTrajectory([]);
     setRevealedAreas([]); revealedAreasRef.current = []; pendingRevealsRef.current = [];
+    setFogSnapshots([]); fogSnapshotsRef.current = [];
     setPlayerAirspace((THEATERS[theaterRef.current]?.airspace || [2000])[0]);
     setAttackPriority("hq");
     setDefPosture("pursuing");
@@ -899,6 +909,17 @@ export default function Swarm1v1() {
         setAiSetup((prev) => {
           if (!prev) return prev;
           return { ...prev, adUnits: (prev.adUnits || []).filter((a) => !(a.x === msg.x && a.y === msg.y)) };
+        });
+        break;
+      }
+      case "ad_reposition": {
+        // Opponent moved a mobile AD to a new position
+        setAiSetup((prev) => {
+          if (!prev) return prev;
+          const adUnits = (prev.adUnits || []).map((a) =>
+            a.x === msg.oldX && a.y === msg.oldY && a.key === msg.key ? { ...a, x: msg.newX, y: msg.newY } : a
+          );
+          return { ...prev, adUnits };
         });
         break;
       }
@@ -1093,10 +1114,13 @@ export default function Swarm1v1() {
         // Append log lines (already from host perspective, leave as-is for now)
         if (Array.isArray(msg.endLog)) setCombatLog((prev) => [...prev, ...msg.endLog]);
         setCurrentRound((r) => Math.max(r, (msg.round || 0) + 1));
-        // Merge fog of war reveals from this round
+        // Merge fog of war reveals + snapshots from this round
         if (pendingRevealsRef.current.length > 0) {
-          setRevealedAreas((prev) => [...prev, ...pendingRevealsRef.current]);
-          revealedAreasRef.current = [...revealedAreasRef.current, ...pendingRevealsRef.current];
+          const newReveals = pendingRevealsRef.current;
+          setRevealedAreas((prev) => [...prev, ...newReveals]);
+          revealedAreasRef.current = [...revealedAreasRef.current, ...newReveals];
+          setFogSnapshots((prev) => [...prev, ...newReveals.filter((r) => r.units && r.units.length > 0)]);
+          fogSnapshotsRef.current = [...fogSnapshotsRef.current, ...newReveals.filter((r) => r.units && r.units.length > 0)];
           pendingRevealsRef.current = [];
         }
         setBattleActive(false);
@@ -1813,6 +1837,20 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       setPlayerBudget((p) => p - sys.cost);
       setPlayerAD((prev) => [...prev, { key: adKey, x, y, health: 1, ammo: sys.missiles, priority: "all" }]);
       broadcast({ type: "place_ad", key: adKey, x, y });
+    } else if (placingWhat.startsWith("reposition_ad_")) {
+      // Reposition a mobile AD to a new location within airspace
+      const adIdx = parseInt(placingWhat.replace("reposition_ad_", ""), 10);
+      const ad = playerAD[adIdx];
+      if (!ad || !MOBILE_AD_TYPES.has(ad.key)) { setPlacingWhat(null); return; }
+      if (!playerHQ || dist({ x, y }, playerHQ) > playerAirspace + 300) {
+        setInfoPopup({ text: "Must place within your airspace" });
+        setTimeout(() => setInfoPopup(null), 2000);
+        return;
+      }
+      const oldX = ad.x, oldY = ad.y;
+      setPlayerAD((prev) => prev.map((a, i) => i === adIdx ? { ...a, x, y } : a));
+      broadcast({ type: "ad_reposition", oldX, oldY, newX: x, newY: y, key: ad.key });
+      setPlacingWhat(null);
     } else {
       // Resource placement: snap to nearest unclaimed matching deposit within tolerance
       if (!playerHQ) return;
@@ -2334,64 +2372,46 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           L.polyline(pts, { color: opponentColor, weight: 3, opacity: 0.9, dashArray: "10 6", interactive: false }).addTo(layer);
         }
       }
-      // Enemy HQ: only visible if revealed by fog of war
-      if (hqVisible) {
-        L.marker(toLL(aiSetup.hqX, aiSetup.hqY), {
-          icon: L.divIcon({
-            className: "", iconSize: [22, 22], iconAnchor: [11, 11],
-            html: `<div style="width:22px;height:22px;background:${opponentColor};border:2.5px solid #fff;box-sizing:border-box;box-shadow:0 0 6px ${opponentColor}99"></div>`,
-          }),
-          interactive: false,
-        }).addTo(layer);
-      }
-      // Enemy resources: distinctive mini icons (same shapes, enemy border color)
-      const eResIcons = {
-        solar: (c) => `<svg width="18" height="18" viewBox="0 0 20 20"><rect x="2" y="6" width="16" height="10" rx="1" fill="${c}" stroke="${opponentColor}" stroke-width="1.2"/><line x1="2" y1="11" x2="18" y2="11" stroke="${opponentColor}" stroke-width="0.6"/><line x1="10" y1="6" x2="10" y2="16" stroke="${opponentColor}" stroke-width="0.6"/></svg>`,
-        arms: (c) => `<svg width="18" height="18" viewBox="0 0 20 20"><rect x="2" y="10" width="16" height="8" rx="1" fill="${c}" stroke="${opponentColor}" stroke-width="1.2"/><path d="M2 10 L8 5 L14 10" fill="${c}" stroke="${opponentColor}" stroke-width="1"/><rect x="14" y="3" width="3" height="8" fill="${c}" stroke="${opponentColor}" stroke-width="0.8"/></svg>`,
-        oil: (c) => `<svg width="18" height="18" viewBox="0 0 20 20"><rect x="6" y="4" width="8" height="12" rx="1" fill="${c}" stroke="${opponentColor}" stroke-width="1.2"/><rect x="3" y="14" width="14" height="4" rx="1" fill="${c}" stroke="${opponentColor}" stroke-width="1.2"/><circle cx="10" cy="1" r="1" fill="#ff6600"/></svg>`,
-        hydro: (c) => `<svg width="18" height="18" viewBox="0 0 20 20"><path d="M2 6 L2 16 L18 16 L18 6 L16 4 L4 4 Z" fill="${c}" stroke="${opponentColor}" stroke-width="1.2"/><rect x="7" y="7" width="2.5" height="7" fill="rgba(0,0,0,0.3)"/><rect x="11" y="7" width="2.5" height="7" fill="rgba(0,0,0,0.3)"/></svg>`,
-      };
-      for (const r of aiSetup.resources) {
-        if (!r.alive || !isRevealed(r.x, r.y)) continue;
-        const res = RESOURCES.find((rr) => rr.key === r.key);
-        if (!res) continue;
-        L.marker(toLL(r.x, r.y), {
-          icon: L.divIcon({
-            className: "", iconSize: [18, 18], iconAnchor: [9, 9],
-            html: eResIcons[r.key] ? eResIcons[r.key](res.color) : `<svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="${res.color}" stroke="${opponentColor}" stroke-width="1.2"/></svg>`,
-          }),
-          interactive: false,
-        }).addTo(layer);
-      }
-      // Enemy AD systems with range circles + distinctive icons
+      // Snapshot-based fog: render FROZEN intel from drone observations, not live positions.
+      // Units show at their snapshot positions with ghosted/faded styling and round label.
+      // The enemy may have moved since - this creates strategic uncertainty.
       if (!battleActive) {
-        for (const ad of (aiSetup.adUnits || [])) {
-          if (ad.health <= 0 || !isRevealed(ad.x, ad.y)) continue;
-          const sys = theaterScaleRef.current.ad.find((s) => s.key === ad.key);
-          if (!sys) continue;
-          L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: opponentColor, fillOpacity: 0.1, weight: 2.5, opacity: 0.85, dashArray: "6 4", interactive: false }).addTo(layer);
-          const iconFn = staticAdIcons[ad.key];
-          if (iconFn) {
-            L.marker(toLL(ad.x, ad.y), { icon: L.divIcon({ className: "", iconSize: [24, 24], iconAnchor: [12, 12], html: iconFn(sys.color, opponentColor) }), interactive: false }).addTo(layer);
-          } else {
-            L.circleMarker(toLL(ad.x, ad.y), { radius: 7, color: opponentColor, fillColor: sys.color, fillOpacity: 0.9, weight: 2.5 }).addTo(layer);
+        const snapshots = fogSnapshotsRef.current;
+        const drawnPositions = new Set(); // dedup by position
+        for (const snap of snapshots) {
+          const stale = (currentRound - (snap.round || 0)) >= 2;
+          for (const u of (snap.units || [])) {
+            const posKey = `${u.kind}_${Math.round(u.x)}_${Math.round(u.y)}`;
+            if (drawnPositions.has(posKey)) continue;
+            drawnPositions.add(posKey);
+            const ghostOp = stale ? 0.35 : 0.65;
+            if (u.kind === "hq") {
+              L.marker(toLL(u.x, u.y), {
+                icon: L.divIcon({ className: "", iconSize: [22, 22], iconAnchor: [11, 11],
+                  html: `<div style="width:22px;height:22px;background:${opponentColor};border:2.5px dashed #fff;box-sizing:border-box;opacity:${ghostOp}"></div>` }),
+                interactive: false,
+              }).addTo(layer);
+              // Show stale marker
+              if (stale) L.marker(toLL(u.x, u.y - 200), { icon: L.divIcon({ className: "", iconSize: [14, 14], iconAnchor: [7, 7], html: `<div style="color:#ff9800;font-size:12px;font-weight:800;text-align:center;text-shadow:0 0 4px #000">?</div>` }), interactive: false }).addTo(layer);
+            } else if (u.kind === "ad") {
+              const sys = theaterScaleRef.current.ad.find((s) => s.key === u.key);
+              if (!sys) continue;
+              L.circle(toLL(u.x, u.y), { radius: sys.range * mpu, color: sys.color, fillColor: opponentColor, fillOpacity: 0.05, weight: 1.5, opacity: ghostOp * 0.7, dashArray: "4 6", interactive: false }).addTo(layer);
+              const iconFn = staticAdIcons[u.key];
+              if (iconFn) L.marker(toLL(u.x, u.y), { icon: L.divIcon({ className: "", iconSize: [24, 24], iconAnchor: [12, 12], html: `<div style="opacity:${ghostOp}">${iconFn(sys.color, opponentColor)}</div>` }), interactive: false }).addTo(layer);
+              if (stale) L.marker(toLL(u.x, u.y - 200), { icon: L.divIcon({ className: "", iconSize: [14, 14], iconAnchor: [7, 7], html: `<div style="color:#ff9800;font-size:10px;font-weight:800;text-align:center;text-shadow:0 0 4px #000">?</div>` }), interactive: false }).addTo(layer);
+            } else if (u.kind === "resource") {
+              const res = RESOURCES.find((rr) => rr.key === u.key);
+              if (!res) continue;
+              L.circleMarker(toLL(u.x, u.y), { radius: 5, color: res.color, fillColor: res.color, fillOpacity: ghostOp * 0.5, weight: 1.5, opacity: ghostOp, dashArray: "3 3" }).addTo(layer);
+            } else if (u.kind === "interceptor") {
+              L.circleMarker(toLL(u.x, u.y), { radius: 4, color: opponentColor, fillColor: opponentColor, fillOpacity: ghostOp * 0.4, weight: 1, opacity: ghostOp, dashArray: "2 3" }).addTo(layer);
+            }
           }
         }
       }
-      // Enemy interceptors at base. Skip during battle for same reason.
-      if (!battleActive) for (const i of (aiSetup.interceptors || [])) {
-        if (i.status !== "active" || !isRevealed(i.x, i.y)) continue;
-        const isKamikaze = i.destroyOnKill !== false;
-        const html = isKamikaze
-          ? `<svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="#ff5555" stroke="#ff7777" stroke-width="1.5" opacity="0.85"/></svg>`
-          : `<svg width="18" height="18" viewBox="0 0 18 18"><polygon points="9,2 16,15 9,12 2,15" fill="#ff5555" stroke="#ff7777" stroke-width="1.2" stroke-linejoin="round" opacity="0.85"/></svg>`;
-        L.marker(toLL(i.x, i.y), {
-          icon: L.divIcon({ className: "", iconSize: [18, 18], iconAnchor: [9, 9], html }),
-          interactive: false,
-        }).addTo(layer);
-      }
     }
-  }, [mapReady, theater, playerHQ, playerExtraHQs, playerAirspace, playerResources, playerInterceptors, playerAD, aiSetup, phase, battleDrones, resourceDeposits, placingWhat, playerTrajectory, attackPriority, revealedAreas]);
+  }, [mapReady, theater, playerHQ, playerExtraHQs, playerAirspace, playerResources, playerInterceptors, playerAD, aiSetup, phase, battleDrones, resourceDeposits, placingWhat, playerTrajectory, attackPriority, revealedAreas, fogSnapshots]);
 
   // ── Phase 3: Render battle frame to leaflet (used by host tick + guest render loop) ──
   const renderBattleFrame = useCallback((b) => {
@@ -2689,11 +2709,23 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           }
         }
       }
-      // Fog of war: guest samples own drone positions for vision reveals
+      // Fog of war (snapshot): guest samples own drone positions with unit snapshots
       b._guestFrame = (b._guestFrame || 0) + 1;
       if (b._guestFrame % 15 === 0) {
         for (const a of (b.pAttackers || [])) {
-          if (a.status === "active") pendingRevealsRef.current.push({ x: a.x, y: a.y, radius: 500 });
+          if (a.status !== "active") continue;
+          const nearby = pendingRevealsRef.current.some((c) => Math.abs(c.x - a.x) < 250 && Math.abs(c.y - a.y) < 250);
+          if (nearby) continue;
+          const vr = 500;
+          const snappedUnits = [];
+          // Guest sees enemy as aAD/aInts (opponent from guest's perspective)
+          for (const ad of (b.aAD || [])) {
+            if (ad.health > 0 && dist(a, ad) < vr) snappedUnits.push({ kind: "ad", key: ad.key, x: ad.x, y: ad.y, health: ad.health, ammo: ad.ammo });
+          }
+          for (const i of (b.aInts || [])) {
+            if (i.status === "active" && dist(a, i) < vr) snappedUnits.push({ kind: "interceptor", x: i.x, y: i.y });
+          }
+          pendingRevealsRef.current.push({ x: a.x, y: a.y, radius: vr, round: currentRound, units: snappedUnits });
         }
       }
       renderBattleFrame(b);
@@ -2834,13 +2866,29 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       const spd = battleSpeedRef.current || 1;
       for (let si = 0; si < spd; si++) {
       b.step++;
-      // Fog of war: sample player drone positions every 30 steps to build vision trail.
-      // Skip if a nearby reveal already exists (dedup within 250 units to prevent bloat).
+      // Fog of war (snapshot): sample drone positions and capture enemy units nearby.
+      // Each reveal stores a frozen copy of what the drone "saw" at that moment.
       if (b.step % 30 === 0) {
         for (const a of b.pAttackers) {
           if (a.status !== "active") continue;
           const nearby = pendingRevealsRef.current.some((c) => Math.abs(c.x - a.x) < 250 && Math.abs(c.y - a.y) < 250);
-          if (!nearby) pendingRevealsRef.current.push({ x: a.x, y: a.y, radius: 500 });
+          if (nearby) continue;
+          // Capture snapshot of enemy units within vision radius
+          const vr = 500;
+          const snappedUnits = [];
+          if (aiSetup?.hqX != null && dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) < vr) {
+            snappedUnits.push({ kind: "hq", x: aiSetup.hqX, y: aiSetup.hqY });
+          }
+          for (const ad of b.aAD) {
+            if (ad.health > 0 && dist(a, ad) < vr) snappedUnits.push({ kind: "ad", key: ad.key, x: ad.x, y: ad.y, health: ad.health, ammo: ad.ammo });
+          }
+          for (const r of (aiSetup?.resources || [])) {
+            if (r.alive && dist(a, r) < vr) snappedUnits.push({ kind: "resource", key: r.key, x: r.x, y: r.y });
+          }
+          for (const i of b.aInts) {
+            if (i.status === "active" && dist(a, i) < vr) snappedUnits.push({ kind: "interceptor", x: i.x, y: i.y });
+          }
+          pendingRevealsRef.current.push({ x: a.x, y: a.y, radius: vr, round: currentRound, units: snappedUnits });
         }
       }
 
@@ -3377,10 +3425,13 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
 
         setCombatLog((prev) => [...prev, ...endLog]);
         setCurrentRound(round + 1);
-        // Merge drone vision trail into persistent fog-of-war reveals
+        // Merge drone vision trail + snapshots into persistent fog state
         if (pendingRevealsRef.current.length > 0) {
-          setRevealedAreas((prev) => [...prev, ...pendingRevealsRef.current]);
-          revealedAreasRef.current = [...revealedAreasRef.current, ...pendingRevealsRef.current];
+          const newReveals = pendingRevealsRef.current;
+          setRevealedAreas((prev) => [...prev, ...newReveals]);
+          revealedAreasRef.current = [...revealedAreasRef.current, ...newReveals];
+          setFogSnapshots((prev) => [...prev, ...newReveals.filter((r) => r.units && r.units.length > 0)]);
+          fogSnapshotsRef.current = [...fogSnapshotsRef.current, ...newReveals.filter((r) => r.units && r.units.length > 0)];
           pendingRevealsRef.current = [];
         }
         setBattleActive(false);
@@ -4340,12 +4391,15 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                       const adIdx = playerAD.findIndex((a) => a.x === u.x && a.y === u.y);
                       if (adIdx < 0) return null;
                       const curPrio = playerAD[adIdx].priority || "all";
+                      const isMobile = MOBILE_AD_TYPES.has(playerAD[adIdx].key);
+                      const canReposition = isMobile && !battleActive && phase === PHASE.COMBAT;
                       const options = [
                         { key: "all", label: "All", color: "#888" },
                         { key: "cheap", label: "Cheap", color: "#4caf50" },
                         { key: "expensive", label: "Expensive", color: "#ff5555" },
                       ];
                       return (
+                        <>
                         <div style={{ marginTop: 6, borderTop: "1px solid #2a2a35", paddingTop: 6 }}>
                           <div style={{ fontSize: 9, color: "#666", marginBottom: 4, textTransform: "uppercase", letterSpacing: 1 }}>Target Priority</div>
                           <div style={{ display: "flex", gap: 4 }}>
@@ -4363,6 +4417,24 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                             ))}
                           </div>
                         </div>
+                        {canReposition && (
+                          <button onClick={() => {
+                            setPlacingWhat(`reposition_ad_${adIdx}`);
+                            setUnitInspect(null);
+                          }} style={{
+                            width: "100%", marginTop: 6, padding: "5px 8px", fontSize: 10, fontWeight: 600,
+                            background: "rgba(30,30,40,0.9)", border: "1px solid #ff9800", borderRadius: 4,
+                            color: "#ff9800", cursor: "pointer", textAlign: "center",
+                          }}>
+                            Reposition (mobile)
+                          </button>
+                        )}
+                        {isMobile && !canReposition && (
+                          <div style={{ fontSize: 9, color: "#555", marginTop: 4, textAlign: "center" }}>
+                            {battleActive ? "Can't move during battle" : phase === PHASE.SETUP ? "Can reposition between rounds" : "Mobile unit"}
+                          </div>
+                        )}
+                        </>
                       );
                     })()}
                     <div style={{ fontSize: 9, color: "#555", marginTop: 8, textAlign: "center" }}>Right-click any unit to inspect</div>
