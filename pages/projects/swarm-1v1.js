@@ -771,13 +771,16 @@ export default function Swarm1v1() {
     _initAudio(); // unlock Web Audio on first user gesture
     setGameMode("bot");
     setOpponentName(AI_NAMES[Math.floor(Math.random() * AI_NAMES.length)]);
+    // Pick a random theater from the player's selected maps (AI accepts all)
+    const pick = selectedTheaters[Math.floor(Math.random() * selectedTheaters.length)] || "ukraine_russia";
+    setTheater(pick);
+    theaterRef.current = pick;
     // Skip the countdown screen for bot mode - go straight to setup
     {
         setPhase(PHASE.SETUP);
         resetMatchState();
-        // Generate match: deposits first, then AI setup that claims nearby deposits
-        const deposits = generateResourceDeposits(theaterRef.current);
-        const newAi = generateAISetup(theaterRef.current);
+        const deposits = generateResourceDeposits(pick);
+        const newAi = generateAISetup(pick);
         // AI auto-claims one deposit of each type closest to its HQ (including hydro)
         const aiResources = [];
         for (const key of ["solar", "arms", "oil", "hydro"]) {
@@ -795,7 +798,7 @@ export default function Swarm1v1() {
         setResourceDeposits(deposits);
         setAiSetup(newAi);
     }
-  }, [username, resetMatchState]);
+  }, [username, selectedTheaters, resetMatchState]);
 
   // ── Multiplayer: broadcast a message to peer (no-op in bot mode) ──
   const broadcast = useCallback((msg) => {
