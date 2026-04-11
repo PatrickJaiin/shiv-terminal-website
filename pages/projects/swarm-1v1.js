@@ -650,6 +650,8 @@ export default function Swarm1v1() {
   const [battleSpeed, setBattleSpeed] = useState(1); // 1x, 2x, 4x
   const [showADRange, setShowADRange] = useState(true);
   const [fogOfWar, setFogOfWar] = useState(true); // toggle fog of war on/off
+  const [rematchMe, setRematchMe] = useState(false); // I want rematch
+  const [rematchOpponent, setRematchOpponent] = useState(false); // opponent wants rematch
   const [playerBudget, setPlayerBudget] = useState(STARTING_BUDGET);
   const [placingWhat, setPlacingWhat] = useState(null);
 
@@ -765,6 +767,7 @@ export default function Swarm1v1() {
     setPlayerTrajectory([]);
     setRevealedAreas([]); revealedAreasRef.current = []; pendingRevealsRef.current = [];
     setFogSnapshots([]); fogSnapshotsRef.current = [];
+    setRematchMe(false); setRematchOpponent(false);
     setPlayerAirspace((THEATERS[theaterRef.current]?.airspace || [2000])[0]);
     setAttackPriority("hq");
     setDefPosture("pursuing");
@@ -785,6 +788,7 @@ export default function Swarm1v1() {
       lastBroadcastRef.current.trajectory = null;
     }
   }, []);
+
 
   const findMatch = useCallback(() => {
     if (!username.trim()) return;
@@ -829,16 +833,27 @@ export default function Swarm1v1() {
     }
   }, []);
 
+  // Mutual rematch: when both players request rematch, reset and start new match
+  useEffect(() => {
+    if (!rematchMe || !rematchOpponent || !gameOver) return;
+    resetMatchState();
+    setPhase(PHASE.SETUP);
+    const deposits = generateResourceDeposits(theaterRef.current);
+    setResourceDeposits(deposits);
+    if (gameModeRef.current === "host") {
+      try { if (connRef.current?.open) connRef.current.send({ type: "deposits", deposits }); } catch {}
+    }
+  }, [rematchMe, rematchOpponent, gameOver, resetMatchState]);
+
   // ── Multiplayer: dispatch incoming network messages and apply to local state ──
   // The opponent's setup is mirrored into the existing aiSetup slot so that the
   // map renderer + combat code can read it just like in bot mode.
   const handleNetMessage = useCallback((msg) => {
     if (typeof msg !== "object" || !msg || typeof msg.type !== "string") return;
     switch (msg.type) {
-      case "rematch": {
-        // Host initiated rematch - reset match state and go back to setup
-        resetMatchState();
-        setPhase(PHASE.SETUP);
+      case "rematch_request": {
+        // Opponent wants a rematch
+        setRematchOpponent(true);
         break;
       }
       case "theater_sync": {
@@ -3227,30 +3242,19 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         if (ad.health <= 0 || ad.ammo <= 0) return;
         const sys = theaterScaleRef.current.ad.find((s) => s.key === ad.key);
         if (!sys) return;
-        // Gun: rapid fire (engageRate * 60 steps between shots, ~0.1s = 6 steps).
-        // Missile: fires a burst of burstSize missiles (burstRate steps apart), then
-        //          does a long reload (engageRate * 60 steps) when burst is spent.
-        let cooldown;
-        if (sys.type === "gun" && !sys.burstSize) {
-          cooldown = Math.max(3, Math.round(sys.engageRate * 60));
-        } else {
-          // Track burst count on the ad object. Reset after long reload.
-          const burstFired = ad._burstFired || 0;
-          const burstMax = sys.burstSize || 6;
-          if (burstFired >= burstMax) {
-            // Long reload after full burst - refill the entire magazine.
-            // After reload completes, reset and RETURN so the next call fires
-            // with the correct burst-rate cooldown (not the long reload cooldown).
-            const reloadTime = Math.max(60, Math.round(sys.engageRate * 60));
-            if (!ad.lastFired || b.step - ad.lastFired < reloadTime) return; // still reloading
-            ad._burstFired = 0;
-            ad.ammo = sys.missiles;
-            ad.lastFired = b.step; // mark reload completion time
-            return; // next call will fire with burstRate cooldown
-          } else {
-            cooldown = sys.burstRate || 15;
-          }
+        // Simple fire-and-reload: shoot all ammo rapidly (burstRate steps between shots),
+        // then reload for engageRate seconds, which refills all ammo. Repeat.
+        // When ammo hits 0, start reload timer. When reload done, refill to full.
+        if (ad.ammo <= 0) {
+          // Reloading - check if reload time has elapsed
+          const reloadTime = Math.max(60, Math.round(sys.engageRate * 60));
+          if (!ad._reloadStart) { ad._reloadStart = b.step; return; }
+          if (b.step - ad._reloadStart < reloadTime) return; // still reloading
+          ad.ammo = sys.missiles; // refill full magazine
+          ad._reloadStart = null;
+          return; // fire starts next call
         }
+        const cooldown = sys.burstRate || (sys.type === "gun" ? 3 : 15);
         if (ad.lastFired && b.step - ad.lastFired < cooldown) return;
         // Per-AD targeting priority: "all" (default), "cheap", "expensive".
         // Lets the player assign expensive NASAMS to expensive targets and cheap Gepards to FPV swarms.
@@ -3276,7 +3280,6 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         }
         if (target) {
           ad.ammo--; ad.lastFired = b.step;
-          if (sys.burstSize) ad._burstFired = (ad._burstFired || 0) + 1;
           const flashType = sys.type === "gun" ? "gunshot" : "adshot";
           b.flashes.push({ x: ad.x, y: ad.y, x2: target.x, y2: target.y, time: b.step, wallTime: performance.now(), type: flashType, color: sys.color });
           if (killCounterKey === "aKills" && sys.type !== "gun") playSfx("ad_fire", 50);
@@ -4299,18 +4302,19 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                           if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; layerRef.current = null; battleLayerRef.current = null; LRef.current = null; }
                           setTimeout(() => findMatch(), 50);
                         } else {
-                          // MP rematch: reset match state but keep peer connection alive
-                          resetMatchState();
-                          setPhase(PHASE.SETUP);
-                          const deposits = generateResourceDeposits(theaterRef.current);
-                          setResourceDeposits(deposits);
-                          if (gameMode === "host") {
-                            try { broadcast({ type: "rematch" }); } catch {}
-                            try { broadcast({ type: "deposits", deposits }); } catch {}
-                          }
+                          // MP rematch: send request, wait for opponent to also request
+                          setRematchMe(true);
+                          try { broadcast({ type: "rematch_request" }); } catch {}
                         }
-                      }} style={{ ...inputStyle, marginTop: 12, cursor: "pointer", fontSize: 11, color: "#4caf50", borderColor: "#4caf50" }}>
-                        Rematch
+                      }} style={{ ...inputStyle, marginTop: 12, cursor: "pointer", fontSize: 11,
+                        color: rematchMe ? (rematchOpponent ? "#4caf50" : "#ff9800") : "#4caf50",
+                        borderColor: rematchMe ? (rematchOpponent ? "#4caf50" : "#ff9800") : "#4caf50",
+                      }}>
+                        {gameMode === "bot" ? "Rematch" :
+                          rematchMe && rematchOpponent ? "Starting rematch..." :
+                          rematchMe ? "Waiting for opponent..." :
+                          rematchOpponent ? "Opponent wants rematch - click to accept" :
+                          "Rematch"}
                       </button>
                       <button onClick={() => {
                         if (gameMode !== "bot") teardownPeer(true);
