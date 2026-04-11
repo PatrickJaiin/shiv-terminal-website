@@ -20,7 +20,7 @@ const THEATERS = {
     name: "Ukraine - Russia",
     bounds: { south: 46, north: 56.5, west: 25, east: 41 },
     mapCenter: [51.2, 33], mapZoom: 5,
-    airspace: [1100, 500, 1800],
+    airspace: [1000, 400, 1250],
     zones: {
       player:   { lat: 49.0, lng: 31.0, label: "BLUE SIDE" },   // Kyiv-Dnipro area
       opponent: { lat: 54.5, lng: 37.0, label: "RED SIDE" },     // Moscow approaches
@@ -30,17 +30,17 @@ const THEATERS = {
     name: "India-Pakistan LoC",
     bounds: { south: 32, north: 36, west: 72, east: 77 },
     mapCenter: [34, 74.5], mapZoom: 7,
-    airspace: [2800, 1200, 4000],
+    airspace: [1000, 400, 1250],
     zones: {
       player:   { lat: 32.8, lng: 74.8, label: "BLUE SIDE" },      // Jammu side
-      opponent: { lat: 35.2, lng: 74.3, label: "RED SIDE" },     // Gilgit-Muzaffarabad
+      opponent: { lat: 35.0, lng: 73.5, label: "RED SIDE" },     // Central Pakistan side
     },
   },
   israel_iran: {
     name: "Israel-Iran",
     bounds: { south: 27, north: 37, west: 34, east: 55 },
     mapCenter: [32, 44], mapZoom: 5,
-    airspace: [1200, 500, 2000],
+    airspace: [1000, 400, 1250],
     zones: {
       player:   { lat: 31.5, lng: 35.0, label: "BLUE SIDE" },     // Central Israel
       opponent: { lat: 34.5, lng: 51.5, label: "RED SIDE" },        // Tehran area
@@ -50,7 +50,7 @@ const THEATERS = {
     name: "Taiwan Strait",
     bounds: { south: 21.5, north: 26.5, west: 117, east: 123 },
     mapCenter: [24, 120], mapZoom: 6,
-    airspace: [2200, 1000, 3500],
+    airspace: [1000, 400, 1250],
     zones: {
       player:   { lat: 24.0, lng: 121.0, label: "BLUE SIDE" },    // Western Taiwan
       opponent: { lat: 24.5, lng: 118.5, label: "RED SIDE" },      // Fujian coast
@@ -90,24 +90,23 @@ const DEFENSE_UNITS = [
 // 70km on all theaters but that's a bigger fraction of a small map (Taiwan) vs a large one
 // (Ukraine-Russia). range field is kept as a fallback and used for display formatting.
 const AD_SYSTEMS_1V1 = [
-  { key: "iron_dome", name: "Iron Dome", cost: 50000000, range_m: 70000, missiles: 60, missileCost: 50000, pk: 0.9, engageRate: 3, dmg: 3, color: "#44bbff" },
-  { key: "gepard", name: "Gepard", cost: 5000000, range_m: 5000, missiles: 680, missileCost: 100, pk: 0.5, engageRate: 1, dmg: 1, color: "#88aa44" },
-  { key: "nasams", name: "NASAMS 3", cost: 40000000, range_m: 50000, missiles: 20, missileCost: 500000, pk: 0.95, engageRate: 4, dmg: 100, color: "#4488ff" },
-  { key: "pantsir", name: "Pantsir-S1", cost: 15000000, range_m: 20000, missiles: 12, missileCost: 60000, pk: 0.8, engageRate: 3, dmg: 2, color: "#cc8800" },
+  { key: "iron_dome", name: "Iron Dome", cost: 50000000, range_m: 105000, missiles: 60, missileCost: 50000, pk: 0.9, engageRate: 3, dmg: 3, color: "#44bbff" },
+  { key: "gepard", name: "Gepard", cost: 5000000, range_m: 7500, missiles: 680, missileCost: 100, pk: 0.5, engageRate: 1, dmg: 1, color: "#88aa44" },
+  { key: "nasams", name: "NASAMS 3", cost: 30000000, range_m: 75000, missiles: 20, missileCost: 500000, pk: 0.95, engageRate: 4, dmg: 100, color: "#4488ff" },
+  { key: "pantsir", name: "Pantsir-S1", cost: 15000000, range_m: 30000, missiles: 12, missileCost: 60000, pk: 0.8, engageRate: 3, dmg: 2, color: "#cc8800" },
 ];
 
 // Resource economy follows niche-distinction principle:
-// Solar: cheap, low risk, fast payback (3-round ROI), best for early eco
-// Arms: mid-tier, gives free interceptor reinforcements (tempo)
-// Oil: high cost, high income (5-round ROI), highest absolute return per slot
-// Hydro: very high cost, very high income, scarce nodes (only 4 per map)
-//        ROI ~6 rounds. Best return-per-slot but biggest single-point-of-failure.
+// Resource ROI improves with cost - expensive resources reward the risk/investment.
+// Solar: 25% return (4-round ROI), cheap safe early eco
+// Arms: 30% return (3.3-round ROI), mid-tier
+// Oil: 35% return (2.9-round ROI), strong but costly
+// Hydro: 40% return (2.5-round ROI), best return but scarce nodes, biggest loss if breached
 const RESOURCES = [
-  { key: "solar", name: "Solar Farm", cost: 2000000, income: 600000, breachDmg: 4000000, color: "#44bb44", icon: "S" },
-  // Arms income buffed 0.9M → 1.5M (matches solar's 30% income/cost ratio, no longer dominated)
+  { key: "solar", name: "Solar Farm", cost: 2000000, income: 500000, breachDmg: 4000000, color: "#44bb44", icon: "S" },
   { key: "arms", name: "Arms Factory", cost: 5000000, income: 1500000, breachDmg: 9000000, color: "#8888cc", icon: "A" },
-  { key: "oil", name: "Oil Refinery", cost: 8000000, income: 2200000, breachDmg: 16000000, color: "#cc8800", icon: "O" },
-  { key: "hydro", name: "Hydropower Plant", cost: 14000000, income: 3600000, breachDmg: 22000000, color: "#44aadd", icon: "H" },
+  { key: "oil", name: "Oil Refinery", cost: 8000000, income: 2800000, breachDmg: 16000000, color: "#cc8800", icon: "O" },
+  { key: "hydro", name: "Hydropower Plant", cost: 14000000, income: 5600000, breachDmg: 22000000, color: "#44aadd", icon: "H" },
 ];
 
 // Unit sketches for the inspector preview popup. AD systems use real reference photos
@@ -614,6 +613,12 @@ export default function Swarm1v1() {
 
   // Player setup
   const [playerHQ, setPlayerHQ] = useState(null);
+  // Which geographic side the player deploys on: "blue" (p1 zone) or "red" (p2 zone).
+  // Determined when HQ is placed based on proximity to zone centers. Fixed for the match.
+  // Colors are geographic, not perspective-based - a player in the red zone IS red.
+  const [playerSide, setPlayerSide] = useState("blue");
+  const playerColor = playerSide === "red" ? "#ff5555" : "#4a9eff";
+  const opponentColor = playerSide === "red" ? "#4a9eff" : "#ff5555";
   // Phase B: additional HQs at increasing cost. Each is a fortified position with its own
   // small airspace circle, providing redundancy. Diminishing returns: 2nd costs 25M, 3rd costs 50M.
   const [playerExtraHQs, setPlayerExtraHQs] = useState([]); // [{x, y}, ...]
@@ -711,6 +716,10 @@ export default function Swarm1v1() {
   const theaterRef = useRef(theater);
   const theaterScaleRef = useRef(theaterScale);
   theaterScaleRef.current = theaterScale;
+  const playerColorRef = useRef(playerColor);
+  playerColorRef.current = playerColor;
+  const opponentColorRef = useRef(opponentColor);
+  opponentColorRef.current = opponentColor;
   const [mapReady, setMapReady] = useState(false);
 
   // Battle sim refs
@@ -1639,6 +1648,11 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         }
       }
       setPlayerHQ({ x, y }); setPlacingWhat(null);
+      // Determine which geographic side the player chose based on zone proximity
+      const zones = getZones(theaterRef.current);
+      const distP1 = dist({ x, y }, zones.p1);
+      const distP2 = dist({ x, y }, zones.p2);
+      setPlayerSide(distP1 <= distP2 ? "blue" : "red");
       broadcast({ type: "place_hq", x, y });
     } else if (placingWhat === "extra_hq") {
       // Additional HQ - costs 25M for 2nd, 50M for 3rd. Max 3 total.
@@ -1882,24 +1896,26 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
   // once to start round 1). The combined transition + launch keeps the flow to one click.
   const readyAdvanceGuardRef = useRef(false);
   useEffect(() => {
-    if (gameMode !== "host") return;
+    if (gameMode !== "host" && gameMode !== "bot") return;
     if (!(meReady && opponentReady)) { readyAdvanceGuardRef.current = false; return; }
     if (battleActive || gameOver) return;
     if (readyAdvanceGuardRef.current) return; // fire once per ready-pair
     readyAdvanceGuardRef.current = true;
     if (phase === PHASE.SETUP) {
-      // SETUP -> COMBAT + immediate launch of round 1.
       try { broadcast({ type: "start_combat" }); } catch {}
       setPhase(PHASE.COMBAT);
     }
-    // Clear ready flags BEFORE launching so the next between-round buy phase starts
-    // unready on both sides. The post-battle ready-reset effect also clears them as a
-    // safety net in case launchRound bails on its own guard (e.g. waveCost > budget).
     setMeReady(false);
     setOpponentReady(false);
-    if (launchRoundRef.current) {
-      try { launchRoundRef.current(); } catch {}
-    }
+    // Delay launch slightly so React can process the state updates above
+    // (meReady/opponentReady=false, phase=COMBAT) before launchRound runs.
+    // Without this, launchRound could see stale battleActive=true from the
+    // previous render and bail, causing round 2+ to never start.
+    setTimeout(() => {
+      if (launchRoundRef.current) {
+        try { launchRoundRef.current(); } catch {}
+      }
+    }, 50);
   }, [meReady, opponentReady, phase, battleActive, gameOver, gameMode, broadcast]);
 
   // Reset ready flags when a round ends so both players can re-ready for the next round.
@@ -2131,7 +2147,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     if (playerHQ) {
       const breachAngles = battleRef.current?.playerAirBreaches || [];
       if (breachAngles.length === 0) {
-        L.circle(toLL(playerHQ.x, playerHQ.y), { radius: playerAirspace * mpu, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 0.1, weight: 3, opacity: 0.9, dashArray: "10 6" }).addTo(layer);
+        L.circle(toLL(playerHQ.x, playerHQ.y), { radius: playerAirspace * mpu, color: playerColor, fillColor: playerColor, fillOpacity: 0.1, weight: 3, opacity: 0.9, dashArray: "10 6" }).addTo(layer);
       } else {
         const SEG = 24; const segArc = (Math.PI * 2) / SEG; const GAP = 0.15;
         for (let i = 0; i < SEG; i++) {
@@ -2140,7 +2156,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           if (inGap) continue;
           const pts = [];
           for (let j = 0; j <= 3; j++) { const a = -Math.PI + i * segArc + (j / 3) * segArc; pts.push(toLL(playerHQ.x + Math.cos(a) * playerAirspace, playerHQ.y + Math.sin(a) * playerAirspace)); }
-          L.polyline(pts, { color: "#4a9eff", weight: 3, opacity: 0.9, dashArray: "10 6", interactive: false }).addTo(layer);
+          L.polyline(pts, { color: playerColor, weight: 3, opacity: 0.9, dashArray: "10 6", interactive: false }).addTo(layer);
         }
         for (const ba of breachAngles) {
           const bll = toLL(playerHQ.x + Math.cos(ba) * playerAirspace, playerHQ.y + Math.sin(ba) * playerAirspace);
@@ -2151,7 +2167,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       L.marker(toLL(playerHQ.x, playerHQ.y), {
         icon: L.divIcon({
           className: "", iconSize: [22, 22], iconAnchor: [11, 11],
-          html: `<div style="width:22px;height:22px;background:#4a9eff;border:2.5px solid #fff;box-sizing:border-box;box-shadow:0 0 6px rgba(74,158,255,0.7)"></div>`,
+          html: `<div style="width:22px;height:22px;background:${playerColor};border:2.5px solid #fff;box-sizing:border-box;box-shadow:0 0 6px ${playerColor}99"></div>`,
         }),
         interactive: false,
       }).addTo(layer);
@@ -2160,11 +2176,11 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     for (const eh of playerExtraHQs) {
       // Each extra HQ has its own small airspace bubble (60% of main airspace radius)
       const ehRadius = playerAirspace * 0.6;
-      L.circle(toLL(eh.x, eh.y), { radius: ehRadius * mpu, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 0.08, weight: 2.5, opacity: 0.85, dashArray: "8 4", interactive: false }).addTo(layer);
+      L.circle(toLL(eh.x, eh.y), { radius: ehRadius * mpu, color: playerColor, fillColor: playerColor, fillOpacity: 0.08, weight: 2.5, opacity: 0.85, dashArray: "8 4", interactive: false }).addTo(layer);
       L.marker(toLL(eh.x, eh.y), {
         icon: L.divIcon({
           className: "", iconSize: [18, 18], iconAnchor: [9, 9],
-          html: `<div style="width:18px;height:18px;background:#4a9eff;border:2px solid #fff;box-sizing:border-box;box-shadow:0 0 5px rgba(74,158,255,0.6)"></div>`,
+          html: `<div style="width:18px;height:18px;background:${playerColor};border:2px solid #fff;box-sizing:border-box;box-shadow:0 0 5px ${playerColor}99"></div>`,
         }),
         interactive: false,
       }).addTo(layer);
@@ -2356,21 +2372,23 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     // guest's drones glide smoothly between 15Hz snapshots instead of teleporting.
     const dx = (d) => d._renderX ?? d.x;
     const dy = (d) => d._renderY ?? d.y;
-    for (const a of (b.aAttackers || [])) { if (a.status === "active") L.circleMarker(toLL(dx(a), dy(a)), { radius: 3, color: "#ff4444", fillColor: "#ff4444", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
-    for (const a of (b.pAttackers || [])) { if (a.status === "active") L.circleMarker(toLL(dx(a), dy(a)), { radius: 3, color: "#00ddff", fillColor: "#00ddff", fillOpacity: 0.9, weight: 0 }).addTo(bl); }
+    const pc = playerColorRef.current;
+    const oc = opponentColorRef.current;
+    for (const a of (b.aAttackers || [])) { if (a.status === "active") L.circleMarker(toLL(dx(a), dy(a)), { radius: 3, color: oc, fillColor: oc, fillOpacity: 0.9, weight: 0 }).addTo(bl); }
+    for (const a of (b.pAttackers || [])) { if (a.status === "active") L.circleMarker(toLL(dx(a), dy(a)), { radius: 3, color: pc, fillColor: pc, fillOpacity: 0.9, weight: 0 }).addTo(bl); }
     // Interceptors during battle. Kamikaze = filled circle (default look), armed =
     // ring with center pip (the more distinctive "shooter platform" look).
     for (const i of (b.pInts || [])) {
       if (i.status === "active") {
         const isKam = i.destroyOnKill !== false;
         if (isKam) {
-          L.circleMarker(toLL(dx(i), dy(i)), { radius: 5, color: "#ffffff", fillColor: "#4a9eff", fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
+          L.circleMarker(toLL(dx(i), dy(i)), { radius: 5, color: "#ffffff", fillColor: pc, fillOpacity: 0.9, weight: 1.5 }).addTo(bl);
         } else {
           L.circleMarker(toLL(dx(i), dy(i)), { radius: 7, color: "#ffffff", fillColor: "transparent", fillOpacity: 0, weight: 2 }).addTo(bl);
-          L.circleMarker(toLL(dx(i), dy(i)), { radius: 2, color: "#4a9eff", fillColor: "#4a9eff", fillOpacity: 1, weight: 0 }).addTo(bl);
+          L.circleMarker(toLL(dx(i), dy(i)), { radius: 2, color: pc, fillColor: pc, fillOpacity: 1, weight: 0 }).addTo(bl);
         }
       } else if (i.status === "landed") {
-        L.circleMarker(toLL(i.x, i.y), { radius: 4, color: "#336699", fillColor: "#336699", fillOpacity: 0.5, weight: 1 }).addTo(bl);
+        L.circleMarker(toLL(i.x, i.y), { radius: 4, color: pc, fillColor: pc, fillOpacity: 0.4, weight: 1 }).addTo(bl);
       }
     }
     for (const i of (b.aInts || [])) {
