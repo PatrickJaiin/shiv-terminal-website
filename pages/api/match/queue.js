@@ -38,33 +38,37 @@ export default async function handler(req) {
   try { body = await req.json(); } catch { return jsonResponse({ error: "invalid_json" }, 400); }
   const peerId = typeof body?.peerId === "string" ? body.peerId.trim() : "";
   if (!peerId) return jsonResponse({ error: "peerId_required" }, 400);
-  // Theater-specific queuing: players only match with others on the same theater
-  const theater = typeof body?.theater === "string" ? body.theater.trim() : "ukraine_russia";
-  const QUEUE_KEY = QUEUE_KEY_PREFIX + theater;
+  // Multi-theater queuing: player sends an array of theaters they're willing to play.
+  // We try to pop from each queue in order. If no match, push to all selected queues.
+  let theaters = Array.isArray(body?.theaters) ? body.theaters.filter((t) => typeof t === "string") : [];
+  if (theaters.length === 0) theaters = [typeof body?.theater === "string" ? body.theater.trim() : "ukraine_russia"];
 
   if (!REDIS_URL || !REDIS_TOKEN) {
     return jsonResponse({ error: "matchmaking_not_configured", configured: false }, 503);
   }
 
   try {
-    // Try to pop a waiting player from the queue
-    const waiting = await redis(["lpop", QUEUE_KEY]);
-    if (waiting && waiting !== peerId) {
-      // Pair them. Store match records for both peers (TTL: 5 min) so /check can find them.
-      const ts = Date.now();
-      const matchData = JSON.stringify({ host: waiting, guest: peerId, ts });
-      // Use SETEX for atomic set+expire
-      await redis(["setex", `${MATCH_KEY_PREFIX}${waiting}`, String(MATCH_TTL), matchData]);
-      await redis(["setex", `${MATCH_KEY_PREFIX}${peerId}`, String(MATCH_TTL), matchData]);
-      // The waiting player was already there → they are the host (their PeerJS instance is open).
-      // The new arrival is the guest → they will connect to host's peer ID.
-      return jsonResponse({ matched: true, role: "guest", opponent: waiting });
+    // Try to pop a waiting player from any of the selected theater queues
+    for (const t of theaters) {
+      const qKey = QUEUE_KEY_PREFIX + t;
+      const waiting = await redis(["lpop", qKey]);
+      if (waiting && waiting !== peerId) {
+        const ts = Date.now();
+        const matchData = JSON.stringify({ host: waiting, guest: peerId, ts, theater: t });
+        await redis(["setex", `${MATCH_KEY_PREFIX}${waiting}`, String(MATCH_TTL), matchData]);
+        await redis(["setex", `${MATCH_KEY_PREFIX}${peerId}`, String(MATCH_TTL), matchData]);
+        return jsonResponse({ matched: true, role: "guest", opponent: waiting, theater: t });
+      }
+      // If we popped our own ID, put it back
+      if (waiting === peerId) await redis(["rpush", qKey, peerId]);
     }
-    // No one waiting → queue this peerId
-    // RPUSH and refresh queue TTL to prevent stale queue keys
-    await redis(["rpush", QUEUE_KEY, peerId]);
-    await redis(["expire", QUEUE_KEY, "120"]);
-    return jsonResponse({ matched: false, queued: true });
+    // No match found - push to ALL selected theater queues so any opponent on any of these theaters can find us
+    for (const t of theaters) {
+      const qKey = QUEUE_KEY_PREFIX + t;
+      await redis(["rpush", qKey, peerId]);
+      await redis(["expire", qKey, "120"]);
+    }
+    return jsonResponse({ matched: false, queued: true, theaters });
   } catch (e) {
     return jsonResponse({ error: e.message || "redis_error" }, 500);
   }

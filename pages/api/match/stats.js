@@ -1,12 +1,13 @@
 // Phase 4 extension: matchmaking stats endpoint
 // Returns counts of players currently waiting in queue + active matches.
-// Polled by the lobby waiting screen so users see "X players searching, Y in matches".
+// Sums across all theater-specific queues (swarm1v1:queue:ukraine_russia, etc).
 
 export const config = { runtime: "edge" };
 
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
-const QUEUE_KEY = "swarm1v1:queue";
+const THEATERS = ["ukraine_russia", "kashmir", "israel_iran", "taiwan_strait"];
+const QUEUE_KEY_PREFIX = "swarm1v1:queue:";
 const MATCH_KEY_PATTERN = "swarm1v1:match:*";
 
 async function redis(parts) {
@@ -25,8 +26,6 @@ function jsonResponse(body, status = 200) {
     status,
     headers: {
       "Content-Type": "application/json",
-      // Cache for 5s at the edge - all users polling within the same 5s window share one
-      // Redis call instead of each triggering their own. Cuts invocations ~5x at scale.
       "Cache-Control": status === 200 ? "public, s-maxage=5, stale-while-revalidate=10" : "no-store",
     },
   });
@@ -40,13 +39,17 @@ export default async function handler(req) {
   }
 
   try {
-    // Queue length = players waiting for an opponent
-    const queueLen = await redis(["llen", QUEUE_KEY]);
-    // Active match count = number of swarm1v1:match:* keys / 2 (each match writes 2 records)
+    // Sum queue lengths across all theater queues
+    let totalQueued = 0;
+    for (const t of THEATERS) {
+      try {
+        const len = await redis(["llen", QUEUE_KEY_PREFIX + t]);
+        if (typeof len === "number") totalQueued += len;
+      } catch {}
+    }
+    // Active match count
     let matchKeys = [];
     try {
-      // Use scan-style match. SCAN with cursor in REST API is tricky; use a simple approach.
-      // Each match has 2 records (host + guest peer), so divide by 2 for unique matches.
       const scanResult = await redis(["scan", "0", "match", MATCH_KEY_PATTERN, "count", "100"]);
       matchKeys = Array.isArray(scanResult) && Array.isArray(scanResult[1]) ? scanResult[1] : [];
     } catch {}
@@ -54,7 +57,7 @@ export default async function handler(req) {
 
     return jsonResponse({
       configured: true,
-      queueing: typeof queueLen === "number" ? queueLen : 0,
+      queueing: totalQueued,
       inMatchPlayers: activeMatchPlayers,
       activeMatches: Math.floor(activeMatchPlayers / 2),
     });

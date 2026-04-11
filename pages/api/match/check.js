@@ -36,9 +36,11 @@ export default async function handler(req) {
       return jsonResponse({ error: "matchmaking_not_configured", configured: false }, 503);
     }
     try {
-      // Remove from all theater queues (player may have queued on any theater)
-      const theater = url.searchParams.get("theater") || "ukraine_russia";
-      await redis(["lrem", QUEUE_KEY_PREFIX + theater, "0", peerId]);
+      // Remove from all theater queues (player may have queued on multiple)
+      const allTheaters = ["ukraine_russia", "kashmir", "israel_iran", "taiwan_strait"];
+      for (const t of allTheaters) {
+        try { await redis(["lrem", QUEUE_KEY_PREFIX + t, "0", peerId]); } catch {}
+      }
       await redis(["del", `${MATCH_KEY_PREFIX}${peerId}`]);
       return jsonResponse({ ok: true });
     } catch (e) {
@@ -63,7 +65,7 @@ export default async function handler(req) {
     try { match = JSON.parse(matchStr); } catch { return jsonResponse({ matched: false }); }
     const isHost = match.host === peerId;
     const opponent = isHost ? match.guest : match.host;
-    return jsonResponse({ matched: true, role: isHost ? "host" : "guest", opponent });
+    return jsonResponse({ matched: true, role: isHost ? "host" : "guest", opponent, theater: match.theater });
   } catch (e) {
     return jsonResponse({ error: e.message || "redis_error" }, 500);
   }

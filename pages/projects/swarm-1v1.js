@@ -594,6 +594,7 @@ export default function Swarm1v1() {
   const [username, setUsername] = useState("");
   const [opponentName, setOpponentName] = useState("");
   const [theater, setTheater] = useState("ukraine_russia");
+  const [selectedTheaters, setSelectedTheaters] = useState(() => Object.keys(THEATERS));
   const [matchTimer, setMatchTimer] = useState(0);
 
   // Theater-dependent scaling: AD ranges and kill radius in sim units, computed from
@@ -1349,7 +1350,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     // Best-effort: remove from server queue
     const myPeerId = peerRef.current?.id;
     if (myPeerId) {
-      try { fetch(`/api/match/check?peerId=${encodeURIComponent(myPeerId)}&theater=${encodeURIComponent(theaterRef.current)}`, { method: "DELETE" }).catch(() => {}); } catch {}
+      try { fetch(`/api/match/check?peerId=${encodeURIComponent(myPeerId)}`, { method: "DELETE" }).catch(() => {}); } catch {}
     }
   }, []);
 
@@ -1454,7 +1455,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         const r = await fetch("/api/match/queue", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ peerId: myPeerId, theater: theaterRef.current }),
+          body: JSON.stringify({ peerId: myPeerId, theaters: selectedTheaters }),
         });
         queueResp = await r.json();
         if (r.status === 503 && queueResp?.configured === false) {
@@ -1476,6 +1477,10 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
 
       if (queueResp?.matched && queueResp.role === "guest" && queueResp.opponent) {
         role = "guest";
+        if (queueResp.theater && THEATERS[queueResp.theater]) {
+          setTheater(queueResp.theater);
+          theaterRef.current = queueResp.theater;
+        }
         finishAsGuest(queueResp.opponent);
         return;
       }
@@ -1500,7 +1505,11 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           if (peerRef.current !== thisPeer) return;
           const data = await r.json();
           if (data?.matched && data.role === "host") {
-            // We're matched - just wait for incoming PeerJS connection
+            // We're matched - set the theater from the match record
+            if (data.theater && THEATERS[data.theater]) {
+              setTheater(data.theater);
+              theaterRef.current = data.theater;
+            }
             if (mmPollRef.current) { clearInterval(mmPollRef.current); mmPollRef.current = null; }
             setConnectionStatus("waiting");
             // H3 fix: 60s timeout for the guest's incoming PeerJS connection. Long enough
@@ -1542,7 +1551,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       try { peer.destroy(); } catch {}
       if (peerRef.current === thisPeer) peerRef.current = null;
     });
-  }, [username, teardownPeer, resetMatchState, handleNetMessage, handleDisconnect]);
+  }, [username, selectedTheaters, teardownPeer, resetMatchState, handleNetMessage, handleDisconnect]);
 
   // ── Cleanup peer on unmount only (intentionally omit deps to avoid mid-match cleanup if teardownPeer ref changes) ──
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2611,13 +2620,16 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     // ── Bot mode: AI spends accumulated budget on defenses + pays for attack wave ──
     let aiBudgetWorking = aiBudget + aIncome;
     let aiWave;
+    // Fresh interceptors/AD arrays for battle - in bot mode these come from aiSpendBudget
+    // (since setAiSetup hasn't flushed yet). In MP mode, use aiSetup directly.
+    let aiIntsForBattle = aiSetup.interceptors;
+    let aiADForBattle = aiSetup.adUnits;
     if (gameMode === "bot") {
-      // Spend on defenses (mutates aiSetup.adUnits / interceptors / resources, returns new deposits)
       const spent = aiSpendBudget(aiSetup, resourceDeposits, aiBudgetWorking, round);
       aiBudgetWorking = spent.budget;
-      aiSetup.adUnits = spent.adUnits;
-      aiSetup.interceptors = spent.interceptors;
-      aiSetup.resources = spent.resources;
+      aiIntsForBattle = spent.interceptors;
+      aiADForBattle = spent.adUnits;
+      setAiSetup((prev) => ({ ...prev, adUnits: spent.adUnits, interceptors: spent.interceptors, resources: spent.resources }));
       if (spent.deposits !== resourceDeposits) setResourceDeposits(spent.deposits);
       // Build attack wave and pay for it. If broke, scale down.
       aiWave = generateAIAttack(round);
@@ -2675,16 +2687,16 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         });
       }
     });
-    // AI interceptors with spawn positions. Use the entity's stored x,y as RTB target
-    // (these come from the guest's group placements via place_interceptor_group).
-    const aInts = aiSetup.interceptors.filter((i) => i.status === "active").map((i) => ({ ...i, spawnX: i.groupX ?? i.x, spawnY: i.groupY ?? i.y }));
+    // AI interceptors with spawn positions. Uses aiIntsForBattle which is either the
+    // fresh array from aiSpendBudget (bot mode) or aiSetup.interceptors (MP mode).
+    const aInts = (aiIntsForBattle || []).filter((i) => i.status === "active").map((i) => ({ ...i, spawnX: i.groupX ?? i.x, spawnY: i.groupY ?? i.y }));
 
     log.push(`You sent ${pAttackers.length} drones | ${opponentName} sent ${aAttackers.length} drones`);
     setCombatLog((prev) => [...prev, ...log]);
 
     // Copy AD state for battle
     const pAD = playerAD.map((a) => ({ ...a }));
-    const aAD = aiSetup.adUnits.map((a) => ({ ...a }));
+    const aAD = (aiADForBattle || []).map((a) => ({ ...a }));
 
     // Snapshot all of player's HQs (main + extras) into battleRef so the sim can read them
     const allPlayerHQs = [{ x: playerHQ.x, y: playerHQ.y }, ...playerExtraHQs.map((h) => ({ x: h.x, y: h.y }))];
@@ -3154,7 +3166,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           const surviving = b.pInts.filter((i) => (i.status === "active" || i.status === "landed") && i.groupIdx === idx).length;
           return { ...d, count: Math.max(0, surviving) };
         }));
-        aiSetup.interceptors = b.aInts.filter((i) => i.status === "active");
+        const survivingAiInts = b.aInts.filter((i) => i.status === "active");
 
         // Persist AD damage between rounds + auto-reload (charges player for missing missiles).
         // Destroyed ADs stay destroyed; surviving ADs that fired refill to max if affordable.
@@ -3186,7 +3198,19 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
             return { ...ad, health: battleAd.health, ammo: sys?.missiles || battleAd.ammo };
           }).filter((ad) => ad.health > 0);
           if (aReloadCost > 0) setAiBudget((p) => p - aReloadCost);
-          aiSetup.adUnits = updatedAiAd;
+          // Persist all AI state changes via setAiSetup instead of mutating directly.
+          // Direct mutation caused interceptors/AD to silently disappear between rounds
+          // because React didn't know the state changed and skipped re-renders.
+          setAiSetup((prev) => ({
+            ...prev,
+            interceptors: survivingAiInts,
+            adUnits: updatedAiAd,
+            resources: (prev.resources || []).map((r) => {
+              // Sync alive status from the battle sim's mutations
+              const battleRes = aiSetup.resources.find((br) => br.x === r.x && br.y === r.y && br.key === r.key);
+              return battleRes ? { ...r, alive: battleRes.alive } : r;
+            }),
+          }));
         }
 
         // Arms factory bonus
@@ -3416,10 +3440,20 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                   <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Enter callsign..."
                     style={{ ...inputStyle, width: "100%", fontSize: 16, textAlign: "center", marginBottom: 12 }}
                     onKeyDown={(e) => e.key === "Enter" && findMatch()} />
-                  <select value={theater} onChange={(e) => setTheater(e.target.value)}
-                    style={{ ...inputStyle, width: "100%", marginBottom: 16 }}>
-                    {Object.entries(THEATERS).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
-                  </select>
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 9, color: "#666", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Theaters (select maps you want to play)</div>
+                    {Object.entries(THEATERS).map(([k, v]) => (
+                      <label key={k} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, cursor: "pointer", fontSize: 12, color: selectedTheaters.includes(k) ? "#e0e0e0" : "#555" }}>
+                        <input type="checkbox" checked={selectedTheaters.includes(k)} onChange={() => {
+                          setSelectedTheaters((prev) => {
+                            const next = prev.includes(k) ? prev.filter((t) => t !== k) : [...prev, k];
+                            return next.length === 0 ? [k] : next; // at least one must be selected
+                          });
+                        }} style={{ accentColor: "#4a9eff" }} />
+                        {v.name}
+                      </label>
+                    ))}
+                  </div>
 
                   <button onClick={findMatch} disabled={!username.trim()}
                     style={{ ...btnStyle, width: "100%", marginBottom: 8, background: username.trim() ? "#1a2a4a" : "#1a1a24", borderColor: username.trim() ? "#4a9eff" : "#333", color: username.trim() ? "#4a9eff" : "#555" }}>
