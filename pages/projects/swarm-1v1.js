@@ -94,10 +94,11 @@ const DEFENSE_UNITS = [
 // burstSize: how many missiles fire before the long reload. burstRate: steps between missiles in a burst.
 // engageRate: seconds for the long reload AFTER a full burst is spent.
 const AD_SYSTEMS_1V1 = [
-  { key: "iron_dome", name: "Iron Dome", cost: 50000000, range_m: 105000, missiles: 60, missileCost: 50000, pk: 0.9, engageRate: 10, burstSize: 60, burstRate: 10, dmg: 3, color: "#44bbff", type: "missile" },
+  // dmg >= 5 one-shots FPV(2hp), Shahed(3hp), Lancet(5hp) but NOT Mohajer(12hp)
+  { key: "iron_dome", name: "Iron Dome", cost: 50000000, range_m: 105000, missiles: 60, missileCost: 50000, pk: 0.9, engageRate: 10, burstSize: 60, burstRate: 10, dmg: 5, color: "#44bbff", type: "missile" },
   { key: "gepard", name: "Gepard", cost: 5000000, range_m: 7500, missiles: 680, missileCost: 100, pk: 0.5, engageRate: 9, burstSize: 680, burstRate: 3, dmg: 1, color: "#88aa44", type: "gun" },
   { key: "nasams", name: "NASAMS 3", cost: 30000000, range_m: 75000, missiles: 20, missileCost: 500000, pk: 0.95, engageRate: 8, burstSize: 20, burstRate: 20, dmg: 100, color: "#4488ff", type: "missile" },
-  { key: "pantsir", name: "Pantsir-S1", cost: 15000000, range_m: 30000, missiles: 12, missileCost: 60000, pk: 0.8, engageRate: 8, burstSize: 12, burstRate: 15, dmg: 2, color: "#cc8800", type: "missile" },
+  { key: "pantsir", name: "Pantsir-S1", cost: 15000000, range_m: 30000, missiles: 12, missileCost: 60000, pk: 0.8, engageRate: 8, burstSize: 12, burstRate: 15, dmg: 5, color: "#cc8800", type: "missile" },
 ];
 
 // Resource economy follows niche-distinction principle:
@@ -3069,10 +3070,11 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           const burstFired = ad._burstFired || 0;
           const burstMax = sys.burstSize || 6;
           if (burstFired >= burstMax) {
-            // Long reload after full burst
+            // Long reload after full burst - refill the entire magazine
             cooldown = Math.max(60, Math.round(sys.engageRate * 60));
             if (ad.lastFired && b.step - ad.lastFired >= cooldown) {
-              ad._burstFired = 0; // reset burst counter after reload
+              ad._burstFired = 0;
+              ad.ammo = sys.missiles; // refill full magazine on reload
             }
           } else {
             // Rapid fire within burst
