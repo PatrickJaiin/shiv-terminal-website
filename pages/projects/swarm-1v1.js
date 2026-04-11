@@ -649,6 +649,7 @@ export default function Swarm1v1() {
   const [damagePopup, setDamagePopup] = useState(null);
   const [battleSpeed, setBattleSpeed] = useState(1); // 1x, 2x, 4x
   const [showADRange, setShowADRange] = useState(true);
+  const [fogOfWar, setFogOfWar] = useState(true); // toggle fog of war on/off
   const [playerBudget, setPlayerBudget] = useState(STARTING_BUDGET);
   const [placingWhat, setPlacingWhat] = useState(null);
 
@@ -2146,6 +2147,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
 
     // Fog of war: check if a position has been revealed by drone vision
     const isRevealed = (x, y) => {
+      if (!fogOfWar) return true; // fog disabled - everything visible
       // Player's own half is always visible. Only enemy territory needs reveals.
       const zones = getZones(theater);
       const myZone = gameModeRef.current === "guest" ? zones.p2 : zones.p1;
@@ -2380,10 +2382,35 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           L.polyline(pts, { color: opponentColor, weight: 3, opacity: 0.9, dashArray: "10 6", interactive: false }).addTo(layer);
         }
       }
+      // When fog is OFF, draw live enemy units directly (no snapshots)
+      if (!fogOfWar && !battleActive) {
+        // Live enemy HQ
+        if (hqVisible) L.marker(toLL(aiSetup.hqX, aiSetup.hqY), { icon: L.divIcon({ className: "", iconSize: [22, 22], iconAnchor: [11, 11], html: `<div style="width:22px;height:22px;background:${opponentColor};border:2.5px solid #fff;box-sizing:border-box"></div>` }), interactive: false }).addTo(layer);
+        // Live enemy resources
+        for (const r of (aiSetup.resources || [])) {
+          if (!r.alive) continue;
+          const res = RESOURCES.find((rr) => rr.key === r.key);
+          if (res) L.circleMarker(toLL(r.x, r.y), { radius: 6, color: res.color, fillColor: res.color, fillOpacity: 0.7, weight: 1.5 }).addTo(layer);
+        }
+        // Live enemy AD
+        for (const ad of (aiSetup.adUnits || [])) {
+          if (ad.health <= 0) continue;
+          const sys = theaterScaleRef.current.ad.find((s) => s.key === ad.key);
+          if (!sys) continue;
+          L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: opponentColor, fillOpacity: 0.1, weight: 2, opacity: 0.8, dashArray: "6 4", interactive: false }).addTo(layer);
+          const iconFn = staticAdIcons[ad.key];
+          if (iconFn) L.marker(toLL(ad.x, ad.y), { icon: L.divIcon({ className: "", iconSize: [24, 24], iconAnchor: [12, 12], html: iconFn(sys.color, opponentColor) }), interactive: false }).addTo(layer);
+        }
+        // Live enemy interceptors
+        for (const i of (aiSetup.interceptors || [])) {
+          if (i.status !== "active") continue;
+          L.circleMarker(toLL(i.x, i.y), { radius: 4, color: opponentColor, fillColor: opponentColor, fillOpacity: 0.7, weight: 1 }).addTo(layer);
+        }
+      }
       // Snapshot-based fog: render FROZEN intel from drone observations, not live positions.
       // Units show at their snapshot positions with ghosted/faded styling and round label.
       // The enemy may have moved since - this creates strategic uncertainty.
-      if (!battleActive) {
+      if (fogOfWar && !battleActive) {
         const snapshots = fogSnapshotsRef.current;
         const drawnPositions = new Set(); // dedup by position
         for (const snap of snapshots) {
@@ -2419,7 +2446,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         }
       }
     }
-  }, [mapReady, theater, playerHQ, playerExtraHQs, playerAirspace, playerResources, playerInterceptors, playerAD, aiSetup, phase, battleDrones, resourceDeposits, placingWhat, playerTrajectory, attackPriority, revealedAreas, fogSnapshots]);
+  }, [mapReady, theater, playerHQ, playerExtraHQs, playerAirspace, playerResources, playerInterceptors, playerAD, aiSetup, phase, battleDrones, resourceDeposits, placingWhat, playerTrajectory, attackPriority, revealedAreas, fogSnapshots, fogOfWar]);
 
   // ── Phase 3: Render battle frame to leaflet (used by host tick + guest render loop) ──
   const renderBattleFrame = useCallback((b) => {
@@ -2959,7 +2986,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         let diff = Math.atan2(dy, dx) - a.heading;
         while (diff > Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
-        a.heading += diff * 0.06;
+        a.heading += diff * 0.15;
         a.x += Math.cos(a.heading) * a.speed;
         a.y += Math.sin(a.heading) * a.speed;
         // Breach if drone is within 200 of ANY player HQ (main or extras)
@@ -3001,7 +3028,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           let diff = Math.atan2(dy, dx) - a.heading;
           while (diff > Math.PI) diff -= Math.PI * 2;
           while (diff < -Math.PI) diff += Math.PI * 2;
-          a.heading += diff * 0.06;
+          a.heading += diff * 0.15;
           a.x += Math.cos(a.heading) * a.speed;
           a.y += Math.sin(a.heading) * a.speed;
           continue;
@@ -3011,7 +3038,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           const alive = b.aAD.filter((ad) => ad.health > 0);
           const closest = alive.reduce((best, ad) => dist(a, ad) < dist(a, best) ? ad : best, alive[0]);
           tx = closest.x; ty = closest.y;
-          if (dist(a, closest) < 100) {
+          if (dist(a, closest) < theaterScaleRef.current.killRadius * 2) {
             const adSys = theaterScaleRef.current.ad.find((s2) => s2.key === closest.key);
             closest.health = 0; closest.ammo = 0; a.status = "expended";
             b.flashes.push({ x: a.x, y: a.y, time: b.step, wallTime: performance.now(), type: "ad_explosion", shake: 8 });
@@ -3024,7 +3051,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           if (alive.length > 0) {
             const closest = alive.reduce((best, r) => dist(a, r) < dist(a, best) ? r : best, alive[0]);
             tx = closest.x; ty = closest.y;
-            if (dist(a, closest) < 100) {
+            if (dist(a, closest) < theaterScaleRef.current.killRadius * 2) {
               const res2 = RESOURCES.find((rr) => rr.key === closest.key);
               closest.alive = false; a.status = "expended"; b.pBreaches++;
               b.flashes.push({ x: a.x, y: a.y, time: b.step, wallTime: performance.now(), type: "resource_explosion", shake: 6 });
@@ -3047,7 +3074,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         let diff = Math.atan2(dy, dx) - a.heading;
         while (diff > Math.PI) diff -= Math.PI * 2;
         while (diff < -Math.PI) diff += Math.PI * 2;
-        a.heading += diff * 0.06;
+        a.heading += diff * 0.15;
         a.x += Math.cos(a.heading) * a.speed;
         a.y += Math.sin(a.heading) * a.speed;
         if (dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) < Math.max(4, Math.round(500 / theaterScaleRef.current.mpu))) {
@@ -3211,14 +3238,16 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           const burstFired = ad._burstFired || 0;
           const burstMax = sys.burstSize || 6;
           if (burstFired >= burstMax) {
-            // Long reload after full burst - refill the entire magazine
-            cooldown = Math.max(60, Math.round(sys.engageRate * 60));
-            if (ad.lastFired && b.step - ad.lastFired >= cooldown) {
-              ad._burstFired = 0;
-              ad.ammo = sys.missiles; // refill full magazine on reload
-            }
+            // Long reload after full burst - refill the entire magazine.
+            // After reload completes, reset and RETURN so the next call fires
+            // with the correct burst-rate cooldown (not the long reload cooldown).
+            const reloadTime = Math.max(60, Math.round(sys.engageRate * 60));
+            if (!ad.lastFired || b.step - ad.lastFired < reloadTime) return; // still reloading
+            ad._burstFired = 0;
+            ad.ammo = sys.missiles;
+            ad.lastFired = b.step; // mark reload completion time
+            return; // next call will fire with burstRate cooldown
           } else {
-            // Rapid fire within burst
             cooldown = sys.burstRate || 15;
           }
         }
@@ -4220,12 +4249,20 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                           </button>
                         ))}
                       </div>
-                      <button onClick={() => setShowADRange((p) => !p)}
-                        style={{ width: "100%", padding: "3px", fontSize: 9, borderRadius: 3, cursor: "pointer",
-                          border: "1px solid #2a2a35", background: "#111118",
-                          color: showADRange ? "#4a9eff" : "#444" }}>
-                        {showADRange ? "Hide AD Range" : "Show AD Range"}
-                      </button>
+                      <div style={{ display: "flex", gap: 3 }}>
+                        <button onClick={() => setShowADRange((p) => !p)}
+                          style={{ flex: 1, padding: "3px", fontSize: 9, borderRadius: 3, cursor: "pointer",
+                            border: "1px solid #2a2a35", background: "#111118",
+                            color: showADRange ? "#4a9eff" : "#444" }}>
+                          {showADRange ? "Hide Ranges" : "Show Ranges"}
+                        </button>
+                        <button onClick={() => setFogOfWar((p) => !p)}
+                          style={{ flex: 1, padding: "3px", fontSize: 9, borderRadius: 3, cursor: "pointer",
+                            border: `1px solid ${fogOfWar ? "#ff9800" : "#2a2a35"}`, background: "#111118",
+                            color: fogOfWar ? "#ff9800" : "#444" }}>
+                          {fogOfWar ? "Fog ON" : "Fog OFF"}
+                        </button>
+                      </div>
                       <div style={{ fontSize: 9, color: "#4a9eff" }}>Your attack: {battleDrones.playerAttackers.filter((a) => a.status === "active").length} active</div>
                       <div style={{ fontSize: 9, color: "#ff5555" }}>Enemy attack: {battleDrones.aiAttackers.filter((a) => a.status === "active").length} active</div>
                       <div style={{ fontSize: 9, color: "#66ccff" }}>Your defense: {battleDrones.playerInts.filter((i) => i.status === "active").length} active</div>
