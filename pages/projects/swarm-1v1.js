@@ -89,11 +89,15 @@ const DEFENSE_UNITS = [
 // inside the component via getProjection(theater.bounds).mpu. This means Iron Dome covers
 // 70km on all theaters but that's a bigger fraction of a small map (Taiwan) vs a large one
 // (Ukraine-Russia). range field is kept as a fallback and used for display formatting.
+// type: "gun" = rapid continuous fire (short cooldown, many rounds, low dmg per shot)
+//       "missile" = fires a burst of missiles rapidly, then long reload to refill the battery
+// burstSize: how many missiles fire before the long reload. burstRate: steps between missiles in a burst.
+// engageRate: seconds for the long reload AFTER a full burst is spent.
 const AD_SYSTEMS_1V1 = [
-  { key: "iron_dome", name: "Iron Dome", cost: 50000000, range_m: 105000, missiles: 60, missileCost: 50000, pk: 0.9, engageRate: 3, dmg: 3, color: "#44bbff" },
-  { key: "gepard", name: "Gepard", cost: 5000000, range_m: 7500, missiles: 680, missileCost: 100, pk: 0.5, engageRate: 1, dmg: 1, color: "#88aa44" },
-  { key: "nasams", name: "NASAMS 3", cost: 30000000, range_m: 75000, missiles: 20, missileCost: 500000, pk: 0.95, engageRate: 4, dmg: 100, color: "#4488ff" },
-  { key: "pantsir", name: "Pantsir-S1", cost: 15000000, range_m: 30000, missiles: 12, missileCost: 60000, pk: 0.8, engageRate: 3, dmg: 2, color: "#cc8800" },
+  { key: "iron_dome", name: "Iron Dome", cost: 50000000, range_m: 105000, missiles: 60, missileCost: 50000, pk: 0.9, engageRate: 8, burstSize: 20, burstRate: 15, dmg: 3, color: "#44bbff", type: "missile" },
+  { key: "gepard", name: "Gepard", cost: 5000000, range_m: 7500, missiles: 680, missileCost: 100, pk: 0.5, engageRate: 0.1, dmg: 1, color: "#88aa44", type: "gun" },
+  { key: "nasams", name: "NASAMS 3", cost: 30000000, range_m: 75000, missiles: 20, missileCost: 500000, pk: 0.95, engageRate: 10, burstSize: 6, burstRate: 20, dmg: 100, color: "#4488ff", type: "missile" },
+  { key: "pantsir", name: "Pantsir-S1", cost: 15000000, range_m: 30000, missiles: 12, missileCost: 60000, pk: 0.8, engageRate: 6, burstSize: 4, burstRate: 15, dmg: 2, color: "#cc8800", type: "missile" },
 ];
 
 // Resource economy follows niche-distinction principle:
@@ -2462,6 +2466,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         const p = Math.min(1, ageMs / maxAgeMs);
         const ll = toLL(f.x, f.y);
         if (f.type === "adshot") {
+          // Missile launch: visible line from AD to target with glow
           if (ageMs < 333) {
             const ll2 = toLL(f.x2, f.y2);
             const fade = 1 - ageMs / 333;
@@ -2469,6 +2474,14 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
             L.polyline([ll, ll2], { color: f.color || "#ffaa00", weight: 2, opacity: fade * 0.9, interactive: false }).addTo(bl);
             L.circleMarker(ll, { radius: 4 * fade, color: "#ffffff", fillColor: "#ffffff", fillOpacity: fade * 0.6, weight: 0 }).addTo(bl);
             L.circleMarker(ll2, { radius: 4 * fade, color: f.color || "#ffaa00", fillColor: f.color || "#ffaa00", fillOpacity: fade * 0.8, weight: 0 }).addTo(bl);
+          }
+        } else if (f.type === "gunshot") {
+          // Rapid gun tracer: thin short-lived yellow line, tiny muzzle flash
+          if (ageMs < 120) {
+            const ll2 = toLL(f.x2, f.y2);
+            const fade = 1 - ageMs / 120;
+            L.polyline([ll, ll2], { color: f.color || "#cccc00", weight: 1, opacity: fade * 0.6, interactive: false }).addTo(bl);
+            L.circleMarker(ll, { radius: 2 * fade, color: "#ffff44", fillColor: "#ffff44", fillOpacity: fade * 0.8, weight: 0 }).addTo(bl);
           }
         } else if (f.type === "dmgtext") {
           const drift = ageMs / 16 * 3;
@@ -2791,7 +2804,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           shakeMap(4, 6);
           if (b.aBreaches > (b.aOverwhelmThreshold || 8) && !b.hqOverwhelmDeclared) {
             b.hqOverwhelmDeclared = true;
-            const go = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: "HQ overwhelmed" };
+            const go = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: "Your HQ was overwhelmed by enemy drones" };
             setGameOver(go);
             setDamagePopup({ text: "HQ DESTROYED", color: "#ff0000" });
             setTimeout(() => setDamagePopup(null), 3000);
@@ -2870,7 +2883,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           b.flashes.push({ x: a.x, y: a.y - 100, time: b.step, wallTime: performance.now(), type: "dmgtext", text: `-$${breachCost >= 1e6 ? (breachCost / 1e6).toFixed(1) + "M" : (breachCost / 1e3).toFixed(0) + "K"}`, color: "#ff5555" });
           if (b.pBreaches > (b.pOverwhelmThreshold || 8) && !b.enemyOverwhelmDeclared) {
             b.enemyOverwhelmDeclared = true;
-            const go = { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: "Enemy HQ overwhelmed" };
+            const go = { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: "You overwhelmed the enemy HQ" };
             setGameOver(go);
             setDamagePopup({ text: "ENEMY HQ DESTROYED", color: "#4caf50" });
             setTimeout(() => setDamagePopup(null), 3000);
@@ -3012,9 +3025,27 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         if (ad.health <= 0 || ad.ammo <= 0) return;
         const sys = theaterScaleRef.current.ad.find((s) => s.key === ad.key);
         if (!sys) return;
-        // engageRate is in seconds. Multiply by 60 (sim steps per second at 60fps)
-        // so reload is visually meaningful. Old value of *5 made ADs fire almost instantly.
-        const cooldown = Math.max(15, Math.round(sys.engageRate * 60));
+        // Gun: rapid fire (engageRate * 60 steps between shots, ~0.1s = 6 steps).
+        // Missile: fires a burst of burstSize missiles (burstRate steps apart), then
+        //          does a long reload (engageRate * 60 steps) when burst is spent.
+        let cooldown;
+        if (sys.type === "gun") {
+          cooldown = Math.max(3, Math.round(sys.engageRate * 60));
+        } else {
+          // Track burst count on the ad object. Reset after long reload.
+          const burstFired = ad._burstFired || 0;
+          const burstMax = sys.burstSize || 6;
+          if (burstFired >= burstMax) {
+            // Long reload after full burst
+            cooldown = Math.max(60, Math.round(sys.engageRate * 60));
+            if (ad.lastFired && b.step - ad.lastFired >= cooldown) {
+              ad._burstFired = 0; // reset burst counter after reload
+            }
+          } else {
+            // Rapid fire within burst
+            cooldown = sys.burstRate || 15;
+          }
+        }
         if (ad.lastFired && b.step - ad.lastFired < cooldown) return;
         // Per-AD targeting priority: "all" (default), "cheap", "expensive".
         // Lets the player assign expensive NASAMS to expensive targets and cheap Gepards to FPV swarms.
@@ -3040,8 +3071,10 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         }
         if (target) {
           ad.ammo--; ad.lastFired = b.step;
-          b.flashes.push({ x: ad.x, y: ad.y, x2: target.x, y2: target.y, time: b.step, wallTime: performance.now(), type: "adshot", color: sys.color });
-          if (killCounterKey === "aKills") playSfx("ad_fire", 50);
+          if (sys.type === "missile") ad._burstFired = (ad._burstFired || 0) + 1;
+          const flashType = sys.type === "gun" ? "gunshot" : "adshot";
+          b.flashes.push({ x: ad.x, y: ad.y, x2: target.x, y2: target.y, time: b.step, wallTime: performance.now(), type: flashType, color: sys.color });
+          if (killCounterKey === "aKills" && sys.type !== "gun") playSfx("ad_fire", 50);
           if (Math.random() < sys.pk) {
             // Hit: deduct damage from target HP
             target.hp = (target.hp ?? 1) - sys.dmg;
@@ -3143,7 +3176,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
               endLog.push(`Your ${res?.name} destroyed!`);
             }
           }
-          if (b.aBreaches > (b.aOverwhelmThreshold || 8)) { earlyGameOver = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: "HQ overwhelmed" }; endLog.push("YOUR HQ DESTROYED!"); }
+          if (b.aBreaches > (b.aOverwhelmThreshold || 8)) { earlyGameOver = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: "Your HQ was overwhelmed by enemy drones" }; endLog.push("YOUR HQ DESTROYED!"); }
         }
         if (b.pBreaches > 0) {
           aDmg = b.pBreachDmg || (b.pBreaches * 500000);
@@ -3157,7 +3190,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
               endLog.push(`Enemy ${res?.name} destroyed!`);
             }
           }
-          if (b.pBreaches > (b.pOverwhelmThreshold || 8)) { earlyGameOver = { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: "Enemy HQ overwhelmed" }; endLog.push("ENEMY HQ DESTROYED!"); }
+          if (b.pBreaches > (b.pOverwhelmThreshold || 8)) { earlyGameOver = { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: "You overwhelmed the enemy HQ" }; endLog.push("ENEMY HQ DESTROYED!"); }
         }
         if (earlyGameOver) setGameOver(earlyGameOver);
 
@@ -3244,8 +3277,8 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         if (!gameOver && !endGameOver) {
           const pFinal = playerBudget - pDmg - pAirCost;
           const aFinal = aiBudget - aDmg - aAirCost;
-          if (pFinal < -50000000) endGameOver = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: "You went bankrupt" };
-          else if (aFinal < -50000000) endGameOver = { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: "Enemy went bankrupt" };
+          if (pFinal < -50000000) endGameOver = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: `${username} went bankrupt` };
+          else if (aFinal < -50000000) endGameOver = { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: `${opponentName} went bankrupt` };
           if (endGameOver) setGameOver(endGameOver);
         }
 
