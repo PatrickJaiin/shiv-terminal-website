@@ -700,6 +700,13 @@ export default function Swarm1v1() {
   const [meReady, setMeReady] = useState(false);
   const [opponentReady, setOpponentReady] = useState(false);
 
+  // Fog of war: tracks revealed circles from drone flight paths across rounds.
+  // Enemy units are hidden unless inside a revealed circle. Each circle: {x, y, radius}.
+  // Persists across rounds so intel accumulates. Only covers enemy half of map.
+  const [revealedAreas, setRevealedAreas] = useState([]);
+  const revealedAreasRef = useRef([]);
+  const pendingRevealsRef = useRef([]); // accumulates during battle, merged after
+
   // Combat
   const [currentRound, setCurrentRound] = useState(0);
   const [combatLog, setCombatLog] = useState([]);
@@ -745,6 +752,7 @@ export default function Swarm1v1() {
     setMeReady(false); setOpponentReady(false);
     setPlayerAttack({ fpv: 10, shahed: 3 });
     setPlayerTrajectory([]);
+    setRevealedAreas([]); revealedAreasRef.current = []; pendingRevealsRef.current = [];
     setPlayerAirspace((THEATERS[theaterRef.current]?.airspace || [2000])[0]);
     setAttackPriority("hq");
     setDefPosture("pursuing");
@@ -1085,6 +1093,12 @@ export default function Swarm1v1() {
         // Append log lines (already from host perspective, leave as-is for now)
         if (Array.isArray(msg.endLog)) setCombatLog((prev) => [...prev, ...msg.endLog]);
         setCurrentRound((r) => Math.max(r, (msg.round || 0) + 1));
+        // Merge fog of war reveals from this round
+        if (pendingRevealsRef.current.length > 0) {
+          setRevealedAreas((prev) => [...prev, ...pendingRevealsRef.current]);
+          revealedAreasRef.current = [...revealedAreasRef.current, ...pendingRevealsRef.current];
+          pendingRevealsRef.current = [];
+        }
         setBattleActive(false);
         if (battleLayerRef.current) battleLayerRef.current.clearLayers();
         if (frameRef.current) { cancelAnimationFrame(frameRef.current); frameRef.current = null; }
@@ -2088,6 +2102,19 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     const th = THEATERS[theater]; const mpu = getProjection(th.bounds).mpu;
     const toLL = (x, y) => simToLatLng(x, y, th.bounds);
 
+    // Fog of war: check if a position has been revealed by drone vision
+    const isRevealed = (x, y) => {
+      // Player's own half is always visible. Only enemy territory needs reveals.
+      const zones = getZones(theater);
+      const myZone = gameModeRef.current === "guest" ? zones.p2 : zones.p1;
+      if (dist({ x, y }, myZone) <= ZONE_RADIUS * 1.5) return true; // own zone always visible
+      // Check if any reveal circle covers this position
+      for (const c of revealedAreasRef.current) {
+        if (dist({ x, y }, c) <= c.radius) return true;
+      }
+      return false;
+    };
+
     // Deployment zones: two large circles at geographically correct positions.
     // Player zone in blue, opponent zone in red. Labels show country names.
     const zones = getZones(theater);
@@ -2284,11 +2311,12 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     // AI - show full enemy intel: HQ, airspace, resources, AD systems with range, interceptor positions
     // In MP mode, hqX/hqY are null until the opponent places their HQ - skip rendering until then
     if (aiSetup && aiSetup.hqX != null && aiSetup.hqY != null) {
-      // Airspace - bumped opacity/weight for visibility
+      const hqVisible = isRevealed(aiSetup.hqX, aiSetup.hqY);
+      // Airspace - only show if HQ position is revealed by fog of war
       const airBreaches = battleRef.current?.aiAirBreaches || [];
-      if (airBreaches.length === 0) {
+      if (hqVisible && airBreaches.length === 0) {
         L.circle(toLL(aiSetup.hqX, aiSetup.hqY), { radius: aiSetup.airspace * mpu, color: opponentColor, fillColor: opponentColor, fillOpacity: 0.1, weight: 3, opacity: 0.9, dashArray: "10 6" }).addTo(layer);
-      } else {
+      } else if (hqVisible) {
         const SEG = 24; const segArc = (Math.PI * 2) / SEG; const GAP = 0.15;
         for (let i = 0; i < SEG; i++) {
           const mid = -Math.PI + (i + 0.5) * segArc;
@@ -2306,14 +2334,16 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           L.polyline(pts, { color: opponentColor, weight: 3, opacity: 0.9, dashArray: "10 6", interactive: false }).addTo(layer);
         }
       }
-      // Enemy HQ: bigger square
-      L.marker(toLL(aiSetup.hqX, aiSetup.hqY), {
-        icon: L.divIcon({
-          className: "", iconSize: [22, 22], iconAnchor: [11, 11],
-          html: `<div style="width:22px;height:22px;background:${opponentColor};border:2.5px solid #fff;box-sizing:border-box;box-shadow:0 0 6px ${opponentColor}99"></div>`,
-        }),
-        interactive: false,
-      }).addTo(layer);
+      // Enemy HQ: only visible if revealed by fog of war
+      if (hqVisible) {
+        L.marker(toLL(aiSetup.hqX, aiSetup.hqY), {
+          icon: L.divIcon({
+            className: "", iconSize: [22, 22], iconAnchor: [11, 11],
+            html: `<div style="width:22px;height:22px;background:${opponentColor};border:2.5px solid #fff;box-sizing:border-box;box-shadow:0 0 6px ${opponentColor}99"></div>`,
+          }),
+          interactive: false,
+        }).addTo(layer);
+      }
       // Enemy resources: distinctive mini icons (same shapes, enemy border color)
       const eResIcons = {
         solar: (c) => `<svg width="18" height="18" viewBox="0 0 20 20"><rect x="2" y="6" width="16" height="10" rx="1" fill="${c}" stroke="${opponentColor}" stroke-width="1.2"/><line x1="2" y1="11" x2="18" y2="11" stroke="${opponentColor}" stroke-width="0.6"/><line x1="10" y1="6" x2="10" y2="16" stroke="${opponentColor}" stroke-width="0.6"/></svg>`,
@@ -2322,7 +2352,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         hydro: (c) => `<svg width="18" height="18" viewBox="0 0 20 20"><path d="M2 6 L2 16 L18 16 L18 6 L16 4 L4 4 Z" fill="${c}" stroke="${opponentColor}" stroke-width="1.2"/><rect x="7" y="7" width="2.5" height="7" fill="rgba(0,0,0,0.3)"/><rect x="11" y="7" width="2.5" height="7" fill="rgba(0,0,0,0.3)"/></svg>`,
       };
       for (const r of aiSetup.resources) {
-        if (!r.alive) continue;
+        if (!r.alive || !isRevealed(r.x, r.y)) continue;
         const res = RESOURCES.find((rr) => rr.key === r.key);
         if (!res) continue;
         L.marker(toLL(r.x, r.y), {
@@ -2336,7 +2366,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       // Enemy AD systems with range circles + distinctive icons
       if (!battleActive) {
         for (const ad of (aiSetup.adUnits || [])) {
-          if (ad.health <= 0) continue;
+          if (ad.health <= 0 || !isRevealed(ad.x, ad.y)) continue;
           const sys = theaterScaleRef.current.ad.find((s) => s.key === ad.key);
           if (!sys) continue;
           L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: opponentColor, fillOpacity: 0.1, weight: 2.5, opacity: 0.85, dashArray: "6 4", interactive: false }).addTo(layer);
@@ -2350,7 +2380,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       }
       // Enemy interceptors at base. Skip during battle for same reason.
       if (!battleActive) for (const i of (aiSetup.interceptors || [])) {
-        if (i.status !== "active") continue;
+        if (i.status !== "active" || !isRevealed(i.x, i.y)) continue;
         const isKamikaze = i.destroyOnKill !== false;
         const html = isKamikaze
           ? `<svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="6" fill="#ff5555" stroke="#ff7777" stroke-width="1.5" opacity="0.85"/></svg>`
@@ -2361,7 +2391,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         }).addTo(layer);
       }
     }
-  }, [mapReady, theater, playerHQ, playerExtraHQs, playerAirspace, playerResources, playerInterceptors, playerAD, aiSetup, phase, battleDrones, resourceDeposits, placingWhat, playerTrajectory, attackPriority]);
+  }, [mapReady, theater, playerHQ, playerExtraHQs, playerAirspace, playerResources, playerInterceptors, playerAD, aiSetup, phase, battleDrones, resourceDeposits, placingWhat, playerTrajectory, attackPriority, revealedAreas]);
 
   // ── Phase 3: Render battle frame to leaflet (used by host tick + guest render loop) ──
   const renderBattleFrame = useCallback((b) => {
@@ -2659,6 +2689,13 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           }
         }
       }
+      // Fog of war: guest samples own drone positions for vision reveals
+      b._guestFrame = (b._guestFrame || 0) + 1;
+      if (b._guestFrame % 15 === 0) {
+        for (const a of (b.pAttackers || [])) {
+          if (a.status === "active") pendingRevealsRef.current.push({ x: a.x, y: a.y, radius: 500 });
+        }
+      }
       renderBattleFrame(b);
       setBattleDrones({
         playerAttackers: [...(b.pAttackers || [])],
@@ -2797,6 +2834,15 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       const spd = battleSpeedRef.current || 1;
       for (let si = 0; si < spd; si++) {
       b.step++;
+      // Fog of war: sample player drone positions every 30 steps to build vision trail.
+      // Skip if a nearby reveal already exists (dedup within 250 units to prevent bloat).
+      if (b.step % 30 === 0) {
+        for (const a of b.pAttackers) {
+          if (a.status !== "active") continue;
+          const nearby = pendingRevealsRef.current.some((c) => Math.abs(c.x - a.x) < 250 && Math.abs(c.y - a.y) < 250);
+          if (!nearby) pendingRevealsRef.current.push({ x: a.x, y: a.y, radius: 500 });
+        }
+      }
 
       // Move AI attackers - medium/expensive target player AD first
       for (const a of b.aAttackers) {
@@ -3331,6 +3377,12 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
 
         setCombatLog((prev) => [...prev, ...endLog]);
         setCurrentRound(round + 1);
+        // Merge drone vision trail into persistent fog-of-war reveals
+        if (pendingRevealsRef.current.length > 0) {
+          setRevealedAreas((prev) => [...prev, ...pendingRevealsRef.current]);
+          revealedAreasRef.current = [...revealedAreasRef.current, ...pendingRevealsRef.current];
+          pendingRevealsRef.current = [];
+        }
         setBattleActive(false);
         if (battleLayerRef.current) battleLayerRef.current.clearLayers();
 
