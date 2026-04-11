@@ -1673,12 +1673,12 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
 
     if (placingWhat === "hq") {
       // Enforce zone restriction: host/bot-player = blue zone (p1), guest = red zone (p2)
+      // Use gameModeRef (not gameMode) because gameMode isn't in useCallback deps
       const zones = getZones(theaterRef.current);
-      const assignedSide = (gameMode === "guest") ? "red" : "blue";
+      const assignedSide = (gameModeRef.current === "guest") ? "red" : "blue";
       const myZone = assignedSide === "blue" ? zones.p1 : zones.p2;
       if (dist({ x, y }, myZone) > ZONE_RADIUS * 1.2) {
-        const label = assignedSide === "blue" ? "blue" : "red";
-        setInfoPopup({ text: `Place your HQ inside the ${label} zone` });
+        setInfoPopup({ text: `Place your HQ inside the ${assignedSide} zone` });
         setTimeout(() => setInfoPopup(null), 2500);
         return;
       }
@@ -1693,7 +1693,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         }
       }
       setPlayerHQ({ x, y }); setPlacingWhat(null);
-      setPlayerSide(assignedSide);
+      setPlayerSide((gameModeRef.current === "guest") ? "red" : "blue");
       broadcast({ type: "place_hq", x, y });
     } else if (placingWhat === "extra_hq") {
       // Additional HQ - costs 25M for 2nd, 50M for 3rd. Max 3 total.
@@ -2648,8 +2648,10 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     if (gameMode === "guest") return;
     // Deduct attack wave cost
     const waveCost = Object.entries(playerAttack).reduce((s, [k, n]) => { const u = ATTACK_UNITS.find((a) => a.key === k); return s + (u ? u.cost * n : 0); }, 0);
-    if (waveCost > playerBudget) { triggerShake(); return; }
-    setPlayerBudget((p) => p - waveCost);
+    // Allow launching with 0 drones (defense-only round). Only block if wave costs
+    // more than what the player has AND the wave isn't empty.
+    if (waveCost > 0 && waveCost > playerBudget) { triggerShake(); return; }
+    if (waveCost > 0) setPlayerBudget((p) => p - waveCost);
 
     setBattleActive(true);
     setPlacingWhat(null);
@@ -3303,8 +3305,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         if (!gameOver && !endGameOver) {
           const pFinal = playerBudget - pDmg - pAirCost;
           const aFinal = aiBudget - aDmg - aAirCost;
-          if (pFinal < -50000000) endGameOver = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: `${username} went bankrupt` };
-          else if (aFinal < -50000000) endGameOver = { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: `${opponentName} went bankrupt` };
+          // Game over if either player's budget goes negative after round costs
+          if (pFinal < 0) endGameOver = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: `${username} went bankrupt` };
+          else if (aFinal < 0) endGameOver = { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: `${opponentName} went bankrupt` };
           if (endGameOver) setGameOver(endGameOver);
         }
 
@@ -3681,8 +3684,11 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
 
               {phase === PHASE.SETUP && (
                 <>
-                  <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "#ff6688", marginBottom: 8 }}>Setup Phase</div>
-                  <div style={{ fontSize: 10, color: "#666", marginBottom: 8 }}>Place HQ in the blue zone, add resources, defenses, ground AD, then design your attack wave.</div>
+                  <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "#ff6688", marginBottom: 4 }}>Setup Phase</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: gameMode === "guest" ? "#ff5555" : "#4a9eff", marginBottom: 6, padding: "4px 8px", background: gameMode === "guest" ? "rgba(255,85,85,0.1)" : "rgba(74,158,255,0.1)", borderRadius: 4, textAlign: "center" }}>
+                    You are {gameMode === "guest" ? "RED" : "BLUE"} side
+                  </div>
+                  <div style={{ fontSize: 10, color: "#666", marginBottom: 8 }}>Place HQ in your {gameMode === "guest" ? "red" : "blue"} zone, add resources, defenses, ground AD, then design your attack wave.</div>
                   <div style={{ fontSize: 11, color: "#888", marginBottom: 8, transition: "transform 0.1s", transform: budgetShake ? `translateX(${Math.random() > 0.5 ? 4 : -4}px)` : "none" }}>
                     Budget: <span style={{ color: remaining >= 0 ? "#4caf50" : "#ff5555", fontWeight: 600 }}>${formatUSD(Math.max(0, remaining))}</span>
                     <span style={{ color: "#555", fontSize: 9 }}> / ${formatUSD(playerBudget)}</span>
