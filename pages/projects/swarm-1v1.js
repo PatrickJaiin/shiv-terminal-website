@@ -2260,8 +2260,8 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         interactive: false,
       }).addTo(layer);
     }
-    for (const ad of playerAD) {
-      // Destroyed AD is REMOVED from the map entirely - no greyed-out marker.
+    // Player AD: skip during active battle (renderBattleFrame draws from b.pAD with live health)
+    if (!battleActive) for (const ad of playerAD) {
       if (ad.health <= 0) continue;
       const sys = theaterScaleRef.current.ad.find((s) => s.key === ad.key);
       if (!sys) continue;
@@ -2315,17 +2315,19 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           interactive: false,
         }).addTo(layer);
       }
-      // Enemy AD systems with range circles. Destroyed AD is REMOVED entirely.
-      for (const ad of (aiSetup.adUnits || [])) {
-        if (ad.health <= 0) continue;
-        const sys = theaterScaleRef.current.ad.find((s) => s.key === ad.key);
-        if (!sys) continue;
-        L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: "#ff5555", fillOpacity: 0.1, weight: 2.5, opacity: 0.85, dashArray: "6 4", interactive: false }).addTo(layer);
-        L.circleMarker(toLL(ad.x, ad.y), { radius: 7, color: "#ff3333", fillColor: sys.color, fillOpacity: 0.9, weight: 2.5 }).addTo(layer);
+      // Enemy AD systems with range circles. Skip during active battle - renderBattleFrame
+      // draws AD markers from b.aAD which tracks real-time health/ammo/destruction.
+      if (!battleActive) {
+        for (const ad of (aiSetup.adUnits || [])) {
+          if (ad.health <= 0) continue;
+          const sys = theaterScaleRef.current.ad.find((s) => s.key === ad.key);
+          if (!sys) continue;
+          L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: opponentColor, fillOpacity: 0.1, weight: 2.5, opacity: 0.85, dashArray: "6 4", interactive: false }).addTo(layer);
+          L.circleMarker(toLL(ad.x, ad.y), { radius: 7, color: opponentColor, fillColor: sys.color, fillOpacity: 0.9, weight: 2.5 }).addTo(layer);
+        }
       }
-      // Enemy interceptors at base. Same shape distinction as player but red-tinted:
-      // kamikaze = filled circle (default interceptor), armed = chevron (shooter).
-      for (const i of (aiSetup.interceptors || [])) {
+      // Enemy interceptors at base. Skip during battle for same reason.
+      if (!battleActive) for (const i of (aiSetup.interceptors || [])) {
         if (i.status !== "active") continue;
         const isKamikaze = i.destroyOnKill !== false;
         const html = isKamikaze
@@ -2788,20 +2790,25 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           for (const h of b.playerHQs) { const d2 = dist(a, h); if (d2 < bestD) { bestD = d2; nearestHQ = h; } }
         }
         let tx = nearestHQ.x, ty = nearestHQ.y;
-        // Medium/expensive AI drones hunt player ground AD
-        if ((a.threat === "medium" || a.threat === "expensive") && b.pAD.some((ad) => ad.health > 0)) {
+        // AI drones target based on opponent's attack priority setting (from aiSetup._priority)
+        const aiAttPrio = aiSetup._priority || "hq";
+        if (aiAttPrio === "ad" && b.pAD.some((ad) => ad.health > 0)) {
           const alive = b.pAD.filter((ad) => ad.health > 0);
           const closest = alive.reduce((best, ad) => dist(a, ad) < dist(a, best) ? ad : best, alive[0]);
-          if (dist(a, closest) < 2500) {
+          tx = closest.x; ty = closest.y;
+          if (dist(a, closest) < theaterScaleRef.current.killRadius) {
+            const adSys = theaterScaleRef.current.ad.find((s2) => s2.key === closest.key);
+            closest.health = 0; closest.ammo = 0; a.status = "expended";
+            b.flashes.push({ x: a.x, y: a.y, time: b.step, wallTime: performance.now(), type: "ad_explosion", shake: 8 });
+            b.flashes.push({ x: a.x, y: a.y + 100, time: b.step, wallTime: performance.now(), type: "dmgtext", text: `${adSys?.name || "AD"} destroyed!`, color: "#ff3333" });
+            shakeMap(8, 10);
+            continue;
+          }
+        } else if (aiAttPrio === "resources") {
+          const alive = playerResources.filter((r) => r.alive);
+          if (alive.length > 0) {
+            const closest = alive.reduce((best, r) => dist(a, r) < dist(a, best) ? r : best, alive[0]);
             tx = closest.x; ty = closest.y;
-            if (dist(a, closest) < 80) {
-              const adSys = theaterScaleRef.current.ad.find((s2) => s2.key === closest.key);
-              closest.health = 0; closest.ammo = 0; a.status = "expended";
-              b.flashes.push({ x: a.x, y: a.y, time: b.step, wallTime: performance.now(), type: "ad_explosion", shake: 8 });
-              b.flashes.push({ x: a.x, y: a.y + 100, time: b.step, wallTime: performance.now(), type: "dmgtext", text: `${adSys?.name || "AD"} destroyed!`, color: "#ff3333" });
-              shakeMap(8, 10);
-              continue;
-            }
           }
         }
         const dx = tx - a.x, dy = ty - a.y;
@@ -3284,12 +3291,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           }));
         }
 
-        // Arms factory bonus
-        for (const r of playerResources) {
-          if (r.alive && r.key === "arms") {
-            setPlayerInterceptors((prev) => prev.length > 0 ? prev.map((d, i) => i === 0 ? { ...d, count: d.count + 2 } : d) : prev);
-          }
-        }
+        // Arms factory generates income only (no free interceptor spawns)
 
         setCombatLog((prev) => [...prev, ...endLog]);
         setCurrentRound(round + 1);
@@ -3370,21 +3372,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     if (playerAirspace > maxSafe) setPlayerAirspace(maxSafe);
   }, [playerHQ, aiSetup, playerAirspace]);
 
-  // ── Audit fix #4: grant free starting kamikaze interceptors after HQ placement ──
-  // Player gets 10 free kamikazes positioned just south of their HQ so round 1 isn't an auto-loss.
-  // Only fires once per match (when going from no HQ → HQ placed and no interceptors yet).
-  const startingDronesGrantedRef = useRef(false);
-  useEffect(() => {
-    if (!playerHQ || phase === PHASE.LOBBY) return;
-    if (startingDronesGrantedRef.current) return;
-    if (playerInterceptors.length > 0) { startingDronesGrantedRef.current = true; return; }
-    startingDronesGrantedRef.current = true;
-    setPlayerInterceptors([{ key: "kamikaze", x: playerHQ.x, y: playerHQ.y + 600, count: 10 }]);
-  }, [playerHQ, phase, playerInterceptors.length]);
-  // Reset the grant flag when match resets
-  useEffect(() => {
-    if (phase === PHASE.LOBBY) startingDronesGrantedRef.current = false;
-  }, [phase]);
+  // No free interceptors - players must buy all their defenses from their budget.
 
   // ── Per-turn timer: counts down between rounds, auto-launches on 0 ──
   // Active only when in COMBAT phase, not battling, no game over.
