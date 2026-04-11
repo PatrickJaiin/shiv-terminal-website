@@ -816,6 +816,12 @@ export default function Swarm1v1() {
   const handleNetMessage = useCallback((msg) => {
     if (typeof msg !== "object" || !msg || typeof msg.type !== "string") return;
     switch (msg.type) {
+      case "rematch": {
+        // Host initiated rematch - reset match state and go back to setup
+        resetMatchState();
+        setPhase(PHASE.SETUP);
+        break;
+      }
       case "theater_sync": {
         // Host tells guest which theater to use (for private rooms)
         if (msg.theater && THEATERS[msg.theater]) {
@@ -1666,22 +1672,28 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     if (battleActive && (placingWhat === "sell" || placingWhat === "delete")) return;
 
     if (placingWhat === "hq") {
-      // Prevent placing HQ inside enemy airspace + buffer (only check if enemy has placed)
+      // Enforce zone restriction: host/bot-player = blue zone (p1), guest = red zone (p2)
+      const zones = getZones(theaterRef.current);
+      const assignedSide = (gameMode === "guest") ? "red" : "blue";
+      const myZone = assignedSide === "blue" ? zones.p1 : zones.p2;
+      if (dist({ x, y }, myZone) > ZONE_RADIUS * 1.2) {
+        const label = assignedSide === "blue" ? "blue" : "red";
+        setInfoPopup({ text: `Place your HQ inside the ${label} zone` });
+        setTimeout(() => setInfoPopup(null), 2500);
+        return;
+      }
+      // Prevent placing HQ inside enemy airspace + buffer
       if (aiSetup && aiSetup.hqX != null) {
         const enemyDist = dist({ x, y }, { x: aiSetup.hqX, y: aiSetup.hqY });
         const minSafeDist = (aiSetup.airspace || 2500) + 1000 + 400;
         if (enemyDist < minSafeDist) {
-          setInfoPopup({ text: `HQ too close to enemy airspace. Place at least ${Math.round(minSafeDist)}m away.` });
+          setInfoPopup({ text: `HQ too close to enemy airspace` });
           setTimeout(() => setInfoPopup(null), 2500);
           return;
         }
       }
       setPlayerHQ({ x, y }); setPlacingWhat(null);
-      // Determine which geographic side the player chose based on zone proximity
-      const zones = getZones(theaterRef.current);
-      const distP1 = dist({ x, y }, zones.p1);
-      const distP2 = dist({ x, y }, zones.p2);
-      setPlayerSide(distP1 <= distP2 ? "blue" : "red");
+      setPlayerSide(assignedSide);
       broadcast({ type: "place_hq", x, y });
     } else if (placingWhat === "extra_hq") {
       // Additional HQ - costs 25M for 2nd, 50M for 3rd. Max 3 total.
@@ -2180,7 +2192,16 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           const inGap = breachAngles.some((ba) => { let d = mid - ba; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return Math.abs(d) < GAP; });
           if (inGap) continue;
           const pts = [];
-          for (let j = 0; j <= 3; j++) { const a = -Math.PI + i * segArc + (j / 3) * segArc; pts.push(toLL(playerHQ.x + Math.cos(a) * playerAirspace, playerHQ.y + Math.sin(a) * playerAirspace)); }
+          // Compute arc points using geographic offsets (meters) so the circle is
+          // perfectly round on the map, not distorted by sim-space coordinate mapping.
+          const hqLL = toLL(playerHQ.x, playerHQ.y);
+          const rMeters = playerAirspace * mpu;
+          for (let j = 0; j <= 3; j++) {
+            const a = -Math.PI + i * segArc + (j / 3) * segArc;
+            const dLat = Math.sin(a) * rMeters / 111000;
+            const dLng = Math.cos(a) * rMeters / (111000 * Math.cos(hqLL[0] * Math.PI / 180));
+            pts.push([hqLL[0] + dLat, hqLL[1] + dLng]);
+          }
           L.polyline(pts, { color: playerColor, weight: 3, opacity: 0.9, dashArray: "10 6", interactive: false }).addTo(layer);
         }
         for (const ba of breachAngles) {
@@ -2262,7 +2283,14 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           const inGap = airBreaches.some((ba) => { let d = mid - ba; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return Math.abs(d) < GAP; });
           if (inGap) continue;
           const pts = [];
-          for (let j = 0; j <= 3; j++) { const a = -Math.PI + i * segArc + (j / 3) * segArc; pts.push(toLL(aiSetup.hqX + Math.cos(a) * aiSetup.airspace, aiSetup.hqY + Math.sin(a) * aiSetup.airspace)); }
+          const eHqLL = toLL(aiSetup.hqX, aiSetup.hqY);
+          const eRMeters = aiSetup.airspace * mpu;
+          for (let j = 0; j <= 3; j++) {
+            const a = -Math.PI + i * segArc + (j / 3) * segArc;
+            const dLat = Math.sin(a) * eRMeters / 111000;
+            const dLng = Math.cos(a) * eRMeters / (111000 * Math.cos(eHqLL[0] * Math.PI / 180));
+            pts.push([eHqLL[0] + dLat, eHqLL[1] + dLng]);
+          }
           L.polyline(pts, { color: opponentColor, weight: 3, opacity: 0.9, dashArray: "10 6", interactive: false }).addTo(layer);
         }
       }
@@ -4082,16 +4110,25 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                       <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>
                         Rounds played: {currentRound}
                       </div>
-                      {gameMode === "bot" && (
-                        <button onClick={() => {
-                          // Replay: tear down map, then start a new bot match with same theater/username
+                      <button onClick={() => {
+                        if (gameMode === "bot") {
                           setPhase(PHASE.LOBBY); setMapReady(false);
                           if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; layerRef.current = null; battleLayerRef.current = null; LRef.current = null; }
                           setTimeout(() => findMatch(), 50);
-                        }} style={{ ...inputStyle, marginTop: 12, cursor: "pointer", fontSize: 11, color: "#4caf50", borderColor: "#4caf50" }}>
-                          ↻ Replay Match
-                        </button>
-                      )}
+                        } else {
+                          // MP rematch: reset match state but keep peer connection alive
+                          resetMatchState();
+                          setPhase(PHASE.SETUP);
+                          const deposits = generateResourceDeposits(theaterRef.current);
+                          setResourceDeposits(deposits);
+                          if (gameMode === "host") {
+                            try { broadcast({ type: "rematch" }); } catch {}
+                            try { broadcast({ type: "deposits", deposits }); } catch {}
+                          }
+                        }
+                      }} style={{ ...inputStyle, marginTop: 12, cursor: "pointer", fontSize: 11, color: "#4caf50", borderColor: "#4caf50" }}>
+                        Rematch
+                      </button>
                       <button onClick={() => {
                         if (gameMode !== "bot") teardownPeer(true);
                         setPhase(PHASE.LOBBY); setMapReady(false);
