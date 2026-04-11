@@ -1263,7 +1263,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       // Non-fatal errors: peer is still recoverable (e.g. broker blip). Don't destroy -
       // wirePeerResilience() will reconnect us. Show a transient warning instead of
       // tearing down the lobby and stranding the guest mid-handshake.
-      const NON_FATAL = new Set(["network", "disconnected", "peer-unavailable"]);
+      const NON_FATAL = new Set(["network", "disconnected", "peer-unavailable", "server-error"]);
       if (NON_FATAL.has(err?.type) && !peer.destroyed) {
         setConnectionError(msg + " (retrying...)");
         return; // keep peer alive, do NOT destroy
@@ -1336,7 +1336,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       else if (err?.type === "server-error") msg = "PeerJS broker unavailable - try again";
       // peer-unavailable IS fatal here (specific code lookup failed). network/disconnected
       // are recoverable - keep the peer alive so wirePeerResilience can reconnect.
-      const RECOVERABLE = new Set(["network", "disconnected"]);
+      const RECOVERABLE = new Set(["network", "disconnected", "server-error"]);
       if (RECOVERABLE.has(err?.type) && !peer.destroyed) {
         setConnectionError(msg + " (retrying...)");
         return;
@@ -1544,9 +1544,10 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       if (err?.type === "peer-unavailable") msg = "Opponent disconnected before match could start";
       else if (err?.type === "network") msg = "Network error - check your connection";
       else if (err?.type === "server-error") msg = "PeerJS broker unavailable - try again";
-      // Recoverable: keep peer alive so wirePeerResilience can reconnect us instead of
-      // bouncing the user back to the lobby on every broker hiccup.
-      const RECOVERABLE = new Set(["network", "disconnected"]);
+      // Recoverable errors: keep peer alive so wirePeerResilience can reconnect.
+      // server-error = broker dropped us (exactly what reconnect handles).
+      // network/disconnected = transient network issue.
+      const RECOVERABLE = new Set(["network", "disconnected", "server-error"]);
       if (RECOVERABLE.has(err?.type) && !peer.destroyed) {
         setConnectionError(msg + " (retrying...)");
         return;
