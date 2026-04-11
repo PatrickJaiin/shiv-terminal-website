@@ -2353,7 +2353,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       L.circleMarker(toLL(ad.x, ad.y), { radius: 2, color: "#ffffff", fillColor: "#ffffff", fillOpacity: 1, weight: 0 }).addTo(bl);
       // Reload pie chart: fills clockwise as cooldown progresses. Solid green when ready.
       if (alive && ad.ammo > 0) {
-        const cooldown = Math.max(3, Math.round(sys.engageRate * 5));
+        // engageRate is in seconds. Multiply by 60 (sim steps per second at 60fps)
+        // so reload is visually meaningful. Old value of *5 made ADs fire almost instantly.
+        const cooldown = Math.max(15, Math.round(sys.engageRate * 60));
         const elapsed = ad.lastFired != null ? b.step - ad.lastFired : cooldown;
         const reloadPct = Math.min(1, elapsed / cooldown);
         // Only draw the reload pie chart while ACTUALLY reloading. Idle/ready ADs got rendered
@@ -2774,7 +2776,8 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         // Breach if drone is within 200 of ANY player HQ (main or extras)
         let breachedHQ = null;
         const hqList = b.playerHQs || [playerHQ];
-        for (const h of hqList) { if (dist(a, h) < 200) { breachedHQ = h; break; } }
+        const breachDist = theaterScaleRef.current.killRadius * 2;
+        for (const h of hqList) { if (dist(a, h) < breachDist) { breachedHQ = h; break; } }
         if (breachedHQ) {
           a.status = "breached"; b.aBreaches++;
           const breachCost = Math.max(100000, (a.cost || 500000) * 2);
@@ -2856,7 +2859,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         a.heading += diff * 0.06;
         a.x += Math.cos(a.heading) * a.speed;
         a.y += Math.sin(a.heading) * a.speed;
-        if (dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) < 200) {
+        if (dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) < theaterScaleRef.current.killRadius * 2) {
           a.status = "breached"; b.pBreaches++;
           const breachCost = Math.max(100000, (a.cost || 500000) * 2);
           b.pBreachDmg = (b.pBreachDmg || 0) + breachCost;
@@ -3006,7 +3009,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         if (ad.health <= 0 || ad.ammo <= 0) return;
         const sys = theaterScaleRef.current.ad.find((s) => s.key === ad.key);
         if (!sys) return;
-        const cooldown = Math.max(3, Math.round(sys.engageRate * 5));
+        // engageRate is in seconds. Multiply by 60 (sim steps per second at 60fps)
+        // so reload is visually meaningful. Old value of *5 made ADs fire almost instantly.
+        const cooldown = Math.max(15, Math.round(sys.engageRate * 60));
         if (ad.lastFired && b.step - ad.lastFired < cooldown) return;
         // Per-AD targeting priority: "all" (default), "cheap", "expensive".
         // Lets the player assign expensive NASAMS to expensive targets and cheap Gepards to FPV swarms.
