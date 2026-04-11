@@ -4,9 +4,6 @@
 
 export const config = { runtime: "edge" };
 
-const API_KEY = process.env.METERED_API_KEY;
-const APP_NAME = process.env.METERED_APP_NAME; // e.g. "myapp" from myapp.metered.live
-
 function jsonResponse(body, status = 200, cacheSeconds = 0) {
   return new Response(JSON.stringify(body), {
     status,
@@ -21,6 +18,11 @@ function jsonResponse(body, status = 200, cacheSeconds = 0) {
 
 export default async function handler(req) {
   if (req.method !== "GET") return jsonResponse({ error: "method_not_allowed" }, 405);
+
+  // Read env vars INSIDE the handler - Edge Runtime doesn't guarantee
+  // process.env availability at module load time (top-level const).
+  const API_KEY = process.env.METERED_API_KEY;
+  const APP_NAME = process.env.METERED_APP_NAME;
 
   if (!API_KEY || !APP_NAME) {
     return jsonResponse({ iceServers: [], configured: false });
