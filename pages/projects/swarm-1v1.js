@@ -2043,22 +2043,11 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         const [simX, simY] = latLngToSim(latlng.lat, latlng.lng, th2.bounds);
         fn(simX, simY); // no clamping - allow placement anywhere visible
       });
-      // Right click for unit info (uses refs for fresh state)
-      const infoRef = { setInfoPopup };
-      map.on("contextmenu", (e) => {
-        e.originalEvent.preventDefault();
-        const t2 = THEATERS[theaterRef.current];
-        let [cx, cy] = latLngToSim(e.latlng.lat, e.latlng.lng, t2.bounds);
-        infoRef.setInfoPopup({ text: `Coordinates: (${Math.round(cx)}, ${Math.round(cy)})` });
-        setTimeout(() => infoRef.setInfoPopup(null), 3000);
-      });
-      // Double-click hit test: shows unit inspector popup. Switched from middle-click
-      // because middle button isn't accessible on most laptop trackpads. dblclick is
-      // also Leaflet's "zoom in" gesture, so we preventDefault + disable doubleClickZoom
-      // to suppress the zoom behavior when the user is trying to inspect a unit.
-      map.doubleClickZoom.disable();
+      // Right-click to inspect units. No conflict with left-click placement.
+      // Leaflet's default contextmenu handler is suppressed by the map click handler above.
       middleClickHandler = (ev) => {
         ev.preventDefault();
+        ev.stopPropagation();
         const fn = inspectClickRef.current;
         if (!fn) return;
         const rect = map.getContainer().getBoundingClientRect();
@@ -2071,7 +2060,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         fn(simX, simY);
       };
       attachedEl = mapRef.current;
-      attachedEl.addEventListener("dblclick", middleClickHandler);
+      attachedEl.addEventListener("contextmenu", middleClickHandler);
       setMapReady(true);
       // Fix map sizing after render - multiple attempts
       setTimeout(() => map.invalidateSize(), 100);
@@ -2083,7 +2072,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     return () => {
       cancelled = true;
       if (middleClickHandler && attachedEl) {
-        try { attachedEl.removeEventListener("dblclick", middleClickHandler); } catch {}
+        try { attachedEl.removeEventListener("contextmenu", middleClickHandler); } catch {}
       }
       if (resizeObserver) {
         try { resizeObserver.disconnect(); } catch {}
@@ -4279,7 +4268,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                         </div>
                       );
                     })()}
-                    <div style={{ fontSize: 9, color: "#555", marginTop: 8, textAlign: "center" }}>Double-click any unit to inspect</div>
+                    <div style={{ fontSize: 9, color: "#555", marginTop: 8, textAlign: "center" }}>Right-click any unit to inspect</div>
                   </div>
                 );
               })()}
