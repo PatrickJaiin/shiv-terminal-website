@@ -39,14 +39,16 @@ export default async function handler(req) {
   }
 
   try {
-    // Sum queue lengths across all theater queues
-    let totalQueued = 0;
+    // Collect unique peer IDs across all theater queues to avoid double-counting
+    // players who queued for multiple theaters.
+    const seenPeers = new Set();
     for (const t of THEATERS) {
       try {
-        const len = await redis(["llen", QUEUE_KEY_PREFIX + t]);
-        if (typeof len === "number") totalQueued += len;
+        const members = await redis(["lrange", QUEUE_KEY_PREFIX + t, "0", "50"]);
+        if (Array.isArray(members)) members.forEach((p) => seenPeers.add(p));
       } catch {}
     }
+    const totalQueued = seenPeers.size;
     // Active match count
     let matchKeys = [];
     try {

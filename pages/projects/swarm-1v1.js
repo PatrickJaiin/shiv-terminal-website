@@ -1115,6 +1115,7 @@ export default function Swarm1v1() {
       }
     });
     peer.on("disconnected", () => {
+      console.log("[PeerJS] disconnected event fired, active:", getActive(), "destroyed:", peer.destroyed, "attempt:", reconnectAttempts + 1);
       if (!getActive()) return;
       if (peer.destroyed) return;
       if (reconnectAttempts >= MAX_ATTEMPTS) {
@@ -1125,9 +1126,14 @@ export default function Swarm1v1() {
       reconnectAttempts++;
       const backoffMs = Math.min(8000, 500 * Math.pow(1.5, reconnectAttempts - 1));
       setConnectionError(`Reconnecting to signaling server (attempt ${reconnectAttempts}/${MAX_ATTEMPTS})...`);
+      console.log("[PeerJS] scheduling reconnect in", backoffMs, "ms");
       setTimeout(() => {
-        if (!getActive() || peer.destroyed) return;
-        try { peer.reconnect(); } catch {}
+        if (!getActive() || peer.destroyed) {
+          console.log("[PeerJS] reconnect aborted: active:", getActive(), "destroyed:", peer.destroyed);
+          return;
+        }
+        console.log("[PeerJS] calling peer.reconnect()");
+        try { peer.reconnect(); } catch (e) { console.error("[PeerJS] reconnect() threw:", e); }
       }, backoffMs);
     });
   };
@@ -3345,10 +3351,10 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     <>
       <Head>
         <title>Swarm 1v1 - Shiv Gupta</title>
-        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
       </Head>
       <Script
-        src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"
+        src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"
         strategy="afterInteractive"
         onLoad={() => setPeerLoaded(true)}
         onError={() => {

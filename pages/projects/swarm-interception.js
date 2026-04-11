@@ -1149,7 +1149,7 @@ export default function SwarmInterception() {
     <>
       <Head>
         <title>Swarm Interception Simulator - Shiv Gupta</title>
-        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
       </Head>
 
       <style jsx global>{`
