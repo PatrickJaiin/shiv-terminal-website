@@ -4010,18 +4010,28 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                     </div>
                   )}
 
-                  {gameOver && (
+                  {gameOver && (() => {
+                    const youWon = gameOver.winner === username;
+                    return (
                     <div style={{
                       padding: 16, borderRadius: 8, textAlign: "center", marginBottom: 12,
-                      background: gameOver.winner === username ? "rgba(76,175,80,0.15)" : "rgba(255,85,85,0.15)",
-                      border: `2px solid ${gameOver.winner === username ? "#4caf50" : "#ff5555"}`,
+                      background: youWon ? "rgba(76,175,80,0.15)" : "rgba(255,85,85,0.15)",
+                      border: `2px solid ${youWon ? "#4caf50" : "#ff5555"}`,
                     }}>
-                      <div style={{ fontSize: 24, fontWeight: 800, color: gameOver.winner === username ? "#4caf50" : "#ff5555" }}>
-                        {gameOver.winner === username ? "VICTORY" : "DEFEAT"}
+                      <div style={{ fontSize: 24, fontWeight: 800, color: youWon ? "#4caf50" : "#ff5555" }}>
+                        {youWon ? "VICTORY" : "DEFEAT"}
                       </div>
-                      <div style={{ fontSize: 11, color: "#888", marginTop: 4 }}>{gameOver.reason}</div>
-                      <div style={{ fontSize: 10, color: "#666", marginTop: 8 }}>
-                        You: ${formatUSD(Math.max(0, playerBudget))} | {opponentName}: ${formatUSD(Math.max(0, aiBudget))}
+                      <div style={{ fontSize: 13, color: youWon ? "#66bb6a" : "#ff8888", marginTop: 4, fontWeight: 600 }}>
+                        {gameOver.reason}
+                      </div>
+                      <div style={{ fontSize: 10, color: "#888", marginTop: 6 }}>
+                        Winner: {gameOver.winner}
+                      </div>
+                      <div style={{ fontSize: 10, color: "#666", marginTop: 4 }}>
+                        You: ${formatUSD(playerBudget)} | {opponentName}: ${formatUSD(aiBudget)}
+                      </div>
+                      <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>
+                        Rounds played: {currentRound}
                       </div>
                       {gameMode === "bot" && (
                         <button onClick={() => {
@@ -4042,7 +4052,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                         Back to Lobby
                       </button>
                     </div>
-                  )}
+                  );})()}
 
                   <div style={{ fontSize: 10, textTransform: "uppercase", color: "#666", margin: "8px 0 4px" }}>Battle Log</div>
                   <div style={{ maxHeight: 250, overflowY: "auto" }}>
