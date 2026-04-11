@@ -650,7 +650,25 @@ export default function Swarm1v1() {
   const [joinCode, setJoinCode] = useState("");
   const [connectionStatus, setConnectionStatus] = useState("idle"); // idle | creating | waiting | connecting | connected | error
   const [connectionError, setConnectionError] = useState("");
-  const [peerLoaded, setPeerLoaded] = useState(false);
+  const [peerLoaded, setPeerLoaded] = useState(() => typeof window !== "undefined" && !!window.Peer);
+  // Fallback: if the Script onLoad doesn't fire (Next.js race condition) or unpkg is slow,
+  // poll for window.Peer every 500ms. After 4s, try loading from jsdelivr CDN.
+  useEffect(() => {
+    if (peerLoaded) return;
+    let fallbackFired = false;
+    const iv = setInterval(() => {
+      if (typeof window !== "undefined" && window.Peer) { setPeerLoaded(true); clearInterval(iv); }
+    }, 500);
+    const fallbackTimer = setTimeout(() => {
+      if (peerLoaded || (typeof window !== "undefined" && window.Peer)) return;
+      fallbackFired = true;
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js";
+      s.onload = () => setPeerLoaded(true);
+      document.head.appendChild(s);
+    }, 4000);
+    return () => { clearInterval(iv); clearTimeout(fallbackTimer); };
+  }, [peerLoaded]);
   const [copied, setCopied] = useState(false);
   const peerRef = useRef(null);
   const connRef = useRef(null);
