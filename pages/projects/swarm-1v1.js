@@ -770,13 +770,9 @@ export default function Swarm1v1() {
     if (!username.trim()) return;
     _initAudio(); // unlock Web Audio on first user gesture
     setGameMode("bot");
-    setPhase(PHASE.MATCHMAKING);
     setOpponentName(AI_NAMES[Math.floor(Math.random() * AI_NAMES.length)]);
-    let t = 0;
-    const iv = setInterval(() => {
-      t++; setMatchTimer(t);
-      if (t >= 3) {
-        clearInterval(iv);
+    // Skip the countdown screen for bot mode - go straight to setup
+    {
         setPhase(PHASE.SETUP);
         resetMatchState();
         // Generate match: deposits first, then AI setup that claims nearby deposits
@@ -798,8 +794,7 @@ export default function Swarm1v1() {
         newAi.resources = aiResources;
         setResourceDeposits(deposits);
         setAiSetup(newAi);
-      }
-    }, 1000);
+    }
   }, [username, resetMatchState]);
 
   // ── Multiplayer: broadcast a message to peer (no-op in bot mode) ──
