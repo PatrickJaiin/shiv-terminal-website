@@ -2262,12 +2262,23 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       }).addTo(layer);
     }
     // Player AD: skip during active battle (renderBattleFrame draws from b.pAD with live health)
+    const staticAdIcons = {
+      iron_dome: (c, bc) => `<svg width="24" height="24" viewBox="0 0 24 24"><rect x="2" y="16" width="20" height="6" rx="1" fill="${c}" stroke="${bc}" stroke-width="1.5"/><rect x="5" y="12" width="4" height="5" fill="${c}" stroke="${bc}" stroke-width="0.8"/><rect x="10" y="10" width="4" height="7" fill="${c}" stroke="${bc}" stroke-width="0.8"/><rect x="15" y="12" width="4" height="5" fill="${c}" stroke="${bc}" stroke-width="0.8"/><line x1="7" y1="12" x2="5" y2="6" stroke="${bc}" stroke-width="1.2"/><line x1="12" y1="10" x2="12" y2="3" stroke="${bc}" stroke-width="1.2"/><line x1="17" y1="12" x2="19" y2="6" stroke="${bc}" stroke-width="1.2"/><circle cx="5" cy="5" r="1.5" fill="#fff" opacity="0.8"/><circle cx="12" cy="2" r="1.5" fill="#fff" opacity="0.8"/><circle cx="19" cy="5" r="1.5" fill="#fff" opacity="0.8"/></svg>`,
+      gepard: (c, bc) => `<svg width="24" height="24" viewBox="0 0 24 24"><rect x="3" y="14" width="18" height="7" rx="2" fill="${c}" stroke="${bc}" stroke-width="1.5"/><circle cx="7" cy="22" r="2" fill="${c}" stroke="${bc}" stroke-width="1"/><circle cx="17" cy="22" r="2" fill="${c}" stroke="${bc}" stroke-width="1"/><rect x="8" y="10" width="8" height="5" rx="1" fill="${c}" stroke="${bc}" stroke-width="1"/><line x1="16" y1="12" x2="23" y2="8" stroke="${bc}" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="13" x2="23" y2="10" stroke="${bc}" stroke-width="2" stroke-linecap="round"/></svg>`,
+      nasams: (c, bc) => `<svg width="24" height="24" viewBox="0 0 24 24"><rect x="2" y="16" width="20" height="5" rx="1" fill="${c}" stroke="${bc}" stroke-width="1.5"/><circle cx="6" cy="22" r="2" fill="${c}" stroke="${bc}" stroke-width="1"/><circle cx="18" cy="22" r="2" fill="${c}" stroke="${bc}" stroke-width="1"/><rect x="4" y="8" width="16" height="8" rx="1" fill="${c}" stroke="${bc}" stroke-width="1" transform="rotate(-10 12 12)"/><line x1="6" y1="11" x2="3" y2="5" stroke="#fff" stroke-width="0.8" opacity="0.6"/><line x1="10" y1="10" x2="8" y2="4" stroke="#fff" stroke-width="0.8" opacity="0.6"/><line x1="14" y1="9" x2="13" y2="3" stroke="#fff" stroke-width="0.8" opacity="0.6"/></svg>`,
+      pantsir: (c, bc) => `<svg width="24" height="24" viewBox="0 0 24 24"><rect x="3" y="14" width="18" height="7" rx="2" fill="${c}" stroke="${bc}" stroke-width="1.5"/><circle cx="7" cy="22" r="2" fill="${c}" stroke="${bc}" stroke-width="1"/><circle cx="17" cy="22" r="2" fill="${c}" stroke="${bc}" stroke-width="1"/><rect x="7" y="9" width="10" height="6" rx="1" fill="${c}" stroke="${bc}" stroke-width="1"/><line x1="9" y1="9" x2="7" y2="4" stroke="${bc}" stroke-width="1.5" stroke-linecap="round"/><line x1="15" y1="9" x2="17" y2="4" stroke="${bc}" stroke-width="1.5" stroke-linecap="round"/><circle cx="12" cy="7" r="2.5" fill="none" stroke="${bc}" stroke-width="1" opacity="0.7"/></svg>`,
+    };
     if (!battleActive) for (const ad of playerAD) {
       if (ad.health <= 0) continue;
       const sys = theaterScaleRef.current.ad.find((s) => s.key === ad.key);
       if (!sys) continue;
       L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.12, weight: 2.5, opacity: 0.85, dashArray: "6 4", interactive: false }).addTo(layer);
-      L.circleMarker(toLL(ad.x, ad.y), { radius: 7, color: "#ffffff", fillColor: sys.color, fillOpacity: 0.9, weight: 2.5 }).addTo(layer);
+      const iconFn = staticAdIcons[ad.key];
+      if (iconFn) {
+        L.marker(toLL(ad.x, ad.y), { icon: L.divIcon({ className: "", iconSize: [24, 24], iconAnchor: [12, 12], html: iconFn(sys.color, "#ffffff") }), interactive: false }).addTo(layer);
+      } else {
+        L.circleMarker(toLL(ad.x, ad.y), { radius: 7, color: "#ffffff", fillColor: sys.color, fillOpacity: 0.9, weight: 2.5 }).addTo(layer);
+      }
     }
 
     // AI - show full enemy intel: HQ, airspace, resources, AD systems with range, interceptor positions
@@ -2303,28 +2314,38 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         }),
         interactive: false,
       }).addTo(layer);
-      // Enemy resources: triangle. Destroyed resources are REMOVED entirely.
+      // Enemy resources: distinctive mini icons (same shapes, enemy border color)
+      const eResIcons = {
+        solar: (c) => `<svg width="18" height="18" viewBox="0 0 20 20"><rect x="2" y="6" width="16" height="10" rx="1" fill="${c}" stroke="${opponentColor}" stroke-width="1.2"/><line x1="2" y1="11" x2="18" y2="11" stroke="${opponentColor}" stroke-width="0.6"/><line x1="10" y1="6" x2="10" y2="16" stroke="${opponentColor}" stroke-width="0.6"/></svg>`,
+        arms: (c) => `<svg width="18" height="18" viewBox="0 0 20 20"><rect x="2" y="10" width="16" height="8" rx="1" fill="${c}" stroke="${opponentColor}" stroke-width="1.2"/><path d="M2 10 L8 5 L14 10" fill="${c}" stroke="${opponentColor}" stroke-width="1"/><rect x="14" y="3" width="3" height="8" fill="${c}" stroke="${opponentColor}" stroke-width="0.8"/></svg>`,
+        oil: (c) => `<svg width="18" height="18" viewBox="0 0 20 20"><rect x="6" y="4" width="8" height="12" rx="1" fill="${c}" stroke="${opponentColor}" stroke-width="1.2"/><rect x="3" y="14" width="14" height="4" rx="1" fill="${c}" stroke="${opponentColor}" stroke-width="1.2"/><circle cx="10" cy="1" r="1" fill="#ff6600"/></svg>`,
+        hydro: (c) => `<svg width="18" height="18" viewBox="0 0 20 20"><path d="M2 6 L2 16 L18 16 L18 6 L16 4 L4 4 Z" fill="${c}" stroke="${opponentColor}" stroke-width="1.2"/><rect x="7" y="7" width="2.5" height="7" fill="rgba(0,0,0,0.3)"/><rect x="11" y="7" width="2.5" height="7" fill="rgba(0,0,0,0.3)"/></svg>`,
+      };
       for (const r of aiSetup.resources) {
         if (!r.alive) continue;
         const res = RESOURCES.find((rr) => rr.key === r.key);
         if (!res) continue;
         L.marker(toLL(r.x, r.y), {
           icon: L.divIcon({
-            className: "", iconSize: [16, 16], iconAnchor: [8, 8],
-            html: `<svg width="16" height="16" viewBox="0 0 16 16"><polygon points="8,1 15,14 1,14" fill="${res.color}" stroke="#ff7777" stroke-width="1.5" stroke-linejoin="round" opacity="0.8"/></svg>`,
+            className: "", iconSize: [18, 18], iconAnchor: [9, 9],
+            html: eResIcons[r.key] ? eResIcons[r.key](res.color) : `<svg width="18" height="18" viewBox="0 0 18 18"><circle cx="9" cy="9" r="7" fill="${res.color}" stroke="${opponentColor}" stroke-width="1.2"/></svg>`,
           }),
           interactive: false,
         }).addTo(layer);
       }
-      // Enemy AD systems with range circles. Skip during active battle - renderBattleFrame
-      // draws AD markers from b.aAD which tracks real-time health/ammo/destruction.
+      // Enemy AD systems with range circles + distinctive icons
       if (!battleActive) {
         for (const ad of (aiSetup.adUnits || [])) {
           if (ad.health <= 0) continue;
           const sys = theaterScaleRef.current.ad.find((s) => s.key === ad.key);
           if (!sys) continue;
           L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: opponentColor, fillOpacity: 0.1, weight: 2.5, opacity: 0.85, dashArray: "6 4", interactive: false }).addTo(layer);
-          L.circleMarker(toLL(ad.x, ad.y), { radius: 7, color: opponentColor, fillColor: sys.color, fillOpacity: 0.9, weight: 2.5 }).addTo(layer);
+          const iconFn = staticAdIcons[ad.key];
+          if (iconFn) {
+            L.marker(toLL(ad.x, ad.y), { icon: L.divIcon({ className: "", iconSize: [24, 24], iconAnchor: [12, 12], html: iconFn(sys.color, opponentColor) }), interactive: false }).addTo(layer);
+          } else {
+            L.circleMarker(toLL(ad.x, ad.y), { radius: 7, color: opponentColor, fillColor: sys.color, fillOpacity: 0.9, weight: 2.5 }).addTo(layer);
+          }
         }
       }
       // Enemy interceptors at base. Skip during battle for same reason.
