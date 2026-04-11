@@ -1838,18 +1838,20 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       setPlayerAD((prev) => [...prev, { key: adKey, x, y, health: 1, ammo: sys.missiles, priority: "all" }]);
       broadcast({ type: "place_ad", key: adKey, x, y });
     } else if (placingWhat.startsWith("reposition_ad_")) {
-      // Reposition a mobile AD to a new location within airspace
-      const adIdx = parseInt(placingWhat.replace("reposition_ad_", ""), 10);
-      const ad = playerAD[adIdx];
-      if (!ad || !MOBILE_AD_TYPES.has(ad.key)) { setPlacingWhat(null); return; }
+      // Reposition a mobile AD to a new location within airspace.
+      // Look up by position+key tuple (stable even if ADs are sold/deleted).
+      const parts = placingWhat.replace("reposition_ad_", "").split("_");
+      const findX = parseInt(parts[0], 10), findY = parseInt(parts[1], 10), findKey = parts.slice(2).join("_");
+      const adIdx = playerAD.findIndex((a) => Math.round(a.x) === findX && Math.round(a.y) === findY && a.key === findKey);
+      if (adIdx < 0 || !MOBILE_AD_TYPES.has(findKey)) { setPlacingWhat(null); return; }
       if (!playerHQ || dist({ x, y }, playerHQ) > playerAirspace + 300) {
         setInfoPopup({ text: "Must place within your airspace" });
         setTimeout(() => setInfoPopup(null), 2000);
         return;
       }
-      const oldX = ad.x, oldY = ad.y;
+      const oldX = playerAD[adIdx].x, oldY = playerAD[adIdx].y;
       setPlayerAD((prev) => prev.map((a, i) => i === adIdx ? { ...a, x, y } : a));
-      broadcast({ type: "ad_reposition", oldX, oldY, newX: x, newY: y, key: ad.key });
+      broadcast({ type: "ad_reposition", oldX, oldY, newX: x, newY: y, key: findKey });
       setPlacingWhat(null);
     } else {
       // Resource placement: snap to nearest unclaimed matching deposit within tolerance
@@ -2709,7 +2711,8 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           }
         }
       }
-      // Fog of war (snapshot): guest samples own drone positions with unit snapshots
+      // Fog of war (snapshot): guest samples own drone positions with unit snapshots.
+      // Guest sees enemy as aAD/aInts + aiSetup for HQ/resources (same as host logic).
       b._guestFrame = (b._guestFrame || 0) + 1;
       if (b._guestFrame % 15 === 0) {
         for (const a of (b.pAttackers || [])) {
@@ -2718,9 +2721,14 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           if (nearby) continue;
           const vr = 500;
           const snappedUnits = [];
-          // Guest sees enemy as aAD/aInts (opponent from guest's perspective)
+          if (aiSetup?.hqX != null && dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) < vr) {
+            snappedUnits.push({ kind: "hq", x: aiSetup.hqX, y: aiSetup.hqY });
+          }
           for (const ad of (b.aAD || [])) {
             if (ad.health > 0 && dist(a, ad) < vr) snappedUnits.push({ kind: "ad", key: ad.key, x: ad.x, y: ad.y, health: ad.health, ammo: ad.ammo });
+          }
+          for (const r of (aiSetup?.resources || [])) {
+            if (r.alive && dist(a, r) < vr) snappedUnits.push({ kind: "resource", key: r.key, x: r.x, y: r.y });
           }
           for (const i of (b.aInts || [])) {
             if (i.status === "active" && dist(a, i) < vr) snappedUnits.push({ kind: "interceptor", x: i.x, y: i.y });
@@ -4419,7 +4427,8 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                         </div>
                         {canReposition && (
                           <button onClick={() => {
-                            setPlacingWhat(`reposition_ad_${adIdx}`);
+                            // Store position+key tuple instead of index (index shifts if AD is sold)
+                            setPlacingWhat(`reposition_ad_${Math.round(playerAD[adIdx].x)}_${Math.round(playerAD[adIdx].y)}_${playerAD[adIdx].key}`);
                             setUnitInspect(null);
                           }} style={{
                             width: "100%", marginTop: 6, padding: "5px 8px", fontSize: 10, fontWeight: 600,
@@ -4431,7 +4440,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                         )}
                         {isMobile && !canReposition && (
                           <div style={{ fontSize: 9, color: "#555", marginTop: 4, textAlign: "center" }}>
-                            {battleActive ? "Can't move during battle" : phase === PHASE.SETUP ? "Can reposition between rounds" : "Mobile unit"}
+                            {battleActive ? "Can't move during battle" : phase === PHASE.SETUP ? "Mobile - sell and re-place to move, or reposition between rounds" : "Mobile unit"}
                           </div>
                         )}
                         </>
