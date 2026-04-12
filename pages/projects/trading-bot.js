@@ -126,10 +126,10 @@ async function fetchStakeMatchesClient(apiKey, game) {
 
 /* ═══════════════════════════════════════════════════
    Platform helpers
-   Stake is hidden from the UI but server-side code is preserved.
-   The bot is locked to ['kalshi','polymarket'].
+   The engine trades only Kalshi <-> Polymarket. Stake was removed entirely
+   from the live path; its closed API and TOS risk made it unsafe.
    ═══════════════════════════════════════════════════ */
-const PLATFORM_LABELS = { stake: "Stake", kalshi: "Kalshi", polymarket: "Polymarket" };
+const PLATFORM_LABELS = { kalshi: "Kalshi", polymarket: "Polymarket" };
 const ACTIVE_PLATFORMS = ["kalshi", "polymarket"];
 
 function platformPairLabel(platforms) {
@@ -142,12 +142,15 @@ function platformPairLabel(platforms) {
 
 const DEFAULT_CONFIG = {
   bankroll: 1000,
-  minNetArb: 0.015,
-  minGrossArb: 0.025,
-  slippageBuffer: 0.02,
+  // Engine thresholds (minGrossArb / minNetArb map to minGrossEdge / minNetEdge).
+  minNetArb: 0.005,
+  minGrossArb: 0.01,
+  slippageBuffer: 0.005,
   maxPositionPct: 0.05,
-  maxStakeVig: 0.06,
-  kalshiMinDepthMult: 1.5,
+  kellyFrac: 0.25,
+  // Legacy depth knob kept so existing settings panels still render; the new
+  // engine uses book VWAP instead.
+  kalshiMinDepthMult: 1.0,
   kalshiTimeout: 10000,
   pollInterval: 5,
   kalshiApiBase: "https://api.elections.kalshi.com/trade-api/v2",
