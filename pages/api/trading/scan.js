@@ -51,8 +51,9 @@ export default async function handler(req, res) {
       kalshiMarketCount: result.kalshiMarketCount,
       polymarketCount: result.polymarketCount,
       stakeMatchCount: 0,
-      kalshiRawMarkets: [],
-      polymarketRawMarkets: [],
+      kalshiRawMarkets: (result.diag?.kalshiSample) || [],
+      polymarketRawMarkets: (result.diag?.polymarketSample) || [],
+      diag: result.diag || null,
       mock: false,
       ts: result.ts,
     });

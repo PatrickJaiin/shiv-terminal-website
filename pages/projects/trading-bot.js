@@ -352,6 +352,21 @@ function Dashboard() {
       if (data.matchedEventCount !== undefined) counts.push(`${data.matchedEventCount} matched events`);
       if (counts.length) addLog(`Found ${counts.join(", ")}`);
 
+      // Diagnostics: when we have games on one side but nothing matched, log
+      // why so we can see if it's a discovery or a canonicalization problem.
+      if (data.diag && data.matchedEventCount === 0 && (data.kalshiMarketCount > 0 || data.polymarketCount > 0)) {
+        const kd = data.diag.kalshi || {};
+        const pd = data.diag.polymarket || {};
+        addLog(`Kalshi diag: seriesHits=${kd.seriesHits ?? "?"} keywordHits=${kd.keywordHits ?? "?"}`, "dim");
+        addLog(`Polymarket diag: tag=${pd.tagCount ?? "?"} kw=${pd.keywordCount ?? "?"} hint=${pd.hintCount ?? "?"} rejected=${JSON.stringify(pd.rejected || {})}`, "dim");
+        if (Array.isArray(data.diag.kalshiSample) && data.diag.kalshiSample.length > 0) {
+          addLog(`Kalshi sample: ${data.diag.kalshiSample.map((x) => `${x.teams.join("/")}@${x.date || "nodate"}`).join(", ")}`, "dim");
+        }
+        if (Array.isArray(data.diag.polymarketSample) && data.diag.polymarketSample.length > 0) {
+          addLog(`Polymarket sample: ${data.diag.polymarketSample.map((x) => `${x.teams.join("/")}@${x.date || "nodate"}`).join(", ")}`, "dim");
+        }
+      }
+
       const qualifying = opps.filter((o) => o.passesThreshold);
       const nonQualifying = opps.filter((o) => !o.passesThreshold);
 
