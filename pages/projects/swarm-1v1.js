@@ -661,6 +661,8 @@ export default function Swarm1v1() {
   const [battleSpeed, setBattleSpeed] = useState(1); // 1x, 2x, 4x
   const [showADRange, setShowADRange] = useState(true);
   const [fogOfWar, setFogOfWar] = useState(true); // toggle fog of war on/off
+  const [scanUsedThisRound, setScanUsedThisRound] = useState(false); // satellite scan purchased this round
+  const [scanFlash, setScanFlash] = useState(false); // flash "SCAN COMPLETE" overlay
   const [rematchMe, setRematchMe] = useState(false); // I want rematch
   const [rematchOpponent, setRematchOpponent] = useState(false); // opponent wants rematch
   const [playerBudget, setPlayerBudget] = useState(STARTING_BUDGET);
@@ -779,6 +781,7 @@ export default function Swarm1v1() {
     setRevealedAreas([]); revealedAreasRef.current = []; pendingRevealsRef.current = [];
     setFogSnapshots([]); fogSnapshotsRef.current = [];
     setRematchMe(false); setRematchOpponent(false);
+    setScanUsedThisRound(false);
     setPlayerAirspace((THEATERS[theaterRef.current]?.airspace || [2000])[0]);
     setAttackPriority("hq");
     setDefPosture("pursuing");
@@ -1723,6 +1726,34 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     setTimeout(() => setBudgetShake(false), 500);
   }, []);
 
+  // Satellite scan: $5M one-time per round purchase that reveals full enemy setup
+  const SATELLITE_SCAN_COST = 5000000;
+  const buySatelliteScan = useCallback(() => {
+    if (scanUsedThisRound) return;
+    if (battleActive) return; // prep phase only
+    if (playerBudget < SATELLITE_SCAN_COST) { triggerShake(); return; }
+    if (!aiSetup || aiSetup.hqX == null) return;
+    // Build full snapshot of current enemy state
+    const units = [];
+    if (aiSetup.hqX != null && aiSetup.hqY != null) units.push({ kind: "hq", x: aiSetup.hqX, y: aiSetup.hqY });
+    for (const ad of (aiSetup.adUnits || [])) {
+      if (ad.health > 0) units.push({ kind: "ad", key: ad.key, x: ad.x, y: ad.y, health: ad.health, ammo: ad.ammo });
+    }
+    for (const r of (aiSetup.resources || [])) {
+      if (r.alive) units.push({ kind: "resource", key: r.key, x: r.x, y: r.y });
+    }
+    for (const i of (aiSetup.interceptors || [])) {
+      if (i.status === "active") units.push({ kind: "interceptor", x: i.x, y: i.y });
+    }
+    const scanSnapshot = { x: aiSetup.hqX, y: aiSetup.hqY, radius: 99999, round: currentRound, units, source: "satellite" };
+    setFogSnapshots((prev) => [...prev, scanSnapshot]);
+    fogSnapshotsRef.current = [...fogSnapshotsRef.current, scanSnapshot];
+    setPlayerBudget((p) => p - SATELLITE_SCAN_COST);
+    setScanUsedThisRound(true);
+    setScanFlash(true);
+    setTimeout(() => setScanFlash(false), 1500);
+  }, [scanUsedThisRound, battleActive, playerBudget, aiSetup, currentRound, triggerShake]);
+
   // Live shake whenever the attack-wave cost slider crosses the budget into overspend.
   // Only fires on the transition (not-overspending -> overspending) so dragging deeper
   // into red doesn't constantly re-shake. Resets when the user pulls back under budget.
@@ -2073,10 +2104,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     if (was && !battleActive && phase === PHASE.COMBAT && !gameOver) {
       setMeReady(false);
       setOpponentReady(false);
-      // Belt-and-braces: also clear the auto-advance guard so the next ready pair can
-      // fire even if some other effect path managed to leave it stuck. Without this,
-      // round 3+ could observe a stale guardRef true from round 2 and refuse to auto-
-      // launch even though both players are ready.
+      setScanUsedThisRound(false); // reset satellite scan availability each round
       readyAdvanceGuardRef.current = false;
     }
   }, [battleActive, phase, gameOver]);
@@ -2459,19 +2487,28 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           L.circleMarker(toLL(i.x, i.y), { radius: 4, color: opponentColor, fillColor: opponentColor, fillOpacity: 0.7, weight: 1 }).addTo(layer);
         }
       }
-      // Snapshot-based fog: render FROZEN intel from drone observations, not live positions.
-      // Units show at their snapshot positions with ghosted/faded styling and round label.
-      // The enemy may have moved since - this creates strategic uncertainty.
+      // Snapshot-based fog: render the LATEST known info per enemy unit.
+      // Dedup by unit identity (kind + key + rough position bucket) so each real
+      // enemy unit shows as ONE ghost, not stacked copies from multiple sightings.
+      // The most recent observation wins and its round is used for staleness.
       if (fogOfWar && !battleActive) {
         const snapshots = fogSnapshotsRef.current;
-        const drawnPositions = new Set(); // dedup by position
+        // Build latest-per-unit map: bucket by kind+key+100-unit position cell
+        const latestByUnit = new Map();
         for (const snap of snapshots) {
-          const stale = (currentRound - (snap.round || 0)) >= 2;
           for (const u of (snap.units || [])) {
-            const posKey = `${u.kind}_${Math.round(u.x)}_${Math.round(u.y)}`;
-            if (drawnPositions.has(posKey)) continue;
-            drawnPositions.add(posKey);
-            const ghostOp = stale ? 0.35 : 0.65;
+            const bucketX = Math.round(u.x / 200) * 200;
+            const bucketY = Math.round(u.y / 200) * 200;
+            const unitKey = `${u.kind}_${u.key || ""}_${bucketX}_${bucketY}`;
+            const prev = latestByUnit.get(unitKey);
+            if (!prev || (snap.round || 0) >= (prev.round || 0)) {
+              latestByUnit.set(unitKey, { ...u, round: snap.round });
+            }
+          }
+        }
+        for (const u of latestByUnit.values()) {
+          const stale = (currentRound - (u.round || 0)) >= 2;
+          const ghostOp = stale ? 0.4 : 0.7;
             if (u.kind === "hq") {
               L.marker(toLL(u.x, u.y), {
                 icon: L.divIcon({ className: "", iconSize: [22, 22], iconAnchor: [11, 11],
@@ -2494,7 +2531,6 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
             } else if (u.kind === "interceptor") {
               L.circleMarker(toLL(u.x, u.y), { radius: 4, color: opponentColor, fillColor: opponentColor, fillOpacity: ghostOp * 0.4, weight: 1, opacity: ghostOp, dashArray: "2 3" }).addTo(layer);
             }
-          }
         }
       }
     }
@@ -3969,6 +4005,17 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                         </button>
                       </div>
 
+                      <button onClick={buySatelliteScan}
+                        disabled={scanUsedThisRound || playerBudget < SATELLITE_SCAN_COST}
+                        style={{ ...inputStyle, width: "100%", marginBottom: 6, fontSize: 10, padding: "5px",
+                          cursor: (scanUsedThisRound || playerBudget < SATELLITE_SCAN_COST) ? "not-allowed" : "pointer",
+                          border: "1px solid #aa88ff",
+                          background: scanUsedThisRound ? "#1a1a24" : "rgba(170,136,255,0.1)",
+                          color: scanUsedThisRound ? "#555" : playerBudget < SATELLITE_SCAN_COST ? "#666" : "#aa88ff",
+                          textAlign: "center", fontWeight: 600 }}>
+                        {scanUsedThisRound ? "Satellite Scan used this round" : `Satellite Scan ($5M) - full enemy intel`}
+                      </button>
+
                       <div style={{ fontSize: 10, textTransform: "uppercase", color: "#cc8800", margin: "4px 0 4px" }}>Resources</div>
                       {RESOURCES.map((r) => (
                         <button key={r.key} onClick={() => setPlacingWhat(r.key)}
@@ -4535,6 +4582,16 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
               {damagePopup && (
                 <div style={{ position: "absolute", top: "40%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 600, fontSize: 32, fontWeight: 800, color: damagePopup.color, textShadow: "0 0 20px rgba(0,0,0,0.8)", animation: "fadeUp 2.5s ease-out forwards", pointerEvents: "none" }}>
                   {damagePopup.text}
+                </div>
+              )}
+              {scanFlash && (
+                <div style={{ position: "absolute", top: "45%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 650, pointerEvents: "none", textAlign: "center" }}>
+                  <div style={{ fontSize: 36, fontWeight: 900, color: "#aa88ff", textShadow: "0 0 24px #aa88ff, 0 0 8px #000", letterSpacing: 3, animation: "fadeUp 1.5s ease-out forwards" }}>
+                    SATELLITE SCAN COMPLETE
+                  </div>
+                  <div style={{ fontSize: 14, color: "#d0b8ff", marginTop: 8, textShadow: "0 0 8px #000", animation: "fadeUp 1.5s ease-out forwards" }}>
+                    Enemy positions uploaded to command center
+                  </div>
                 </div>
               )}
               {battleActive && (
