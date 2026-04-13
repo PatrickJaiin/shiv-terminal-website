@@ -298,6 +298,17 @@ function generateAISetup(theater) {
   };
 }
 
+// Interceptor survival rate against different drone tiers (per design):
+// FPV: 81%, Shahed: 72%, Lancet: 60%, Mohajer: 21%. Applies to both kamikaze and armed.
+function interceptorSurvivalRate(tgt) {
+  if (!tgt) return 0.5;
+  if (tgt.threat === "expensive") return 0.21;
+  if (tgt.threat === "medium") return 0.60;
+  // Cheap tier: FPV (hp<=2) is easiest, Shahed (hp 3) harder
+  if ((tgt.hp ?? 1) <= 2) return 0.81;
+  return 0.72;
+}
+
 function generateAIAttack(round) {
   const r = round + 1;
   // Much harder scaling - exponential drone counts and earlier high-tier units
@@ -1305,7 +1316,12 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         try { conn.send({ type: "deposits", deposits }); } catch {}
       });
       conn.on("close", () => { if (connRef.current === conn) handleDisconnect(); });
-      conn.on("error", () => { if (connRef.current === conn) handleDisconnect(); });
+      conn.on("error", (err) => {
+        // Transient errors (network blips) shouldn't kill the match. Only treat
+        // the connection as dead when peer.js fires "close" (explicit shutdown).
+        // Log for debugging but don't teardown.
+        console.warn("[PeerJS conn error, ignored]", err?.type || err);
+      });
       conn.on("data", handleNetMessage);
     });
     peer.on("error", (err) => {
@@ -1389,7 +1405,12 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
 setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airspace || [2000])[0], resources: [], interceptors: [], adUnits: [] });
       });
       conn.on("close", () => { if (connRef.current === conn) handleDisconnect(); });
-      conn.on("error", () => { if (connRef.current === conn) handleDisconnect(); });
+      conn.on("error", (err) => {
+        // Transient errors (network blips) shouldn't kill the match. Only treat
+        // the connection as dead when peer.js fires "close" (explicit shutdown).
+        // Log for debugging but don't teardown.
+        console.warn("[PeerJS conn error, ignored]", err?.type || err);
+      });
       conn.on("data", handleNetMessage);
     });
     peer.on("error", (err) => {
@@ -1488,7 +1509,12 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
 setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airspace || [2000])[0], resources: [], interceptors: [], adUnits: [] });
       });
       conn.on("close", () => { if (connRef.current === conn) handleDisconnect(); });
-      conn.on("error", () => { if (connRef.current === conn) handleDisconnect(); });
+      conn.on("error", (err) => {
+        // Transient errors (network blips) shouldn't kill the match. Only treat
+        // the connection as dead when peer.js fires "close" (explicit shutdown).
+        // Log for debugging but don't teardown.
+        console.warn("[PeerJS conn error, ignored]", err?.type || err);
+      });
       conn.on("data", handleNetMessage);
     };
 
@@ -1515,7 +1541,12 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           try { conn.send({ type: "deposits", deposits }); } catch {}
         });
         conn.on("close", () => { if (connRef.current === conn) handleDisconnect(); });
-        conn.on("error", () => { if (connRef.current === conn) handleDisconnect(); });
+        conn.on("error", (err) => {
+        // Transient errors (network blips) shouldn't kill the match. Only treat
+        // the connection as dead when peer.js fires "close" (explicit shutdown).
+        // Log for debugging but don't teardown.
+        console.warn("[PeerJS conn error, ignored]", err?.type || err);
+      });
         conn.on("data", handleNetMessage);
       });
 
@@ -2338,10 +2369,8 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     for (const d of playerInterceptors) {
       const isKamikaze = d.key === "kamikaze";
       const html = isKamikaze
-        // Filled circle - default interceptor look
-        ? `<svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="#4a9eff" stroke="#ffffff" stroke-width="2"/></svg>`
-        // Chevron/dart - distinct armed/shooter look
-        : `<svg width="20" height="20" viewBox="0 0 20 20"><polygon points="10,2 18,17 10,13 2,17" fill="#4a9eff" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+        ? `<svg width="20" height="20" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="${playerColor}" stroke="#ffffff" stroke-width="2"/></svg>`
+        : `<svg width="20" height="20" viewBox="0 0 20 20"><polygon points="10,2 18,17 10,13 2,17" fill="${playerColor}" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
       L.marker(toLL(d.x, d.y), {
         icon: L.divIcon({ className: "", iconSize: [20, 20], iconAnchor: [10, 10], html }),
         interactive: false,
@@ -3179,12 +3208,8 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
             if (dist(int, tgt) < theaterScaleRef.current.killRadius) {
               tgt.status = "destroyed"; b.aKills++; int.targetId = null;
               b.flashes.push({ x: tgt.x, y: tgt.y, time: b.step, wallTime: performance.now(), type: "drone_clash" });
-              // Kamikaze interceptors survive FPV kills (FPVs are small/light enough
-              // that the interceptor can disable them without self-destructing).
-              // Against heavier drones (shahed/lancet/mohajer), kamikaze still expends.
-              const tgtIsFpv = tgt.threat === "cheap" && (tgt.hp ?? 1) <= 2;
-              if (int.destroyOnKill && !tgtIsFpv) int.status = "expended";
-              else if (!int.destroyOnKill && Math.random() > (int.survivalRate || 0.73)) int.status = "expended";
+              // Survival based on target tier: 81% vs FPV, 72% vs Shahed, 60% vs Lancet, 21% vs Mohajer
+              if (Math.random() > interceptorSurvivalRate(tgt)) int.status = "expended";
             }
           }
         }
@@ -3226,9 +3251,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
             if (dist(int, tgt) < theaterScaleRef.current.killRadius) {
               tgt.status = "destroyed"; b.pKills++; int.targetId = null;
               b.flashes.push({ x: tgt.x, y: tgt.y, time: b.step, wallTime: performance.now(), type: "drone_clash" });
-              const tgtIsFpv = tgt.threat === "cheap" && (tgt.hp ?? 1) <= 2;
-              if (int.destroyOnKill && !tgtIsFpv) int.status = "expended";
-              else if (Math.random() > (int.survivalRate || 0.73)) int.status = "expended";
+              if (Math.random() > interceptorSurvivalRate(tgt)) int.status = "expended";
             }
           }
         }
