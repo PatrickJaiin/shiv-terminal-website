@@ -2837,10 +2837,10 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     if (gameMode === "guest") return;
     // Deduct attack wave cost
     const waveCost = Object.entries(playerAttack).reduce((s, [k, n]) => { const u = ATTACK_UNITS.find((a) => a.key === k); return s + (u ? u.cost * n : 0); }, 0);
-    // Allow launching with 0 drones (defense-only round). Only block if wave costs
-    // more than what the player has AND the wave isn't empty.
+    // Block launch if wave would exceed budget. Check BOTH current closure value and
+    // functional setter value to avoid any race that lets budget go negative.
     if (waveCost > 0 && waveCost > playerBudget) { triggerShake(); return; }
-    if (waveCost > 0) setPlayerBudget((p) => p - waveCost);
+    if (waveCost > 0) setPlayerBudget((p) => p >= waveCost ? p - waveCost : p);
 
     setBattleActive(true);
     setPlacingWhat(null);
@@ -3657,10 +3657,11 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
             // they have. Same budgetShake state the left-panel budget uses, plus a
             // dedicated transition to red border on overspend that doesn't depend on
             // a click - the shake fires the moment the slider goes past the budget.
-            // IMPORTANT: only subtract the pending wave cost OUTSIDE of COMBAT. During
-            // combat the wave cost was already paid at launch (setPlayerBudget(p - cost))
-            // so subtracting again would double-count and show the wrong "available".
-            const pendingWave = phase === PHASE.COMBAT ? 0 : attackWaveCost;
+            // Subtract pending wave cost during prep (setup + between rounds). Only skip
+            // during active battle since the wave was already deducted at launch. This
+            // ensures dynamic preview works in round 2+ (which is COMBAT phase but not
+            // actively battling).
+            const pendingWave = battleActive ? 0 : attackWaveCost;
             const availablePlayer = playerBudget - pendingWave;
             const overspend = availablePlayer < 0;
             const showShake = budgetShake || overspend;
@@ -3685,13 +3686,6 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                       wave: -${formatUSD(pendingWave)}
                     </div>
                   )}
-                </div>
-                <div style={{ fontSize: 14, color: "#666", fontWeight: 700 }}>VS</div>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
-                  <div style={{ fontSize: 9, color: "#666", textTransform: "uppercase", letterSpacing: 1 }}>{opponentName}</div>
-                  <div style={{ fontSize: 17, fontWeight: 800, color: "#ff5555", fontFamily: "monospace", lineHeight: 1.05 }}>
-                    ${formatUSD(Math.max(0, aiBudget))}
-                  </div>
                 </div>
                 {phase === PHASE.COMBAT && (
                   <div style={{ marginLeft: 8, paddingLeft: 12, borderLeft: "1px solid #2a2a35", display: "flex", flexDirection: "column", alignItems: "center" }}>
