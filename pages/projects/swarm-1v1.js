@@ -95,9 +95,9 @@ const DEFENSE_UNITS = [
 // engageRate: seconds for the long reload AFTER a full burst is spent.
 const AD_SYSTEMS_1V1 = [
   // dmg >= 5 one-shots FPV(2hp), Shahed(3hp), Lancet(5hp) but NOT Mohajer(12hp)
-  { key: "iron_dome", name: "Iron Dome", cost: 45000000, range_m: 105000, missiles: 60, missileCost: 50000, pk: 0.9, engageRate: 10, burstSize: 60, burstRate: 10, dmg: 5, color: "#44bbff", type: "missile" },
+  { key: "iron_dome", name: "Iron Dome", cost: 40000000, range_m: 105000, missiles: 60, missileCost: 50000, pk: 0.9, engageRate: 10, burstSize: 60, burstRate: 10, dmg: 5, color: "#44bbff", type: "missile" },
   { key: "gepard", name: "Gepard", cost: 5000000, range_m: 7500, missiles: 680, missileCost: 100, pk: 0.5, engageRate: 9, burstSize: 680, burstRate: 3, dmg: 1, color: "#88aa44", type: "gun" },
-  { key: "nasams", name: "NASAMS 3", cost: 25000000, range_m: 75000, missiles: 20, missileCost: 500000, pk: 0.95, engageRate: 8, burstSize: 20, burstRate: 20, dmg: 100, color: "#4488ff", type: "missile" },
+  { key: "nasams", name: "NASAMS 3", cost: 20000000, range_m: 75000, missiles: 20, missileCost: 500000, pk: 0.95, engageRate: 8, burstSize: 20, burstRate: 20, dmg: 100, color: "#4488ff", type: "missile" },
   { key: "pantsir", name: "Pantsir-S1", cost: 10000000, range_m: 30000, missiles: 12, missileCost: 60000, pk: 0.8, engageRate: 8, burstSize: 12, burstRate: 15, dmg: 5, color: "#cc8800", type: "missile" },
 ];
 
