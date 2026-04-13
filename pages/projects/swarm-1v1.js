@@ -737,7 +737,7 @@ export default function Swarm1v1() {
   const [battleActive, setBattleActive] = useState(false);
   const [battleDrones, setBattleDrones] = useState({ playerAttackers: [], aiAttackers: [], playerInts: [], aiInts: [] });
   // Per-turn timer: 60s prep window between rounds. Auto-launches on 0 or both ready.
-  const TURN_TIMER_SECONDS = 60;
+  const TURN_TIMER_SECONDS = 150; // 2.5 min prep between rounds
   const [turnTimer, setTurnTimer] = useState(TURN_TIMER_SECONDS);
   const turnTimerRef = useRef(null);
 
@@ -949,6 +949,13 @@ export default function Swarm1v1() {
           );
           return { ...prev, adUnits };
         });
+        break;
+      }
+      case "battle_speed": {
+        // Sync battle speed between players - whoever changes it affects both
+        if (typeof msg.value === "number" && [1, 2, 4, 8, 16].includes(msg.value)) {
+          setBattleSpeed(msg.value);
+        }
         break;
       }
       case "ad_priority": {
@@ -4270,7 +4277,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                       <div style={{ fontSize: 11, color: "#ff9800", marginBottom: 6 }}>Battle in progress...</div>
                       <div style={{ display: "flex", gap: 3, marginBottom: 6 }}>
                         {[1, 2, 4, 8, 16].map((s) => (
-                          <button key={s} onClick={() => setBattleSpeed(s)}
+                          <button key={s} onClick={() => { setBattleSpeed(s); try { broadcast({ type: "battle_speed", value: s }); } catch {} }}
                             style={{ flex: 1, padding: "4px", fontSize: 10, borderRadius: 3, cursor: "pointer",
                               border: battleSpeed === s ? "1px solid #ff9800" : "1px solid #2a2a35",
                               background: battleSpeed === s ? "rgba(255,152,0,0.15)" : "#111118",
