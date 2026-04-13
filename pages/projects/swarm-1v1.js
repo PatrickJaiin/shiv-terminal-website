@@ -95,10 +95,10 @@ const DEFENSE_UNITS = [
 // engageRate: seconds for the long reload AFTER a full burst is spent.
 const AD_SYSTEMS_1V1 = [
   // dmg >= 5 one-shots FPV(2hp), Shahed(3hp), Lancet(5hp) but NOT Mohajer(12hp)
-  { key: "iron_dome", name: "Iron Dome", cost: 50000000, range_m: 105000, missiles: 60, missileCost: 50000, pk: 0.9, engageRate: 10, burstSize: 60, burstRate: 10, dmg: 5, color: "#44bbff", type: "missile" },
+  { key: "iron_dome", name: "Iron Dome", cost: 45000000, range_m: 105000, missiles: 60, missileCost: 50000, pk: 0.9, engageRate: 10, burstSize: 60, burstRate: 10, dmg: 5, color: "#44bbff", type: "missile" },
   { key: "gepard", name: "Gepard", cost: 5000000, range_m: 7500, missiles: 680, missileCost: 100, pk: 0.5, engageRate: 9, burstSize: 680, burstRate: 3, dmg: 1, color: "#88aa44", type: "gun" },
-  { key: "nasams", name: "NASAMS 3", cost: 30000000, range_m: 75000, missiles: 20, missileCost: 500000, pk: 0.95, engageRate: 8, burstSize: 20, burstRate: 20, dmg: 100, color: "#4488ff", type: "missile" },
-  { key: "pantsir", name: "Pantsir-S1", cost: 15000000, range_m: 30000, missiles: 12, missileCost: 60000, pk: 0.8, engageRate: 8, burstSize: 12, burstRate: 15, dmg: 5, color: "#cc8800", type: "missile" },
+  { key: "nasams", name: "NASAMS 3", cost: 25000000, range_m: 75000, missiles: 20, missileCost: 500000, pk: 0.95, engageRate: 8, burstSize: 20, burstRate: 20, dmg: 100, color: "#4488ff", type: "missile" },
+  { key: "pantsir", name: "Pantsir-S1", cost: 10000000, range_m: 30000, missiles: 12, missileCost: 60000, pk: 0.8, engageRate: 8, burstSize: 12, burstRate: 15, dmg: 5, color: "#cc8800", type: "missile" },
 ];
 
 // Resource economy follows niche-distinction principle:
@@ -2163,7 +2163,8 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         fn(simX, simY);
       };
       attachedEl = mapRef.current;
-      attachedEl.addEventListener("contextmenu", middleClickHandler);
+      // Capture phase so we prevent the browser context menu before any child element handles it
+      attachedEl.addEventListener("contextmenu", middleClickHandler, { capture: true });
       setMapReady(true);
       // Fix map sizing after render - multiple attempts
       setTimeout(() => map.invalidateSize(), 100);
@@ -2175,7 +2176,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     return () => {
       cancelled = true;
       if (middleClickHandler && attachedEl) {
-        try { attachedEl.removeEventListener("contextmenu", middleClickHandler); } catch {}
+        try { attachedEl.removeEventListener("contextmenu", middleClickHandler, { capture: true }); } catch {}
       }
       if (resizeObserver) {
         try { resizeObserver.disconnect(); } catch {}
@@ -3397,7 +3398,8 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         // C2 fix: collect all gameOver candidates locally so they're broadcast to guest
         let earlyGameOver = null;
         if (b.aBreaches > 0) {
-          pDmg = b.aBreachDmg || (b.aBreaches * 500000); // use accumulated damage
+          pDmg = b.aBreachDmg || (b.aBreaches * 500000);
+          const destroyedDepositIds = [];
           for (let i = 0; i < Math.min(b.aBreaches, 3); i++) {
             const alive = playerResources.filter((r) => r.alive);
             if (alive.length > 0 && Math.random() < 0.35) {
@@ -3405,7 +3407,12 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
               t2.alive = false; const res = RESOURCES.find((rr) => rr.key === t2.key);
               pDmg += res?.breachDmg || 5000000;
               endLog.push(`Your ${res?.name} destroyed!`);
+              if (t2.depositId !== undefined) destroyedDepositIds.push(t2.depositId);
             }
+          }
+          // Re-open the destroyed deposit nodes so player can rebuild on them later
+          if (destroyedDepositIds.length > 0) {
+            setResourceDeposits((prev) => prev.map((d) => destroyedDepositIds.includes(d.id) ? { ...d, claimed: false } : d));
           }
           if (b.aBreaches > (b.aOverwhelmThreshold || 8)) { earlyGameOver = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: "Your HQ was overwhelmed by enemy drones" }; endLog.push("YOUR HQ DESTROYED!"); }
         }
@@ -3945,16 +3952,14 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                         );
                       })()}
 
-                      {/* Sell / Delete tools */}
+                      {/* Sell / Delete tools - available in all prep rounds */}
                       <div style={{ display: "flex", gap: 3, marginBottom: 6 }}>
-                        {phase === PHASE.SETUP && (
-                          <button onClick={() => setPlacingWhat(placingWhat === "delete" ? null : "delete")}
-                            style={{ ...inputStyle, flex: 1, fontSize: 9, padding: "4px", textAlign: "center", cursor: "pointer",
-                              border: placingWhat === "delete" ? "1px solid #ff9800" : "1px solid #2a2a35",
-                              color: placingWhat === "delete" ? "#ff9800" : "#666" }}>
-                            Remove (full refund)
-                          </button>
-                        )}
+                        <button onClick={() => setPlacingWhat(placingWhat === "delete" ? null : "delete")}
+                          style={{ ...inputStyle, flex: 1, fontSize: 9, padding: "4px", textAlign: "center", cursor: "pointer",
+                            border: placingWhat === "delete" ? "1px solid #ff9800" : "1px solid #2a2a35",
+                            color: placingWhat === "delete" ? "#ff9800" : "#666" }}>
+                          Remove (full refund)
+                        </button>
                         <button onClick={() => setPlacingWhat(placingWhat === "sell" ? null : "sell")}
                           style={{ ...inputStyle, flex: 1, fontSize: 9, padding: "4px", textAlign: "center", cursor: "pointer",
                             border: placingWhat === "sell" ? "1px solid #ff5555" : "1px solid #2a2a35",
@@ -4113,6 +4118,11 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                   </div>
                   <div style={{ fontSize: 9, color: "#666", marginBottom: 4 }}>Total earned: ${formatUSD(totalIncome + STARTING_BUDGET)}</div>
                   <div style={{ display: "flex", gap: 3, marginBottom: 6 }}>
+                    <button onClick={() => setPlacingWhat(placingWhat === "delete" ? null : "delete")}
+                      style={{ ...inputStyle, flex: 1, fontSize: 9, padding: "3px", textAlign: "center", cursor: "pointer",
+                        border: placingWhat === "delete" ? "1px solid #ff9800" : "1px solid #2a2a35", color: placingWhat === "delete" ? "#ff9800" : "#666" }}>
+                      Remove (full)
+                    </button>
                     <button onClick={() => setPlacingWhat(placingWhat === "sell" ? null : "sell")}
                       style={{ ...inputStyle, flex: 1, fontSize: 9, padding: "3px", textAlign: "center", cursor: "pointer",
                         border: placingWhat === "sell" ? "1px solid #ff5555" : "1px solid #2a2a35", color: placingWhat === "sell" ? "#ff5555" : "#666" }}>
@@ -4121,7 +4131,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                     {placingWhat && (
                       <button onClick={() => setPlacingWhat(null)}
                         style={{ ...inputStyle, flex: 1, fontSize: 9, padding: "3px", textAlign: "center", cursor: "pointer", border: "1px solid #666", color: "#888" }}>
-                        Stop Placing
+                        Stop
                       </button>
                     )}
                   </div>
