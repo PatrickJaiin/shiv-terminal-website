@@ -42,16 +42,16 @@ export default function ArchitecturalDiffusion() {
 
           <div className="prose prose-gray max-w-none mb-12">
             <p className="text-gray-600 leading-relaxed mb-6">
-              Research conducted at the{" "}
+              Research conducted at the National University of Singapore under the guidance of{" "}
               <a
                 href="https://drive.google.com/file/d/15WIKAkMq1hQKcJTn6g_AqklP1XxrJdhv/view?usp=sharing"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-blue-600 hover:underline"
               >
-                National University of Singapore
+                Dr Tan Wee Kek
               </a>
-              {" "}under the guidance of Dr Tan Wee Kek. Developed Diffusion and ControlNet based generative models for Interior and Exterior architectural design visualization.
+              . Developed Diffusion and ControlNet based generative models for Interior and Exterior architectural design visualization.
             </p>
             <p className="text-gray-600 leading-relaxed">
               The project explores applying state-of-the-art diffusion-based generative AI techniques to architectural visualization, enabling the generation of realistic interior and exterior design renders from structural inputs using ControlNet conditioning.
