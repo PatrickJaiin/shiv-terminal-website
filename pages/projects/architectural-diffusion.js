@@ -29,7 +29,7 @@ export default function ArchitecturalDiffusion() {
             <span className="text-xs text-gray-400 ml-2">2024</span>
           </div>
 
-          <div className="flex gap-4 mb-10">
+          <div className="flex flex-wrap gap-4 mb-10">
             <a
               href="https://drive.google.com/file/d/1gkgJtMgf-TnsmlfBQtnrR7EouxR8SxQM/view?usp=sharing"
               target="_blank"
@@ -37,6 +37,14 @@ export default function ArchitecturalDiffusion() {
               className="text-sm text-blue-600 hover:underline font-medium"
             >
               Download Paper &rarr;
+            </a>
+            <a
+              href="https://drive.google.com/file/d/15WIKAkMq1hQKcJTn6g_AqklP1XxrJdhv/view?usp=sharing"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm text-blue-600 hover:underline font-medium"
+            >
+              View Slides &rarr;
             </a>
           </div>
 
@@ -50,11 +58,22 @@ export default function ArchitecturalDiffusion() {
           </div>
 
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Paper</h2>
-          <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+          <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50 mb-10">
             <iframe
               src="https://drive.google.com/file/d/1gkgJtMgf-TnsmlfBQtnrR7EouxR8SxQM/preview"
               width="100%"
               height="800"
+              allow="autoplay"
+              className="border-0"
+            />
+          </div>
+
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Slides</h2>
+          <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+            <iframe
+              src="https://drive.google.com/file/d/15WIKAkMq1hQKcJTn6g_AqklP1XxrJdhv/preview"
+              width="100%"
+              height="600"
               allow="autoplay"
               className="border-0"
             />
