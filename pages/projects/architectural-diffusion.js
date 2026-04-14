@@ -44,7 +44,7 @@ export default function ArchitecturalDiffusion() {
               rel="noopener noreferrer"
               className="text-sm text-blue-600 hover:underline font-medium"
             >
-              View Slides &rarr;
+              View LOR &rarr;
             </a>
           </div>
 
@@ -68,7 +68,7 @@ export default function ArchitecturalDiffusion() {
             />
           </div>
 
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Slides</h2>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Letter of Recommendation</h2>
           <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
             <iframe
               src="https://drive.google.com/file/d/15WIKAkMq1hQKcJTn6g_AqklP1XxrJdhv/preview"
