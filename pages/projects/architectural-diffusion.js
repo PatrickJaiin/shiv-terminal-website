@@ -38,19 +38,20 @@ export default function ArchitecturalDiffusion() {
             >
               Download Paper &rarr;
             </a>
-            <a
-              href="https://drive.google.com/file/d/15WIKAkMq1hQKcJTn6g_AqklP1XxrJdhv/view?usp=sharing"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm text-blue-600 hover:underline font-medium"
-            >
-              View LOR &rarr;
-            </a>
           </div>
 
           <div className="prose prose-gray max-w-none mb-12">
             <p className="text-gray-600 leading-relaxed mb-6">
-              Research conducted at the National University of Singapore under the guidance of Dr Tan Wee Kek. Developed Diffusion and ControlNet based generative models for Interior and Exterior architectural design visualization.
+              Research conducted at the{" "}
+              <a
+                href="https://drive.google.com/file/d/15WIKAkMq1hQKcJTn6g_AqklP1XxrJdhv/view?usp=sharing"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:underline"
+              >
+                National University of Singapore
+              </a>
+              {" "}under the guidance of Dr Tan Wee Kek. Developed Diffusion and ControlNet based generative models for Interior and Exterior architectural design visualization.
             </p>
             <p className="text-gray-600 leading-relaxed">
               The project explores applying state-of-the-art diffusion-based generative AI techniques to architectural visualization, enabling the generation of realistic interior and exterior design renders from structural inputs using ControlNet conditioning.
@@ -58,22 +59,11 @@ export default function ArchitecturalDiffusion() {
           </div>
 
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Paper</h2>
-          <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50 mb-10">
+          <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
             <iframe
               src="https://drive.google.com/file/d/1gkgJtMgf-TnsmlfBQtnrR7EouxR8SxQM/preview"
               width="100%"
               height="800"
-              allow="autoplay"
-              className="border-0"
-            />
-          </div>
-
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Letter of Recommendation</h2>
-          <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
-            <iframe
-              src="https://drive.google.com/file/d/15WIKAkMq1hQKcJTn6g_AqklP1XxrJdhv/preview"
-              width="100%"
-              height="600"
               allow="autoplay"
               className="border-0"
             />
