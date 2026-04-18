@@ -37,8 +37,8 @@ export const siteData = {
     {
       name: "Swarm Interception",
       description:
-        "Autonomous drone swarm system for intercepting attack drones. Currently the testing engine for interception drone is working - now building RL-based coordination for swarm drones to intercept attack drones.",
-      stack: ["Python", "ROS2", "Reinforcement Learning", "PyTorch", "Gazebo"],
+        "Drone-swarm air defense across 5 real theaters (Kashmir, Israel-Iran, Red Sea, Ukraine, Taiwan Strait) with 8+ ground AD systems modeled to publicly known specs (S-400, Patriot, NASAMS, Iron Dome, Gepard, Pantsir, IRIS-T). Two modes: a realism-tuned sandbox simulator (real engagement envelopes, salvo doctrine, burst/reload, multi-target capacity, GNSS jamming, decoy drones) and a 1v1 game mode vs an AI opponent with resource economy, fog of war, and round-based prep.",
+      stack: ["Next.js", "React", "Leaflet", "Real-time Simulation", "Game Design"],
       link: "/projects/swarm-interception",
       year: "2026",
       type: "interactive",

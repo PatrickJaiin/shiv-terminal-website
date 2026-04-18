@@ -3,11 +3,16 @@ import Link from "next/link";
 import { useEffect, useRef, useState, useCallback } from "react";
 
 // ── Drone database ──
+// Simulator uses real-world drones with 2024-2026 threat picture.
+// `decoy: true` drones (e.g. Gerbera) bait AD into wasting missiles but cause no damage if they breach.
 const DRONE_DB = {
   attack: [
-    { key: "shahed_136", name: "Shahed-136", country: "Iran", speed: 185, cost: 20000, rcs: 0.1, threat: "cheap", desc: "Iranian loitering munition. Delta-wing design, GPS/INS guided, 40kg warhead. Used extensively in Ukraine conflict." },
+    { key: "fpv_kamikaze", name: "FPV Kamikaze", country: "Generic", speed: 150, cost: 500, rcs: 0.01, threat: "cheap", desc: "Commercial-grade FPV drone with improvised warhead. Extremely cheap, hard to detect due to tiny RCS. GNSS jamming has limited effect (operator video link)." },
+    { key: "shahed_136", name: "Shahed-136", country: "Iran", speed: 185, cost: 20000, rcs: 0.1, threat: "cheap", desc: "Iranian loitering munition. Delta-wing design, GPS/INS guided, 40kg warhead. Used extensively in Ukraine conflict. GNSS-dependent." },
+    { key: "geran_3", name: "Geran-3 (Jet Shahed)", country: "Russia", speed: 600, cost: 80000, rcs: 0.1, threat: "medium", desc: "Jet-powered Shahed variant fielded 2024-2025. ~600 km/h cruise, breaks Gepard tracking solutions. GNSS-dependent." },
+    { key: "gerbera", name: "Gerbera (Decoy)", country: "Russia", speed: 180, cost: 10000, rcs: 0.1, threat: "cheap", decoy: true, desc: "Foam-and-plywood Shahed mimic. Identical radar signature, no warhead. Bait to exhaust AD missiles in saturation attacks. ~$10K vs $50K Tamir interceptor." },
     { key: "lancet_3", name: "Lancet-3", country: "Russia", speed: 300, cost: 35000, rcs: 0.05, threat: "medium", desc: "Russian precision loitering munition by ZALA. TV/IR seeker, 3kg warhead. Targets vehicles and fortified positions." },
-    { key: "fpv_kamikaze", name: "FPV Kamikaze", country: "Generic", speed: 150, cost: 500, rcs: 0.01, threat: "cheap", desc: "Commercial-grade FPV drone with improvised warhead. Extremely cheap, hard to detect due to tiny RCS." },
+    { key: "switchblade_600", name: "Switchblade-600", country: "USA", speed: 110, cost: 60000, rcs: 0.04, threat: "medium", desc: "AeroVironment loitering munition. Anti-armor warhead, 40km range, 40min loiter. Used by Ukraine and US SOF." },
     { key: "mohajer_6", name: "Mohajer-6", country: "Iran", speed: 200, cost: 500000, rcs: 0.5, threat: "expensive", desc: "Iranian MALE UAV. 200km range, can carry precision guided munitions. Used for ISR and strike missions." },
     { key: "orion", name: "Orion (Pacer)", country: "Russia", speed: 200, cost: 1000000, rcs: 1.0, threat: "expensive", desc: "Russian medium-altitude long-endurance UAV. 24hr flight time, 4 hardpoints for guided bombs/missiles." },
     { key: "wing_loong", name: "Wing Loong II", country: "China", speed: 370, cost: 2000000, rcs: 1.5, threat: "expensive", desc: "Chinese MALE UCAV comparable to MQ-9 Reaper. 20hr endurance, 480kg payload, exported to 10+ countries." },
@@ -21,17 +26,27 @@ const DRONE_DB = {
 };
 
 // ── Ground AD systems database ──
-// engageRate: seconds between shots (lower = faster). Based on real reload/cycle times.
-// missileCost: cost per interceptor missile fired
+// REAL-WORLD doctrine fields (validated by AD/counter-UAS expert review, Apr 2026):
+//   range_m         - operational engagement envelope vs low-altitude drones (NOT marketing max)
+//   detection_m     - radar detection range (much greater than engagement; defines awareness ring)
+//   pk              - per-missile probability of kill on hit (binary; we don't model HP)
+//   salvo           - missiles fired per engagement (shoot-shoot-look doctrine: PAC-3 / S-400 = 2)
+//   salvoIntervalS  - seconds between the two missiles in an SSS salvo (Patriot ~4s, S-400 ~1s)
+//   burstSize       - missiles ready before long reload (Iron Dome battery ~60 Tamirs)
+//   reloadS         - seconds to refill burst after depletion (real crewed reload, not auto)
+//   maxSimultaneous - concurrent engagements; saturation attacks defeat by exceeding this
+//   setupMin        - emplacement time in minutes (0=fires on the move, 240=Iron Dome battery)
+//   mobile          - shoot-and-scoot capable (display-only in sandbox, doesn't gate movement)
+// Numbers reflect operational performance vs cruise-altitude drones, not max kinematic envelopes.
 const AD_SYSTEMS = [
-  { key: "s300", name: "S-300", country: "Russia", type: "long", range: 4000, missiles: 4, cost: 115000000, missileCost: 1000000, pk: 0.7, rcsThreshold: 0.02, engageRate: 5, color: "#cc8800", desc: "Soviet/Russian long-range SAM. SA-20 Gargoyle NATO designation. Deployed by India, China, Iran and others." },
-  { key: "s400", name: "S-400", country: "Russia", type: "long", range: 5000, missiles: 4, cost: 300000000, missileCost: 2500000, pk: 0.8, rcsThreshold: 0.01, engageRate: 5, color: "#cc8800", desc: "Russia's most advanced SAM. SA-21 Growler. Can track 300 targets, engage 36 simultaneously. Exported to Turkey, India, China." },
-  { key: "patriot", name: "Patriot PAC-3", country: "USA", type: "long", range: 3500, missiles: 16, cost: 1000000000, missileCost: 4000000, pk: 0.75, rcsThreshold: 0.05, engageRate: 9, color: "#4488ff", desc: "US Army primary air defense. Hit-to-kill technology. Proven in combat across Gulf War, Ukraine, Saudi Arabia." },
-  { key: "nasams", name: "NASAMS 3", country: "Norway", type: "medium", range: 2500, missiles: 6, cost: 100000000, missileCost: 500000, pk: 0.8, rcsThreshold: 0.01, engageRate: 4, color: "#4488ff", desc: "Norwegian/US medium-range system using AMRAAM missiles. Protects the US Capitol. Donated to Ukraine by NATO." },
-  { key: "iron_dome", name: "Iron Dome", country: "Israel", type: "short", range: 2000, missiles: 20, cost: 50000000, missileCost: 50000, pk: 0.85, rcsThreshold: 0.005, engageRate: 3, color: "#44bbff", desc: "Israeli mobile defense system by Rafael. 90%+ intercept rate. Designed specifically for rockets and drone threats." },
-  { key: "gepard", name: "Gepard", country: "Germany", type: "short", range: 800, missiles: 680, cost: 5000000, missileCost: 100, pk: 0.2, rcsThreshold: 0.001, engageRate: 1, color: "#88aa44", desc: "German anti-aircraft gun tank. Twin 35mm Oerlikon cannons, 680 rounds. Extremely effective against small drones in Ukraine." },
-  { key: "pantsir", name: "Pantsir-S1", country: "Russia", type: "short", range: 1500, missiles: 12, cost: 15000000, missileCost: 60000, pk: 0.65, rcsThreshold: 0.01, engageRate: 3, color: "#cc8800", desc: "Russian hybrid gun-missile system. SA-22 Greyhound. 12 missiles + twin 30mm autocannons. Point defense role." },
-  { key: "iris_t", name: "IRIS-T SLM", country: "Germany", type: "medium", range: 2500, missiles: 8, cost: 150000000, missileCost: 400000, pk: 0.8, rcsThreshold: 0.01, engageRate: 5, color: "#88aa44", desc: "German medium-range SAM by Diehl Defence. IR-guided missile with thrust vectoring. Key air defense system for Ukraine." },
+  { key: "s300",      name: "S-300",        country: "Russia",  type: "long",   range_m: 75000,  detection_m: 250000, missiles: 16,  cost: 115000000,  missileCost: 1000000, pk: 0.7,  rcsThreshold: 0.02,  engageRate: 5, salvo: 2, salvoIntervalS: 1, burstSize: 16, reloadS: 1800, maxSimultaneous: 12, setupMin: 30, mobile: true,  color: "#cc8800", desc: "Soviet/Russian long-range SAM. SA-20 Gargoyle. Tracks 100, engages 12 simultaneously. Deployed by India, China, Iran." },
+  { key: "s400",      name: "S-400",        country: "Russia",  type: "long",   range_m: 200000, detection_m: 600000, missiles: 16,  cost: 300000000,  missileCost: 2500000, pk: 0.8,  rcsThreshold: 0.01,  engageRate: 5, salvo: 2, salvoIntervalS: 1, burstSize: 16, reloadS: 1800, maxSimultaneous: 36, setupMin: 30, mobile: true,  color: "#cc8800", desc: "Russia's flagship SAM. SA-21 Growler. 91N6E radar tracks 300 / engages 36. Operational vs drones ~150-200km (radar horizon limited). Exported to Turkey, India, China." },
+  { key: "patriot",   name: "Patriot PAC-3",country: "USA",     type: "long",   range_m: 20000,  detection_m: 100000, missiles: 16,  cost: 1000000000, missileCost: 4000000, pk: 0.75, rcsThreshold: 0.05,  engageRate: 9, salvo: 2, salvoIntervalS: 4, burstSize: 16, reloadS: 1800, maxSimultaneous: 9,  setupMin: 60, mobile: false, color: "#4488ff", desc: "US Army primary air defense. AN/MPQ-65 radar. Hit-to-kill PAC-3 MSE. Effective vs low-flying drones ~15-20km (terrain mask). Standard SSS doctrine: 2 missiles per HVT, 4s apart." },
+  { key: "nasams",    name: "NASAMS 3",     country: "Norway",  type: "medium", range_m: 25000,  detection_m: 75000,  missiles: 18,  cost: 100000000,  missileCost: 500000,  pk: 0.8,  rcsThreshold: 0.01,  engageRate: 4, salvo: 2, salvoIntervalS: 2, burstSize: 18, reloadS: 1800, maxSimultaneous: 12, setupMin: 45, mobile: false, color: "#4488ff", desc: "Norwegian/US medium-range using AMRAAM-ER. Sentinel radar 75km. Protects US Capitol. 6 missiles per launcher × 3 launchers = 18 ready." },
+  { key: "iron_dome", name: "Iron Dome",    country: "Israel",  type: "short",  range_m: 40000,  detection_m: 100000, missiles: 60,  cost: 50000000,   missileCost: 50000,   pk: 0.9,  rcsThreshold: 0.005, engageRate: 3, salvo: 1, salvoIntervalS: 1, burstSize: 60, reloadS: 1500, maxSimultaneous: 20, setupMin: 240, mobile: false, color: "#44bbff", desc: "Israeli rocket/drone defense by Rafael. EL/M-2084 radar. 20 Tamirs × ~3 launchers per battery = 60 ready, ~25 min crewed reload. 90%+ intercept rate." },
+  { key: "gepard",    name: "Gepard",       country: "Germany", type: "short",  range_m: 4000,   detection_m: 15000,  missiles: 680, cost: 5000000,    missileCost: 100,     pk: 0.2,  rcsThreshold: 0.001, engageRate: 1, salvo: 1, salvoIntervalS: 1, burstSize: 680, reloadS: 600, maxSimultaneous: 1,  setupMin: 0,  mobile: true,  color: "#88aa44", desc: "German Flakpanzer. Twin 35mm Oerlikon, 680 rounds. AHEAD airburst rounds shred small drones. The unsung hero of Ukraine drone defense. Fires on the move." },
+  { key: "pantsir",   name: "Pantsir-S1",   country: "Russia",  type: "short",  range_m: 20000,  detection_m: 36000,  missiles: 12,  cost: 15000000,   missileCost: 60000,   pk: 0.65, rcsThreshold: 0.01,  engageRate: 3, salvo: 2, salvoIntervalS: 2, burstSize: 12, reloadS: 1080, maxSimultaneous: 4,  setupMin: 5,  mobile: true,  color: "#cc8800", desc: "Russian hybrid gun-missile. SA-22 Greyhound. 12 ready 57E6 missiles + twin 30mm. ~18 min reload via TZM resupply truck. Shoot-and-scoot." },
+  { key: "iris_t",    name: "IRIS-T SLM",   country: "Germany", type: "medium", range_m: 40000,  detection_m: 100000, missiles: 8,   cost: 150000000,  missileCost: 400000,  pk: 0.8,  rcsThreshold: 0.01,  engageRate: 5, salvo: 2, salvoIntervalS: 2, burstSize: 8,  reloadS: 1800, maxSimultaneous: 8,  setupMin: 30, mobile: true,  color: "#88aa44", desc: "Diehl Defence medium-range SAM. IR seeker with thrust vectoring. Key Ukraine system - 100% intercept record reported in early deployments." },
 ];
 
 // Breach damage cost based on threat type (infrastructure/civilian damage estimate)
@@ -96,7 +111,11 @@ const UNIT_SKETCHES = {
   attack: {
     fpv_kamikaze: `<img src="${UNIT_IMG_PATH}fpv_kamikaze.jpg" alt="FPV Kamikaze drone" width="80" height="60" style="object-fit:cover;border-radius:4px;border:1px solid #2a2a35"/>`,
     shahed_136: `<img src="${UNIT_IMG_PATH}shahed_136.jpg" alt="HESA Shahed 136" width="80" height="60" style="object-fit:cover;border-radius:4px;border:1px solid #2a2a35"/>`,
+    // Geran-3 / Gerbera / Switchblade-600 use inline SVG silhouettes (no licensed photos available locally).
+    geran_3: `<svg width="60" height="60" viewBox="0 0 60 60"><polygon points="8,30 30,12 52,30 30,48" fill="#cc3333" stroke="#fff" stroke-width="1.5"/><circle cx="44" cy="30" r="4" fill="#ffaa44" stroke="#fff" stroke-width="1"/><polygon points="44,28 52,30 44,32" fill="#ffaa44"/></svg>`,
+    gerbera: `<svg width="60" height="60" viewBox="0 0 60 60"><polygon points="8,30 30,12 52,30 30,48" fill="none" stroke="#cc3333" stroke-width="1.5" stroke-dasharray="3 3"/><text x="30" y="34" text-anchor="middle" fill="#cc3333" font-size="11" font-family="monospace" font-weight="bold">D</text></svg>`,
     lancet_3: `<img src="${UNIT_IMG_PATH}lancet_3.jpg" alt="ZALA Lancet" width="80" height="60" style="object-fit:cover;border-radius:4px;border:1px solid #2a2a35"/>`,
+    switchblade_600: `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="6" y="26" width="40" height="8" fill="#cc3333" stroke="#fff" stroke-width="1.5"/><polygon points="46,30 56,30 50,22 50,38" fill="#ff6633" stroke="#fff" stroke-width="1"/><line x1="20" y1="22" x2="20" y2="14" stroke="#fff" stroke-width="1.5"/><line x1="20" y1="38" x2="20" y2="46" stroke="#fff" stroke-width="1.5"/></svg>`,
     mohajer_6: `<img src="${UNIT_IMG_PATH}mohajer_6.jpg" alt="Mohajer-6" width="80" height="60" style="object-fit:cover;border-radius:4px;border:1px solid #2a2a35"/>`,
     orion: `<img src="${UNIT_IMG_PATH}orion.jpg" alt="Kronshtadt Orion" width="80" height="60" style="object-fit:cover;border-radius:4px;border:1px solid #2a2a35"/>`,
     wing_loong: `<img src="${UNIT_IMG_PATH}wing_loong.jpg" alt="Wing Loong II" width="80" height="60" style="object-fit:cover;border-radius:4px;border:1px solid #2a2a35"/>`,
@@ -139,17 +158,54 @@ function dist(a, b) {
   return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
 }
 
-// Convert sim coords (0-10000) to lat/lng for a theater
+// Isotropic projection: ARENA is mapped to the larger geographic dimension in meters,
+// then both x and y use the same meters-per-unit so real-meter ranges (range_m) render
+// as proper circles regardless of theater aspect ratio. Ported from game mode.
+function getProjection(b) {
+  const midLat = (b.south + b.north) / 2;
+  const midLng = (b.west + b.east) / 2;
+  const cosLat = Math.cos((midLat * Math.PI) / 180);
+  const widthM = (b.east - b.west) * 111000 * cosLat;
+  const heightM = (b.north - b.south) * 111000;
+  const sizeM = Math.max(widthM, heightM);
+  const mpu = sizeM / ARENA;
+  return { midLat, midLng, cosLat, mpu };
+}
+
+// Convert sim coords (0-10000) to lat/lng - uses isotropic projection so circles stay round.
 function simToLatLng(x, y, bounds) {
-  const lat = bounds.south + (y / ARENA) * (bounds.north - bounds.south);
-  const lng = bounds.west + (x / ARENA) * (bounds.east - bounds.west);
-  return [lat, lng];
+  const p = getProjection(bounds);
+  const dxMeters = (x - ARENA / 2) * p.mpu;
+  const dyMeters = (y - ARENA / 2) * p.mpu;
+  const dLat = dyMeters / 111000;
+  const dLng = dxMeters / (111000 * p.cosLat);
+  return [p.midLat + dLat, p.midLng + dLng];
 }
 
 function latLngToSim(lat, lng, bounds) {
-  const x = ((lng - bounds.west) / (bounds.east - bounds.west)) * ARENA;
-  const y = ((lat - bounds.south) / (bounds.north - bounds.south)) * ARENA;
-  return [x, y];
+  const p = getProjection(bounds);
+  const dxMeters = (lng - p.midLng) * 111000 * p.cosLat;
+  const dyMeters = (lat - p.midLat) * 111000;
+  return [ARENA / 2 + dxMeters / p.mpu, ARENA / 2 + dyMeters / p.mpu];
+}
+
+// Convert real meters to sim units for a given theater's projection.
+function metersToSim(meters, bounds) { return meters / getProjection(bounds).mpu; }
+
+// Initialize all per-instance AD runtime fields in one place. Without this, downstream UI
+// readers that touch (e.g.) ad.activeEngagements.size before simStep has had a chance to
+// lazy-init would throw. simStep also lazy-inits as a defensive backstop.
+function initAdInstance(sys) {
+  const cap = sys?.burstSize ?? sys?.missiles ?? 6;
+  return {
+    health: 1,
+    ammo: cap,
+    burstRemaining: cap,
+    reloadStepsLeft: null,
+    activeEngagements: new Set(),
+    inFlight: [],
+    nextShotStep: 0,
+  };
 }
 
 // ── Create drones for the sandbox run ──
@@ -162,46 +218,38 @@ function createDrones(scenario, theater, customAttackSpawns, customDefenseSpawns
 
   const attackerList = [];
   let id = 100;
+  // GNSS-dependent drones lose accuracy under jamming; FPV (operator video) and Lancet/Switchblade
+  // (TV/IR seekers) are largely immune. Update if you add new drone types.
+  const GNSS_DEPENDENT = new Set(["shahed_136", "geran_3", "gerbera", "mohajer_6", "orion", "wing_loong"]);
+  const buildAttacker = (sp, profile, originX, originY) => ({
+    id: id++,
+    x: sp.x + (Math.random() - 0.5) * 1500,
+    y: sp.y + (Math.random() - 0.5) * 1500,
+    speed: profile.speed / 200,
+    cost: profile.cost,
+    threat: profile.threat,
+    status: "active",
+    heading: Math.atan2(originY - sp.y, originX - sp.x) + (Math.random() - 0.5) * 0.8,
+    type: "attacker",
+    profileName: profile.name,
+    droneKey: profile.key,
+    decoy: !!profile.decoy,
+    gnssDependent: GNSS_DEPENDENT.has(profile.key),
+  });
 
   if (hasCustomAtk) {
-    // Use custom spawn points with their own drone type and count
     for (const sp of customAttackSpawns) {
       const profile = DRONE_DB.attack.find((d) => d.key === sp.droneKey);
       if (!profile) continue;
-      for (let i = 0; i < sp.count; i++) {
-        attackerList.push({
-          id: id++,
-          x: sp.x + (Math.random() - 0.5) * 1500,
-          y: sp.y + (Math.random() - 0.5) * 1500,
-          speed: profile.speed / 200,
-          cost: profile.cost,
-          threat: profile.threat,
-          status: "active",
-          heading: Math.atan2(center[1] - sp.y, center[0] - sp.x) + (Math.random() - 0.5) * 0.8,
-          type: "attacker",
-          profileName: profile.name,
-        });
-      }
+      for (let i = 0; i < sp.count; i++) attackerList.push(buildAttacker(sp, profile, center[0], center[1]));
     }
   } else {
-    // Use scenario defaults with theater origins
     for (const [key, count] of Object.entries(attackerConfig)) {
       const profile = DRONE_DB.attack.find((d) => d.key === key);
       if (!profile) continue;
       for (let i = 0; i < count; i++) {
         const origin = th.attackOrigins[Math.floor(Math.random() * th.attackOrigins.length)];
-        attackerList.push({
-          id: id++,
-          x: origin[0] + (Math.random() - 0.5) * 1500,
-          y: origin[1] + (Math.random() - 0.5) * 1500,
-          speed: profile.speed / 200,
-          cost: profile.cost,
-          threat: profile.threat,
-          status: "active",
-          heading: Math.atan2(center[1] - origin[1], center[0] - origin[0]) + (Math.random() - 0.5) * 0.8,
-          type: "attacker",
-          profileName: profile.name,
-        });
+        attackerList.push(buildAttacker({ x: origin[0], y: origin[1] }, profile, center[0], center[1]));
       }
     }
   }
@@ -253,20 +301,34 @@ function createDrones(scenario, theater, customAttackSpawns, customDefenseSpawns
 }
 
 // ── Simulation step ──
-function simStep(state, zoneCenter, assetRadius, adUnitsState, zoneRadius) {
+// Sim runs at ~10 logical steps/sec. All seconds in AD specs are converted to step counts via *10.
+// adUnitsState holds per-instance state mutated in place: ammo, burstRemaining, reloadStepsLeft,
+// activeEngagements (Set of attacker ids), nextShotStep (cooldown gate).
+function simStep(state, zoneCenter, assetRadius, adUnitsState, zoneRadius, theaterBounds, jammingActive) {
   const { interceptors, attackers, metrics, step } = state;
+  // Theater-dependent meters-per-sim-unit. Falls back to 1m=1unit if no bounds (legacy).
+  const mpu = theaterBounds ? getProjection(theaterBounds).mpu : 1;
 
   for (const a of attackers) {
     if (a.status !== "active") continue;
     const prevDist = dist(a, { x: zoneCenter[0], y: zoneCenter[1] });
 
-    // Medium/expensive drones prioritize nearby active AD units
+    // GNSS jamming: degrades GPS-guided drones (Shahed, Geran-3, Mohajer, Orion, Wing Loong, Gerbera).
+    // FPV uses operator video link, not GNSS - largely immune. Lancet/Switchblade use TV/IR seekers.
+    if (jammingActive && a.gnssDependent) {
+      // Two effects: increased heading drift (poor nav) + chance of complete link loss.
+      a.jamDrift = (a.jamDrift || 0) + (Math.random() - 0.5) * 0.15;
+      if (Math.random() < 0.0004) { a.status = "lost"; metrics.misses++; continue; }
+    }
+
+    // Medium/expensive drones prioritize nearby active AD units (SEAD behavior).
     let targetX = zoneCenter[0];
     let targetY = zoneCenter[1];
-    if (adUnitsState && (a.threat === "medium" || a.threat === "expensive")) {
-      // Find closest alive AD unit within detection range
+    if (adUnitsState && !a.decoy && (a.threat === "medium" || a.threat === "expensive")) {
       let bestAD = null;
-      let bestADDist = 3000; // detection range
+      // SEAD detection range: 8km in real meters, converted to sim units via theater projection
+      // so behavior is consistent regardless of theater bounds (Kashmir vs Ukraine).
+      let bestADDist = theaterBounds ? metersToSim(8000, theaterBounds) : 3000;
       for (const ad of adUnitsState) {
         if (ad.health <= 0) continue;
         const d = dist(a, ad);
@@ -276,7 +338,6 @@ function simStep(state, zoneCenter, assetRadius, adUnitsState, zoneRadius) {
         targetX = bestAD.x;
         targetY = bestAD.y;
         a.adTargetId = bestAD.id;
-        // Check if close enough to destroy AD unit
         if (bestADDist < 80) {
           bestAD.health = 0;
           bestAD.ammo = 0;
@@ -293,24 +354,26 @@ function simStep(state, zoneCenter, assetRadius, adUnitsState, zoneRadius) {
     let diff = angle - a.heading;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
-    a.heading += diff * 0.05 + (Math.random() - 0.5) * 0.03;
+    const noise = (Math.random() - 0.5) * 0.03 + (a.jamDrift || 0) * 0.02;
+    a.heading += diff * 0.05 + noise;
     a.x += Math.cos(a.heading) * a.speed;
     a.y += Math.sin(a.heading) * a.speed;
     const newDist = dist(a, { x: zoneCenter[0], y: zoneCenter[1] });
-    // Detect crossing green AD zone line
     if (!a.crossedZone && prevDist > zoneRadius && newDist <= zoneRadius) {
       a.crossedZone = true;
       a.crossX = a.x;
       a.crossY = a.y;
     }
-    // Detect breach of inner asset zone
     if (newDist < assetRadius) {
       a.status = "breached";
       a.breachX = a.x;
       a.breachY = a.y;
       metrics.breaches++;
       metrics.misses++;
-      metrics.breach_damage += BREACH_DAMAGE[a.threat] || 500000;
+      // Decoys carry no warhead - they breach but cause $0 damage. The cost is the AD missiles burned.
+      if (!a.decoy) {
+        metrics.breach_damage += BREACH_DAMAGE[a.threat] || 500000;
+      }
     }
   }
 
@@ -337,7 +400,6 @@ function simStep(state, zoneCenter, assetRadius, adUnitsState, zoneRadius) {
         metrics.kills++;
         metrics.threat_value_destroyed += target.cost;
         int.targetId = null;
-        // Kamikaze interceptors always die, armed ones survive based on rate
         if (int.destroyOnKill) {
           int.status = "expended";
         } else {
@@ -348,36 +410,92 @@ function simStep(state, zoneCenter, assetRadius, adUnitsState, zoneRadius) {
     }
   }
 
-  // AD units engage attackers within range
+  // ── Ground AD engagement model ──
+  // Each AD unit tracks: ammo (rounds in burst), reloadStepsLeft (long crewed reload),
+  // activeEngagements (in-flight salvos against specific targets), nextShotStep (cooldown).
   if (adUnitsState) {
     for (const ad of adUnitsState) {
-      if (ad.health <= 0 || ad.ammo <= 0) continue;
+      if (ad.health <= 0) continue;
       const sys = AD_SYSTEMS.find((s) => s.key === ad.key);
       if (!sys) continue;
-      // Fire rate based on engageRate (seconds between shots, sim runs at 10 steps/sec)
-      const fireInterval = Math.max(1, Math.round(sys.engageRate * 10));
-      if (step % fireInterval !== 0) continue;
-      // Find closest in-range attacker with detectable RCS
+
+      // Initialize per-instance burst/reload state lazily (state survives across simStep calls
+      // because adUnitsState is the persistent ref array).
+      if (ad.burstRemaining == null) ad.burstRemaining = sys.burstSize ?? sys.missiles;
+      if (ad.activeEngagements == null) ad.activeEngagements = new Set();
+      if (ad.nextShotStep == null) ad.nextShotStep = 0;
+
+      // Resolve any in-flight salvos: each engagement carries impactStep + targetId + missiles fired.
+      // We model the salvo as a single resolution at impactStep with effective pK = 1 - (1 - pk)^salvo.
+      if (ad.inFlight && ad.inFlight.length > 0) {
+        const stillFlying = [];
+        for (const eng of ad.inFlight) {
+          if (step < eng.impactStep) { stillFlying.push(eng); continue; }
+          const target = attackers.find((a) => a.id === eng.targetId);
+          ad.activeEngagements.delete(eng.targetId);
+          if (!target || target.status !== "active") continue; // already gone
+          const effectivePk = 1 - Math.pow(1 - sys.pk, eng.salvoSize);
+          if (Math.random() < effectivePk) {
+            target.status = "destroyed";
+            target.killedByAD = true;
+            metrics.kills++;
+            metrics.threat_value_destroyed += target.cost;
+          }
+        }
+        ad.inFlight = stillFlying;
+      } else {
+        ad.inFlight = ad.inFlight || [];
+      }
+
+      // Reload gate: once burst is depleted, count down the long reload timer.
+      if (ad.burstRemaining <= 0) {
+        if (ad.reloadStepsLeft == null) ad.reloadStepsLeft = Math.round((sys.reloadS ?? 0) * 10);
+        ad.reloadStepsLeft--;
+        if (ad.reloadStepsLeft <= 0) {
+          ad.burstRemaining = sys.burstSize ?? sys.missiles;
+          ad.ammo = ad.burstRemaining;
+          ad.reloadStepsLeft = null;
+        }
+        continue;
+      }
+
+      // Cooldown gate (engageRate seconds between fresh launches).
+      if (step < ad.nextShotStep) continue;
+
+      // Multi-target capacity: cap concurrent in-flight engagements.
+      const maxSim = sys.maxSimultaneous ?? 1;
+      if (ad.activeEngagements.size >= maxSim) continue;
+
+      // Acquire targets in range (real-meter envelope converted via mpu) with detectable RCS.
+      // Pick the closest unengaged target; saturation = lots of targets but capped engagement slots.
+      const rangeUnits = (sys.range_m ?? 5000) / mpu;
       let bestTarget = null;
       let bestDist = Infinity;
       for (const a of attackers) {
         if (a.status !== "active") continue;
+        if (ad.activeEngagements.has(a.id)) continue;
         const d = dist(ad, a);
-        if (d > sys.range) continue;
-        const profile = DRONE_DB.attack.find((p) => p.key === a.profileName?.toLowerCase?.().replace(/ /g, "_")) || { rcs: 0.1 };
+        if (d > rangeUnits) continue;
+        const profile = DRONE_DB.attack.find((p) => p.key === a.droneKey) || { rcs: 0.1 };
         if ((a.rcsOverride || profile.rcs || 0.1) < sys.rcsThreshold) continue;
         if (d < bestDist) { bestDist = d; bestTarget = a; }
       }
-      if (bestTarget) {
-        ad.ammo--;
-        metrics.defense_cost += sys.missileCost;
-        if (Math.random() < sys.pk) {
-          bestTarget.status = "destroyed";
-          bestTarget.killedByAD = true;
-          metrics.kills++;
-          metrics.threat_value_destroyed += bestTarget.cost;
-        }
-      }
+      if (!bestTarget) continue;
+
+      // Launch the salvo. Consume `salvo` missiles from burst (capped at remaining).
+      const salvoSize = Math.min(sys.salvo ?? 1, ad.burstRemaining);
+      ad.burstRemaining -= salvoSize;
+      ad.ammo = ad.burstRemaining;
+      metrics.defense_cost += sys.missileCost * salvoSize;
+      ad.activeEngagements.add(bestTarget.id);
+      // Gameplay-compressed flight time: 2-8 sim steps (~0.2-0.8s) regardless of real range.
+      // Real S-400 shot at 200km is 3-4 minutes ballistic flight; that's unwatchable in a portfolio
+      // sandbox, so we collapse to "edge of envelope = 8 steps, point-blank = 2 steps". The
+      // engageRate cooldown is what actually paces the AD's tactical tempo here.
+      const flightSteps = Math.max(2, Math.round(bestDist / rangeUnits * 8));
+      ad.inFlight.push({ targetId: bestTarget.id, impactStep: step + flightSteps, salvoSize });
+      // Cooldown until the next salvo can launch (engageRate seconds).
+      ad.nextShotStep = step + Math.max(1, Math.round((sys.engageRate ?? 1) * 10));
     }
   }
 
@@ -681,8 +799,10 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
     layer.clearLayers();
 
     const th = THEATERS[theater] || THEATERS.kashmir;
-    const latSpan = th.bounds.north - th.bounds.south;
-    const metersPerUnit = (latSpan * 111000) / ARENA;
+    // Use the SAME isotropic mpu as simToLL so all geometries (asset zone, AD zone, sim-coord
+    // markers) agree on physical size. The previous lat-only metersPerUnit drifted from simToLL's
+    // isotropic value on non-square theaters (e.g. Kashmir 1°×1.5°).
+    const metersPerUnit = getProjection(th.bounds).mpu;
 
     // ── Inner: Defended Asset Zone (red dashed) ──
     const assetGeoRadius = assetRadius * metersPerUnit;
@@ -692,59 +812,56 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
       fillOpacity: 0.06, weight: 2, opacity: 0.6, dashArray: "8 6",
     }).addTo(layer);
 
-    // ── Outer: Ground Air Defense Zone (green dashed with gaps at crossings) ──
+    // ── Outer: Ground Air Defense Zone (green dashed) ──
+    // Always drawn as a single L.circle in real meters. Leaflet's geodesic circle stays
+    // visually round on Mercator regardless of theater latitude. (The previous segmented-arc
+    // approach sampled 96 sim-coord points and stitched them with polylines, which on
+    // higher-latitude theaters like Israel-Iran picked up Mercator distortion and looked
+    // elliptical.) Breach impact dots overlay the ring to mark crossing points.
     const geoRadius = zoneRadius * metersPerUnit;
-    const GAP = 0.12; // radians per breach gap
-
-    if (breachPoints.length === 0) {
-      const center = simToLL(zoneCenter[0], zoneCenter[1]);
-      L.circle(center, {
-        radius: geoRadius, color: "#22aa22", fillColor: "#22aa22",
-        fillOpacity: 0.03, weight: 2, opacity: 0.8, dashArray: "10 6",
+    const center = simToLL(zoneCenter[0], zoneCenter[1]);
+    L.circle(center, {
+      radius: geoRadius, color: "#22aa22", fillColor: "#22aa22",
+      fillOpacity: 0.03, weight: 2, opacity: 0.8, dashArray: "10 6", interactive: false,
+    }).addTo(layer);
+    for (const bp of breachPoints) {
+      const bll = simToLL(
+        zoneCenter[0] + Math.cos(bp.angle) * zoneRadius,
+        zoneCenter[1] + Math.sin(bp.angle) * zoneRadius
+      );
+      L.circleMarker(bll, {
+        radius: 5, color: "#888", fillColor: "#555", fillOpacity: 0.9, weight: 2, opacity: 0.8,
       }).addTo(layer);
-    } else {
-      // Draw 36 arc segments, skip those near a breach
-      const SEG = 24;
-      const segArc = (Math.PI * 2) / SEG;
-      for (let i = 0; i < SEG; i++) {
-        const mid = -Math.PI + (i + 0.5) * segArc;
-        const inGap = breachPoints.some((bp) => {
-          let d = mid - bp.angle;
-          while (d > Math.PI) d -= Math.PI * 2;
-          while (d < -Math.PI) d += Math.PI * 2;
-          return Math.abs(d) < GAP;
-        });
-        if (inGap) continue;
-        const pts = [];
-        for (let j = 0; j <= 3; j++) {
-          const a = -Math.PI + i * segArc + (j / 3) * segArc;
-          pts.push(simToLL(zoneCenter[0] + Math.cos(a) * zoneRadius, zoneCenter[1] + Math.sin(a) * zoneRadius));
-        }
-        L.polyline(pts, { color: "#22aa22", weight: 2, opacity: 0.8, dashArray: "10 6", interactive: false }).addTo(layer);
-      }
-      // Grey impact dots at each breach
-      for (const bp of breachPoints) {
-        const bll = simToLL(
-          zoneCenter[0] + Math.cos(bp.angle) * zoneRadius,
-          zoneCenter[1] + Math.sin(bp.angle) * zoneRadius
-        );
-        L.circleMarker(bll, {
-          radius: 5, color: "#888", fillColor: "#555", fillOpacity: 0.9, weight: 2, opacity: 0.8,
-        }).addTo(layer);
-      }
     }
 
-    // AD unit range indicators - bumped opacity/weight per game-mode visibility port
+    // AD coverage rings: engagement envelope (range_m, solid) + detection envelope (faint outer).
+    // Both drawn as Leaflet.circle in real meters so they scale correctly across theaters.
     for (const ad of adUnits) {
       const sys = AD_SYSTEMS.find((s) => s.key === ad.key);
       if (!sys || ad.health <= 0) continue;
       const adLL = simToLL(ad.x, ad.y);
+      // Outer detection ring (radar awareness, not engagement).
+      if (sys.detection_m && sys.detection_m > sys.range_m) {
+        L.circle(adLL, {
+          radius: sys.detection_m, color: sys.color, fillColor: sys.color,
+          fillOpacity: 0.02, weight: 1, opacity: 0.35, dashArray: "4 6", interactive: false,
+        }).addTo(layer);
+      }
+      // Inner engagement envelope (where it can actually shoot).
+      L.circle(adLL, {
+        radius: sys.range_m ?? 5000, color: sys.color, fillColor: sys.color,
+        fillOpacity: 0.10, weight: 2, opacity: 0.85, interactive: false,
+      }).addTo(layer);
+      // Center marker so the unit itself is visible at any zoom.
       L.circleMarker(adLL, {
-        radius: 25, color: sys.color, fillColor: sys.color,
-        fillOpacity: 0.18, weight: 2.5, opacity: 0.85, interactive: false,
+        radius: 6, color: sys.color, fillColor: sys.color,
+        fillOpacity: 0.9, weight: 2, opacity: 1, interactive: false,
       }).addTo(layer);
     }
-  }, [theater, simToLL, breachPoints, mapReady, zoneCenter, zoneRadius, assetRadius]);
+    // adSig is a stable derived signature: only re-render coverage rings when an AD is
+    // added/removed/destroyed/moved/replaced. Avoids tearing down all rings every animation
+    // frame when runLoop spreads adUnitsRef.current into a new array reference each tick.
+  }, [theater, simToLL, breachPoints, mapReady, zoneCenter, zoneRadius, assetRadius, adUnits.map(a => `${a.id}:${a.key}:${a.x}:${a.y}:${a.health}`).join("|")]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Draw drones, AD units, pursuit lines, and kill flashes
   useEffect(() => {
@@ -769,10 +886,18 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
 
     if (!simState) return;
 
-    // Attackers (skip destroyed/breached to reduce SVG elements)
+    // Attackers (skip destroyed/breached to reduce SVG elements). Decoys render as a hollow
+    // dashed ring in amber so the player can spot the bait visually mid-engagement.
     for (const d of simState.attackers) {
       if (d.status !== "active") continue;
       const ll = simToLL(d.x, d.y);
+      if (d.decoy) {
+        L.circleMarker(ll, {
+          radius: 5, color: "#ddbb44", fillColor: "transparent",
+          fillOpacity: 0, weight: 1.5, opacity: 0.9, dashArray: "2 2",
+        }).addTo(droneLayer);
+        continue;
+      }
       const colors = { cheap: "#ff6666", medium: "#cc3333", expensive: "#881111" };
       const sizes = { cheap: 4, medium: 5, expensive: 6 };
       L.circleMarker(ll, {
@@ -895,8 +1020,11 @@ export default function SwarmInterception() {
   const [adUnits, setAdUnits] = useState(() => {
     const th = THEATERS.ukraine_kyiv;
     const sys = AD_SYSTEMS.find((s) => s.key === th.freeAD.key);
-    return [{ id: 0, key: th.freeAD.key, x: th.freeAD.x, y: th.freeAD.y, health: 1, ammo: sys?.missiles || 6, free: true }];
+    return [{ id: 0, key: th.freeAD.key, x: th.freeAD.x, y: th.freeAD.y, free: true, ...initAdInstance(sys) }];
   });
+  // GNSS jamming toggle - degrades GPS-guided drones (Shahed family, Mohajer, Wing Loong, Gerbera).
+  // Models the EW reality that Russia/US/UK heavily jam Shahed-class drones in 2024-2026.
+  const [jammingActive, setJammingActive] = useState(false);
 
   const simRef = useRef(null);
   const runRef = useRef(false);
@@ -909,6 +1037,7 @@ export default function SwarmInterception() {
   const zoneRadiusRef = useRef(zoneRadius);
   const assetRadiusRef = useRef(assetRadius);
   const adUnitsRef = useRef(adUnits);
+  const jammingRef = useRef(jammingActive);
   // Map container ref for screen-shake effect (learning from game mode's shakeMap)
   const mapContainerRef = useRef(null);
 
@@ -919,6 +1048,7 @@ export default function SwarmInterception() {
   useEffect(() => { zoneRadiusRef.current = zoneRadius; }, [zoneRadius]);
   useEffect(() => { assetRadiusRef.current = assetRadius; }, [assetRadius]);
   useEffect(() => { adUnitsRef.current = adUnits; }, [adUnits]);
+  useEffect(() => { jammingRef.current = jammingActive; }, [jammingActive]);
 
   // Screen shake helper - ported from game mode (swarm-1v1.js shakeMap pattern).
   // Cheapest "juice" tool ever invented; sells the impact of breaches and AD destruction.
@@ -961,7 +1091,7 @@ export default function SwarmInterception() {
     } else if (placementMode === "place_ad") {
       const sys = AD_SYSTEMS.find((s) => s.key === adPlaceKey);
       if (sys) {
-        setAdUnits((prev) => [...prev, { id: Date.now(), key: adPlaceKey, x: Math.round(x), y: Math.round(y), health: 1, ammo: sys.missiles }]);
+        setAdUnits((prev) => [...prev, { id: Date.now(), key: adPlaceKey, x: Math.round(x), y: Math.round(y), ...initAdInstance(sys) }]);
       }
     }
   }, [placementMode, spawnDroneKey, spawnDefKey, spawnCount, zoneCenter, zoneRadius]);
@@ -1001,7 +1131,7 @@ export default function SwarmInterception() {
       const prevKills = s.metrics.kills;
       const prevBreaches = s.metrics.breaches;
       const prevAdHealth = adUnitsRef.current.map((ad) => ad.health);
-      s = simStep(s, zoneCenterRef.current, assetRadiusRef.current, adUnitsRef.current, zoneRadiusRef.current);
+      s = simStep(s, zoneCenterRef.current, assetRadiusRef.current, adUnitsRef.current, zoneRadiusRef.current, THEATERS[theaterRef.current]?.bounds, jammingRef.current);
       const now = Date.now();
       // Kill impact flashes - distinguish AD-shoots-down vs interceptor-clash
       if (s.metrics.kills > prevKills) {
@@ -1085,7 +1215,7 @@ export default function SwarmInterception() {
     setDefenseBudget(100);
     const th = THEATERS.ukraine_kyiv;
     const sys = AD_SYSTEMS.find((s2) => s2.key === th.freeAD.key);
-    setAdUnits([{ id: 0, key: th.freeAD.key, x: th.freeAD.x, y: th.freeAD.y, health: 1, ammo: sys?.missiles || 6, free: true }]);
+    setAdUnits([{ id: 0, key: th.freeAD.key, x: th.freeAD.x, y: th.freeAD.y, free: true, ...initAdInstance(sys) }]);
   }, []);
 
   const togglePause = useCallback(() => {
@@ -1097,7 +1227,7 @@ export default function SwarmInterception() {
     pausedRef.current = true; setPaused(true); setStatusText("PAUSED");
     const prevKills = simRef.current.metrics.kills;
     const prevBreaches = simRef.current.metrics.breaches;
-    simRef.current = simStep(simRef.current, zoneCenterRef.current, assetRadiusRef.current, adUnitsRef.current, zoneRadiusRef.current);
+    simRef.current = simStep(simRef.current, zoneCenterRef.current, assetRadiusRef.current, adUnitsRef.current, zoneRadiusRef.current, THEATERS[theaterRef.current]?.bounds, jammingRef.current);
     const now = Date.now();
     if (simRef.current.metrics.kills > prevKills) {
       for (const k of simRef.current.attackers) {
@@ -1202,7 +1332,7 @@ export default function SwarmInterception() {
                 const sys = AD_SYSTEMS.find((s) => s.key === th.freeAD.key);
                 setAdUnits((prev) => {
                   const userPlaced = prev.filter((ad) => !ad.free);
-                  return [{ id: Date.now(), key: th.freeAD.key, x: th.freeAD.x, y: th.freeAD.y, health: 1, ammo: sys?.missiles || 6, free: true }, ...userPlaced];
+                  return [{ id: Date.now(), key: th.freeAD.key, x: th.freeAD.x, y: th.freeAD.y, free: true, ...initAdInstance(sys) }, ...userPlaced];
                 });
               }
             }} disabled={running}
@@ -1245,22 +1375,42 @@ export default function SwarmInterception() {
             {(() => {
               const sel = AD_SYSTEMS.find((s) => s.key === adPlaceKey);
               if (!sel) return null;
+              const rangeKm = ((sel.range_m ?? 0) / 1000).toFixed(0);
+              const detKm = ((sel.detection_m ?? 0) / 1000).toFixed(0);
               return (
                 <div style={{ fontSize: 9, color: "#666", marginBottom: 4, lineHeight: 1.5 }}>
-                  {sel.type} range | {sel.range}m | {sel.missiles} rounds | {(60 / sel.engageRate).toFixed(0)} tgt/min | Pk {(sel.pk * 100).toFixed(0)}% | ${formatUSD(sel.missileCost)}/shot
+                  Engage {rangeKm}km / detect {detKm}km | salvo {sel.salvo} | burst {sel.burstSize} ({Math.round(sel.reloadS / 60)}min reload) | {sel.maxSimultaneous} sim. tgts | Pk {(sel.pk * 100).toFixed(0)}% | {sel.mobile ? "mobile" : "fixed"} ({sel.setupMin}min setup)
                 </div>
               );
             })()}
             {adUnits.map((ad, i) => {
               const sys = AD_SYSTEMS.find((s) => s.key === ad.key);
+              const reloading = ad.reloadStepsLeft != null && ad.reloadStepsLeft > 0;
+              const reloadSecs = reloading ? Math.ceil(ad.reloadStepsLeft / 10) : 0;
+              const burstNow = ad.burstRemaining ?? ad.ammo ?? 0;
+              const burstMax = sys?.burstSize ?? sys?.missiles ?? 0;
               return (
                 <div key={ad.id} style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 3, fontSize: 10, color: sys?.color || "#888" }}>
-                  <span style={{ flex: 1 }}>{sys?.name || ad.key} [{ad.ammo}]{ad.free ? " (free)" : ""}</span>
+                  <span style={{ flex: 1 }}>
+                    {sys?.name || ad.key} [{burstNow}/{burstMax}]{reloading ? ` ⟳${reloadSecs}s` : ""}{ad.free ? " (free)" : ""}
+                  </span>
                   <button onClick={() => setAdUnits((prev) => prev.filter((_, j) => j !== i))} disabled={running}
                     style={{ background: "transparent", border: "1px solid #333", color: "#888", width: 18, height: 18, padding: 0, fontSize: 12, lineHeight: "16px", textAlign: "center", cursor: "pointer", borderRadius: 3 }}>&times;</button>
                 </div>
               );
             })}
+
+            <PanelTitle>Electronic Warfare</PanelTitle>
+            <button onClick={() => setJammingActive((j) => !j)}
+              style={{ ...btnBase, fontSize: 11, padding: "6px 10px",
+                background: jammingActive ? "#3a3a1a" : "#1a1a24",
+                borderColor: jammingActive ? "#ddcc44" : "#2a2a35",
+                color: jammingActive ? "#ddcc44" : "#888" }}>
+              GNSS Jamming: {jammingActive ? "ACTIVE" : "off"}
+            </button>
+            <div style={{ fontSize: 9, color: "#555", marginTop: 4, lineHeight: 1.4 }}>
+              Degrades GPS-guided drones (Shahed family, Mohajer, Wing Loong, Gerbera). FPV / TV-seeker drones (Lancet, Switchblade) unaffected.
+            </div>
 
             <PanelTitle>Spawn Points</PanelTitle>
             <div style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>Select type/count, click map to place.</div>
@@ -1381,12 +1531,13 @@ export default function SwarmInterception() {
 
                   <h3 style={{ fontSize: 12, color: "#ff6666", margin: "16px 0 8px", textTransform: "uppercase", letterSpacing: 1 }}>Attack Drones</h3>
                   {DRONE_DB.attack.map((d) => (
-                    <div key={d.key} style={{ background: "#1a1a24", border: "1px solid #2a2a35", borderRadius: 6, padding: 12, marginBottom: 6, display: "flex", gap: 12 }}>
-                      {/* Sci-fi sketch column - shows the unit's silhouette */}
+                    <div key={d.key} style={{ background: "#1a1a24", border: `1px solid ${d.decoy ? "#aa8800" : "#2a2a35"}`, borderRadius: 6, padding: 12, marginBottom: 6, display: "flex", gap: 12 }}>
                       <div style={{ flexShrink: 0, width: 80, height: 60, display: "flex", alignItems: "center", justifyContent: "center" }} dangerouslySetInnerHTML={{ __html: UNIT_SKETCHES.attack[d.key] || `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="20" fill="#cc3333" stroke="#fff" stroke-width="2"/></svg>` }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                          <span style={{ fontWeight: 600, fontSize: 12, color: "#ff6666" }}>{d.name}</span>
+                          <span style={{ fontWeight: 600, fontSize: 12, color: "#ff6666" }}>
+                            {d.name} {d.decoy && <span style={{ fontSize: 9, color: "#ddbb44", fontWeight: 400 }}>* DECOY</span>}
+                          </span>
                           <span style={{ fontSize: 10, color: "#666" }}>{d.country}</span>
                         </div>
                         <div style={{ display: "flex", gap: 12, marginBottom: 6, fontSize: 10, flexWrap: "wrap" }}>
@@ -1423,40 +1574,50 @@ export default function SwarmInterception() {
                   ))}
 
                   <h3 style={{ fontSize: 12, color: "#22aa22", margin: "16px 0 8px", textTransform: "uppercase", letterSpacing: 1 }}>Ground Air Defense Systems</h3>
-                  {AD_SYSTEMS.map((s) => (
+                  {AD_SYSTEMS.map((s) => {
+                    const rangeKm = ((s.range_m ?? 0) / 1000).toFixed(0);
+                    const detKm = ((s.detection_m ?? 0) / 1000).toFixed(0);
+                    const reloadMin = Math.round((s.reloadS ?? 0) / 60);
+                    const effectivePk = 1 - Math.pow(1 - s.pk, s.salvo ?? 1);
+                    return (
                     <div key={s.key} style={{ background: "#1a1a24", border: "1px solid #2a2a35", borderRadius: 6, padding: 12, marginBottom: 6, display: "flex", gap: 12 }}>
                       <div style={{ flexShrink: 0, width: 80, height: 60, display: "flex", alignItems: "center", justifyContent: "center" }} dangerouslySetInnerHTML={{ __html: UNIT_SKETCHES.ad[s.key] || `<svg width="60" height="60" viewBox="0 0 60 60"><circle cx="30" cy="30" r="22" fill="${s.color}" stroke="#fff" stroke-width="2.5"/></svg>` }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
                           <span style={{ fontWeight: 600, fontSize: 12, color: s.color }}>{s.name}</span>
-                          <span style={{ fontSize: 10, color: "#666" }}>{s.country} - {s.type} range</span>
+                          <span style={{ fontSize: 10, color: "#666" }}>{s.country} - {s.type} range - {s.mobile ? "mobile" : "fixed"}</span>
                         </div>
                         <div style={{ display: "flex", gap: 8, marginBottom: 6, fontSize: 10, flexWrap: "wrap" }}>
-                          <span style={{ color: "#888" }}>Range: <span style={{ color: "#e0e0e0" }}>{s.range}m</span></span>
-                          <span style={{ color: "#888" }}>Ammo: <span style={{ color: "#e0e0e0" }}>{s.missiles}</span></span>
-                          <span style={{ color: "#888" }}>Rate: <span style={{ color: "#e0e0e0" }}>{(60 / s.engageRate).toFixed(0)}/min</span></span>
-                          <span style={{ color: "#888" }}>Pk: <span style={{ color: "#4caf50" }}>{(s.pk * 100).toFixed(0)}%</span></span>
+                          <span style={{ color: "#888" }}>Engage: <span style={{ color: "#e0e0e0" }}>{rangeKm}km</span></span>
+                          <span style={{ color: "#888" }}>Detect: <span style={{ color: "#e0e0e0" }}>{detKm}km</span></span>
+                          <span style={{ color: "#888" }}>Burst: <span style={{ color: "#e0e0e0" }}>{s.burstSize}</span></span>
+                          <span style={{ color: "#888" }}>Reload: <span style={{ color: "#e0e0e0" }}>{reloadMin}min</span></span>
+                          <span style={{ color: "#888" }}>Salvo: <span style={{ color: "#e0e0e0" }}>{s.salvo}</span></span>
+                          <span style={{ color: "#888" }}>Sim. tgts: <span style={{ color: "#e0e0e0" }}>{s.maxSimultaneous}</span></span>
+                          <span style={{ color: "#888" }}>Setup: <span style={{ color: "#e0e0e0" }}>{s.setupMin}min</span></span>
+                          <span style={{ color: "#888" }}>Per-msl Pk: <span style={{ color: "#4caf50" }}>{(s.pk * 100).toFixed(0)}%</span></span>
+                          <span style={{ color: "#888" }}>Salvo Pk: <span style={{ color: "#4caf50" }}>{(effectivePk * 100).toFixed(0)}%</span></span>
                           <span style={{ color: "#888" }}>Cost: <span style={{ color: "#ff9800" }}>${formatUSD(s.cost)}</span></span>
                           <span style={{ color: "#888" }}>Shot: <span style={{ color: "#ff9800" }}>${formatUSD(s.missileCost)}</span></span>
                           <span style={{ color: "#888" }}>Min RCS: <span style={{ color: "#e0e0e0" }}>{s.rcsThreshold} m2</span></span>
                         </div>
-                        {/* Range bar visual */}
                         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                          <span style={{ fontSize: 9, color: "#555", width: 35 }}>Range</span>
+                          <span style={{ fontSize: 9, color: "#555", width: 50 }}>Engage km</span>
                           <div style={{ flex: 1, background: "#0a0a0f", borderRadius: 3, height: 6 }}>
-                            <div style={{ width: `${Math.min(100, (s.range / 5000) * 100)}%`, height: "100%", background: s.color, borderRadius: 3, opacity: 0.7 }} />
+                            <div style={{ width: `${Math.min(100, ((s.range_m ?? 0) / 200000) * 100)}%`, height: "100%", background: s.color, borderRadius: 3, opacity: 0.7 }} />
                           </div>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                          <span style={{ fontSize: 9, color: "#555", width: 35 }}>Pk</span>
+                          <span style={{ fontSize: 9, color: "#555", width: 50 }}>Salvo Pk</span>
                           <div style={{ flex: 1, background: "#0a0a0f", borderRadius: 3, height: 6 }}>
-                            <div style={{ width: `${s.pk * 100}%`, height: "100%", background: "#4caf50", borderRadius: 3, opacity: 0.7 }} />
+                            <div style={{ width: `${effectivePk * 100}%`, height: "100%", background: "#4caf50", borderRadius: 3, opacity: 0.7 }} />
                           </div>
                         </div>
                         <div style={{ fontSize: 10, color: "#555", lineHeight: 1.4, marginTop: 4 }}>{s.desc}</div>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
