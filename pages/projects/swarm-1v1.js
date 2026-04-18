@@ -2,6 +2,7 @@ import Head from "next/head";
 import Link from "next/link";
 import Script from "next/script";
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import SwarmTutorial, { SWARM_TUTORIAL_STEP_COUNT, getTutorialAdvanceToken } from "../../components/SwarmTutorial";
 
 const ARENA = 10000;
 // Kill radius in real-world meters. Converted to sim units per theater via mpu.
@@ -804,6 +805,32 @@ export default function Swarm1v1() {
   }, []);
 
 
+  // Tutorial: a single index into TUTORIAL_STEPS, or null when inactive. Pinned to
+  // kashmir theater + bot mode so the player has a controlled environment to learn in.
+  const [tutorialStep, setTutorialStep] = useState(null);
+  const tutorialActive = tutorialStep != null && tutorialStep < SWARM_TUTORIAL_STEP_COUNT;
+  const advanceTutorial = useCallback(() => setTutorialStep((s) => (s == null ? null : s + 1)), []);
+  const skipTutorial = useCallback(() => setTutorialStep(null), []);
+  // Track Solar / Gepard counts so we can auto-advance the moment the player places one.
+  // (Placement handlers are deep in handleMapClick; observing the resulting state is
+  // simpler than wiring callbacks through the click handler.)
+  const solarCount = playerResources.filter((r) => r.key === "solar" && r.alive).length;
+  const gepardCount = playerAD.filter((a) => a.key === "gepard" && a.health > 0).length;
+
+  // Auto-advance the tutorial when the player completes the action the current step expects.
+  // Maps step.advance tokens to state predicates. Step authors define the token in
+  // SwarmTutorial.js; this effect is the single observation point.
+  useEffect(() => {
+    if (!tutorialActive) return;
+    const token = getTutorialAdvanceToken(tutorialStep);
+    let satisfied = false;
+    if (token === "auto-hq") satisfied = !!playerHQ;
+    else if (token === "auto-resource") satisfied = solarCount > 0;
+    else if (token === "auto-ad") satisfied = gepardCount > 0;
+    else if (token === "auto-combat") satisfied = phase === PHASE.COMBAT;
+    if (satisfied) setTutorialStep((s) => (s == null ? null : s + 1));
+  }, [tutorialActive, tutorialStep, playerHQ, solarCount, gepardCount, phase]);
+
   const findMatch = useCallback(() => {
     if (!username.trim()) return;
     _initAudio(); // unlock Web Audio on first user gesture
@@ -837,6 +864,40 @@ export default function Swarm1v1() {
         setAiSetup(newAi);
     }
   }, [username, selectedTheaters, resetMatchState]);
+
+  // Tutorial: spin up a bot match pinned to LoC Kashmir (smallest theater, simplest map),
+  // then drive the user through the step list. Defaults username to "Recruit" if blank so
+  // the lobby gating doesn't block the click.
+  const startTutorial = useCallback(() => {
+    _initAudio();
+    setGameMode("bot");
+    setOpponentName("INSTRUCTOR");
+    const pick = "kashmir";
+    setTheater(pick);
+    theaterRef.current = pick;
+    setSelectedTheaters([pick]);
+    if (!username.trim()) setUsername("Recruit");
+    setPhase(PHASE.SETUP);
+    resetMatchState();
+    const deposits = generateResourceDeposits(pick);
+    const newAi = generateAISetup(pick);
+    const aiResources = [];
+    for (const key of ["solar", "arms", "oil", "hydro"]) {
+      const candidates = deposits
+        .filter((d) => d.key === key && !d.claimed)
+        .map((d) => ({ d, dist: Math.hypot(d.x - newAi.hqX, d.y - newAi.hqY) }))
+        .sort((a, b) => a.dist - b.dist);
+      if (candidates.length > 0) {
+        const claimed = candidates[0].d;
+        claimed.claimed = true;
+        aiResources.push({ key, x: claimed.x, y: claimed.y, alive: true, depositId: claimed.id });
+      }
+    }
+    newAi.resources = aiResources;
+    setResourceDeposits(deposits);
+    setAiSetup(newAi);
+    setTutorialStep(0);
+  }, [username, resetMatchState]);
 
   // ── Multiplayer: broadcast a message to peer (no-op in bot mode) ──
   const broadcast = useCallback((msg) => {
@@ -3687,6 +3748,10 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         @keyframes mmSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
 
+      {tutorialActive && (
+        <SwarmTutorial stepIdx={tutorialStep} onAdvance={advanceTutorial} onSkip={skipTutorial} />
+      )}
+
       <div style={{ background: "#0a0a0f", color: "#e0e0e0", fontFamily: "'Segoe UI', system-ui, sans-serif", height: "100vh", overflow: "hidden", display: "flex", flexDirection: "column" }}>
         <div style={{ background: "#111118", borderBottom: "1px solid #2a2a35", padding: "8px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 56, flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
@@ -3783,6 +3848,11 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                   <button onClick={findMatch} disabled={!username.trim()}
                     style={{ ...btnStyle, width: "100%", marginBottom: 8, background: username.trim() ? "#1a2a4a" : "#1a1a24", borderColor: username.trim() ? "#4a9eff" : "#333", color: username.trim() ? "#4a9eff" : "#555" }}>
                     Play vs Bot
+                  </button>
+
+                  <button onClick={startTutorial}
+                    style={{ ...btnStyle, width: "100%", marginBottom: 8, background: "#3a2a1a", borderColor: "#ddaa44", color: "#ddaa44" }}>
+                    Tutorial (LoC Kashmir)
                   </button>
 
                   <button onClick={createRoom} disabled={!username.trim() || !peerLoaded}
@@ -3945,7 +4015,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                     <span style={{ color: "#555", fontSize: 9 }}> / ${formatUSD(playerBudget)}</span>
                   </div>
 
-                  <button onClick={() => setPlacingWhat("hq")} disabled={!!playerHQ}
+                  <button data-tutorial="place_hq_btn" onClick={() => setPlacingWhat("hq")} disabled={!!playerHQ}
                     style={{ ...inputStyle, width: "100%", marginBottom: 6, cursor: playerHQ ? "not-allowed" : "pointer", opacity: playerHQ ? 0.4 : 1, textAlign: "center", fontSize: 11, border: placingWhat === "hq" ? "1px solid #4a9eff" : "1px solid #2a2a35" }}>
                     {playerHQ ? "HQ Placed" : placingWhat === "hq" ? "Click on map..." : "Place HQ"}
                   </button>
@@ -3968,7 +4038,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
 
                   {playerHQ && (
                     <>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, marginTop: 8 }}>
+                      <div data-tutorial="airspace_slider" style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, marginTop: 8 }}>
                         <span style={{ fontSize: 10, color: "#888" }}>Airspace:</span>
                         <input type="range" min={(THEATERS[theater]?.airspace || [2000, 500])[1]} max={playerHQ && aiSetup && aiSetup.hqX != null ? Math.max((THEATERS[theater]?.airspace || [2000, 500])[1], Math.floor(dist(playerHQ, { x: aiSetup.hqX, y: aiSetup.hqY }) - aiSetup.airspace - 400)) : (THEATERS[theater]?.airspace || [2000, 500, 4000])[2]} step="100" value={playerAirspace} onChange={(e) => setPlayerAirspace(parseInt(e.target.value))} style={{ flex: 1 }} />
                         <span style={{ fontSize: 10, color: "#4a9eff" }}>{playerAirspace}m</span>
@@ -4018,13 +4088,13 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
 
                       <div style={{ fontSize: 10, textTransform: "uppercase", color: "#cc8800", margin: "4px 0 4px" }}>Resources</div>
                       {RESOURCES.map((r) => (
-                        <button key={r.key} onClick={() => setPlacingWhat(r.key)}
+                        <button key={r.key} data-tutorial={r.key === "solar" ? "resource_solar" : undefined} onClick={() => setPlacingWhat(r.key)}
                           style={{ ...inputStyle, width: "100%", marginBottom: 3, cursor: "pointer", textAlign: "left", fontSize: 10, border: placingWhat === r.key ? `1px solid ${r.color}` : "1px solid #2a2a35" }}>
                           <span style={{ color: r.color }}>{r.icon}</span> {r.name} ${formatUSD(r.cost)} (+${formatUSD(r.income)}/rnd)
                         </button>
                       ))}
 
-                      <div style={{ fontSize: 10, textTransform: "uppercase", color: "#4a9eff", margin: "8px 0 4px" }}>Interceptor Drones</div>
+                      <div data-tutorial="interceptor_panel" style={{ fontSize: 10, textTransform: "uppercase", color: "#4a9eff", margin: "8px 0 4px" }}>Interceptor Drones</div>
                       {DEFENSE_UNITS.map((d) => (
                         <button key={d.key} onClick={() => setPlacingWhat("def_" + d.key)}
                           style={{ ...inputStyle, width: "100%", marginBottom: 3, cursor: "pointer", textAlign: "left", fontSize: 10, border: placingWhat === "def_" + d.key ? "1px solid #4a9eff" : "1px solid #2a2a35", display: "flex", alignItems: "center", gap: 8 }}>
@@ -4038,12 +4108,13 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
 
                       <div style={{ fontSize: 10, textTransform: "uppercase", color: "#22aa22", margin: "8px 0 4px" }}>Ground AD</div>
                       {theaterScale.ad.map((s) => (
-                        <button key={s.key} onClick={() => setPlacingWhat("ad_" + s.key)}
+                        <button key={s.key} data-tutorial={s.key === "gepard" ? "ad_gepard" : undefined} onClick={() => setPlacingWhat("ad_" + s.key)}
                           style={{ ...inputStyle, width: "100%", marginBottom: 3, cursor: "pointer", textAlign: "left", fontSize: 10, border: placingWhat === "ad_" + s.key ? `1px solid ${s.color}` : "1px solid #2a2a35" }}>
                           {s.name} ${formatUSD(s.cost)} | {s.range_m / 1000}km | {s.missiles} rds | Pk {Math.round(s.pk * 100)}%
                         </button>
                       ))}
 
+                      <div data-tutorial="attack_wave">
                       <div style={{ fontSize: 10, textTransform: "uppercase", color: "#ff5555", margin: "8px 0 4px" }}>Your Attack Wave</div>
                       {ATTACK_UNITS.map((a) => (
                         <div key={a.key} style={{ marginBottom: 4 }}>
@@ -4055,6 +4126,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                             style={{ width: "100%", height: 14, margin: 0, padding: 0 }} />
                         </div>
                       ))}
+                      </div>
                       <div style={{ fontSize: 10, textTransform: "uppercase", color: "#00ddff", margin: "8px 0 4px" }}>
                         Attack Trajectory {playerTrajectory.length > 0 && <span style={{ color: "#666" }}>({playerTrajectory.length} waypoints)</span>}
                       </div>
@@ -4075,6 +4147,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                       <div style={{ fontSize: 8, color: "#555", marginBottom: 4 }}>
                         Drones fly through your waypoints in order, then attack the priority target.
                       </div>
+                      <div data-tutorial="priority_posture">
                       <div style={{ fontSize: 10, textTransform: "uppercase", color: "#ff9800", margin: "8px 0 4px" }}>Attack Priority</div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3 }}>
                         {[["hq", "HQ"], ["ad", "Ground AD"], ["resources", "Resources"], ["interceptors", "Interceptors"]].map(([k, label]) => (
@@ -4103,6 +4176,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                       <div style={{ fontSize: 8, color: "#555", marginBottom: 6 }}>
                         {defPosture === "insane" ? "Chase anywhere including enemy airspace" : defPosture === "pursuing" ? "Chase but won't enter enemy airspace" : "Stay inside your airspace only"}
                       </div>
+                      </div>
 
                       {placingWhat && placingWhat !== "hq" && (
                         <button onClick={() => setPlacingWhat(null)}
@@ -4112,7 +4186,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                       )}
 
                       {gameMode === "bot" ? (
-                        <button onClick={() => { setPlacingWhat(null); setPhase(PHASE.COMBAT); }} disabled={remaining < 0}
+                        <button data-tutorial="ready_btn" onClick={() => { setPlacingWhat(null); setPhase(PHASE.COMBAT); }} disabled={remaining < 0}
                           style={{ ...btnStyle, width: "100%", marginTop: 8, background: remaining >= 0 ? "#4a1a2a" : "#1a1a24", borderColor: remaining >= 0 ? "#ff6688" : "#333", color: remaining >= 0 ? "#ff6688" : "#555", fontSize: 12 }}>
                           READY FOR BATTLE
                         </button>
