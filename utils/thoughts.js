@@ -83,4 +83,14 @@ export const thoughts = [
       },
     ],
   },
+  {
+    domain: "Gaming",
+    color: "red",
+    items: [
+      {
+        text: "I dealt 270 damage as a level 5 paladin.",
+        source: "Personal thought",
+      },
+    ],
+  },
 ];
