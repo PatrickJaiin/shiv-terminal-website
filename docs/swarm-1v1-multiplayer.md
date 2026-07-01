@@ -27,7 +27,7 @@ This page documents the multiplayer system added to `pages/projects/swarm-1v1.js
             └─┤  WebRTC DataChannel      ├─┘
               │  (P2P, no relay)         │
               │  - setup state sync      │
-              │  - combat snapshots 10Hz │
+              │  - combat snapshots ~15Hz │
               │  - round results         │
               └──────────────────────────┘
 ```
@@ -69,29 +69,29 @@ That's it. The matchmaking endpoints will pick up the env vars on the next deplo
 
 ## Phases shipped
 
-### Phase 1 — Connection foundation
+### Phase 1 - Connection foundation
 - 3-mode lobby (Bot / Create / Join), Find Match disabled
 - PeerJS hookup, room code create/join
 - Connection lifecycle, cleanup, stale-handler safety
 - Status: complete
 
-### Phase 2 — Setup state sync
+### Phase 2 - Setup state sync
 - Setup actions sync over PeerJS (HQ, airspace, resources, AD, interceptors, attack wave, priority, posture)
 - Resource deposits broadcast from host to guest on connection
-- Ready handshake (both players mark ready, host clicks START COMBAT)
+- Ready handshake (both players mark ready; combat then starts automatically - no extra click)
 - Status: complete
 
-### Phase 3 — Combat sync
+### Phase 3 - Combat sync
 - Host runs the simulation locally; guest never simulates
-- Host streams combat snapshots at ~10 Hz over WebRTC DataChannel
+- Host streams combat snapshots at ~15 Hz (67ms interval) over WebRTC DataChannel
 - Guest renders received snapshots via render-only loop
 - Round-end results broadcast (kills, breaches, budget deltas, game-over)
 - Disconnect mid-combat returns both players to lobby
 - Status: complete
 
-### Phase 4 — Random matchmaking
+### Phase 4 - Random matchmaking
 - `pages/api/match/queue.js` and `pages/api/match/check.js` (Vercel Edge)
-- Find Match button enables when Upstash env vars are set
+- Find Match button enables when a username is entered and the PeerJS library has loaded; if Upstash isn't configured the server responds 503 and the UI shows a friendly "not configured" error
 - 60-second matchmaking timeout
 - Cancel removes from queue cleanly
 - Status: complete
@@ -113,14 +113,14 @@ That's it. The matchmaking endpoints will pick up the env vars on the next deplo
 | `attack_priority` | both | set attack priority |
 | `def_posture` | both | set defense posture |
 | `ready` | both | mark ready / unready |
-| `start_combat` | host | host clicked START COMBAT |
+| `start_combat` | host | both players ready - host auto-initiates combat |
 | `round_start` | host | round just launched (income deltas) |
-| `combat_snapshot` | host (~10Hz) | live entity positions during combat |
+| `combat_snapshot` | host (~15Hz) | live entity positions during combat |
 | `round_end` | host | round result (kills, breaches, dmg, gameOver) |
 
 ## Known limitations (acceptable for v1)
 
-- Both players see the same map orientation (host's POV). Guest's "your" side is at the bottom — slightly weird but functional.
+- Both players see the same map orientation (host's POV). Guest's "your" side is at the bottom - slightly weird but functional.
 - Mid-match disconnect ends the match for both players (no reconnection)
 - No spectators
 - No replays
@@ -136,7 +136,7 @@ That's it. The matchmaking endpoints will pick up the env vars on the next deplo
 
 ## Files touched
 
-- `pages/projects/swarm-1v1.js` (~2000 lines, single file - all client logic)
+- `pages/projects/swarm-1v1.js` (single file - all client logic; line count grows with features, check the file)
 - `pages/api/match/queue.js` (NEW, edge function)
 - `pages/api/match/check.js` (NEW, edge function)
 - `docs/swarm-1v1-multiplayer.md` (this file)

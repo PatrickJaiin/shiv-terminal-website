@@ -59,27 +59,33 @@ const THEATERS = {
   },
 };
 
-// Repriced per game economics audit (Apr 2026):
-// FPV bumped from $500 → $15K to match Kamikaze interceptor cost (1:1 economics).
-// HP added per threat tier so cheap ADs need more shots vs expensive drones.
-// HP values are tuned so the Gepard (dmg 1, pk 0.5) needs ~hp*2 attempts on average to
-// kill each drone. FPV nerfed to hp 2 → ~4 Gepard attempts (so it 2-shots on hits).
-// Other drones rebalanced relative to FPV: shahed slightly tankier, lancet medium,
-// mohajer the heavy that needs sustained fire to take down.
+// Repriced per game economics audit (Apr 2026) + judge-panel rebalance (Jul 2026):
+// HP per threat tier so cheap ADs need more shots vs expensive drones (FPV 2, Shahed 3,
+// Lancet 5, Mohajer 12). Interceptors now deal HP damage on contact (dmg 4) instead of
+// one-touch kills, so a Mohajer soaks 3 kamikazes. Mohajer repriced $710K -> $550K to make
+// its Gepard-throughput-soaking breacher role economically reachable (~$46K/HP).
 // Speeds reflect real-world ratios (normalized so Shahed at 180km/h = 2.0 sim units/tick).
-// FPV: 130km/h racing drone repurposed for combat. Lancet: 100km/h slow loitering munition.
-// Mohajer: 175km/h fast MALE UAV. These ratios match reality unlike the old arbitrary values.
 const ATTACK_UNITS = [
   { key: "fpv", name: "FPV Drone", cost: 21000, speed: 1.5, threat: "cheap", hp: 2, speed_kmh: 130 },
   { key: "shahed", name: "Shahed-136", cost: 28000, speed: 2.0, threat: "cheap", hp: 3, speed_kmh: 180 },
   { key: "lancet", name: "Lancet-3", cost: 50000, speed: 1.1, threat: "medium", hp: 5, speed_kmh: 100 },
-  { key: "mohajer", name: "Mohajer-6", cost: 710000, speed: 1.9, threat: "expensive", hp: 12, speed_kmh: 175 },
+  { key: "mohajer", name: "Mohajer-6", cost: 550000, speed: 1.9, threat: "expensive", hp: 12, speed_kmh: 175 },
 ];
 
+// dmg = HP dealt per contact/pass. Kamikaze is expended on EVERY kill (1:1 economics vs FPV).
+// Armed survives each pass at survivalRate and re-flies; repriced $180K -> $90K at 80% survival
+// (~5 expected kills, ~$18K/kill) so it is a real alternative instead of strictly dominated.
 const DEFENSE_UNITS = [
-  { key: "kamikaze", name: "Kamikaze Interceptor", cost: 15000, speed: 2.2, destroyOnKill: true },
-  { key: "armed", name: "Armed Interceptor", cost: 180000, speed: 1.8, destroyOnKill: false, survivalRate: 0.73 },
+  { key: "kamikaze", name: "Kamikaze Interceptor", cost: 15000, speed: 2.2, destroyOnKill: true, dmg: 4 },
+  { key: "armed", name: "Armed Interceptor", cost: 90000, speed: 1.8, destroyOnKill: false, survivalRate: 0.8, dmg: 4 },
 ];
+
+// Anti-turtle deployment cap (judge-panel rebalance): only this many interceptors launch
+// per round (+6 per extra HQ); the rest stay grounded in reserve and auto-survive. Without
+// a cap, cheap kamikazes are an unlimited universal wall and defense is always cheaper
+// than offense - the game degenerates into a passive eco race.
+const INT_DEPLOY_CAP_BASE = 12;
+const INT_DEPLOY_CAP_PER_HQ = 6;
 
 // AD damage system (Apr 2026 rebalance):
 // Each AD does `dmg` HP per hit. Drone HP varies by threat tier (1/1/3/8).
@@ -94,12 +100,19 @@ const DEFENSE_UNITS = [
 //       "missile" = fires a burst of missiles rapidly, then long reload to refill the battery
 // burstSize: how many missiles fire before the long reload. burstRate: steps between missiles in a burst.
 // engageRate: seconds for the long reload AFTER a full burst is spent.
+// Ranges aligned with the sandbox's expert-reviewed doctrine DB (Jul 2026): range_m is the
+// operational engagement envelope vs low-altitude drones, NOT radar detection (the old values
+// conflated the two - Iron Dome was 105km when the real Tamir envelope is ~40km). detection_m
+// is the radar awareness ring, drawn faintly on the map. Gepard keeps a 7.5km gameplay
+// allowance vs the real ~4km AHEAD envelope so guns stay usable on large theaters.
+// salvo: missiles fired per engagement vs medium/expensive targets (shoot-shoot-look doctrine).
+// defaultPriority: NASAMS ships priority "expensive" so it doesn't dump $500K AMRAAMs at FPVs.
 const AD_SYSTEMS_1V1 = [
   // dmg >= 5 one-shots FPV(2hp), Shahed(3hp), Lancet(5hp) but NOT Mohajer(12hp)
-  { key: "iron_dome", name: "Iron Dome", cost: 40000000, range_m: 105000, missiles: 60, missileCost: 50000, pk: 0.9, engageRate: 10, burstSize: 60, burstRate: 10, dmg: 5, color: "#44bbff", type: "missile" },
-  { key: "gepard", name: "Gepard", cost: 5000000, range_m: 7500, missiles: 680, missileCost: 100, pk: 0.5, engageRate: 9, burstSize: 680, burstRate: 3, dmg: 1, color: "#88aa44", type: "gun" },
-  { key: "nasams", name: "NASAMS 3", cost: 20000000, range_m: 75000, missiles: 20, missileCost: 500000, pk: 0.95, engageRate: 8, burstSize: 20, burstRate: 20, dmg: 100, color: "#4488ff", type: "missile" },
-  { key: "pantsir", name: "Pantsir-S1", cost: 10000000, range_m: 30000, missiles: 12, missileCost: 60000, pk: 0.8, engageRate: 8, burstSize: 12, burstRate: 15, dmg: 5, color: "#cc8800", type: "missile" },
+  { key: "iron_dome", name: "Iron Dome", cost: 40000000, range_m: 40000, detection_m: 100000, missiles: 60, missileCost: 50000, pk: 0.9, engageRate: 10, burstSize: 60, burstRate: 10, dmg: 5, salvo: 1, color: "#44bbff", type: "missile" },
+  { key: "gepard", name: "Gepard", cost: 5000000, range_m: 7500, detection_m: 15000, missiles: 680, missileCost: 100, pk: 0.5, engageRate: 9, burstSize: 680, burstRate: 3, dmg: 1, salvo: 1, color: "#88aa44", type: "gun" },
+  { key: "nasams", name: "NASAMS 3", cost: 20000000, range_m: 25000, detection_m: 75000, missiles: 20, missileCost: 500000, pk: 0.95, engageRate: 8, burstSize: 20, burstRate: 20, dmg: 100, salvo: 2, defaultPriority: "expensive", color: "#4488ff", type: "missile" },
+  { key: "pantsir", name: "Pantsir-S1", cost: 10000000, range_m: 20000, detection_m: 36000, missiles: 12, missileCost: 60000, pk: 0.8, engageRate: 8, burstSize: 12, burstRate: 15, dmg: 5, salvo: 2, color: "#cc8800", type: "missile" },
 ];
 
 // Resource economy follows niche-distinction principle:
@@ -148,10 +161,33 @@ const MOBILE_AD_TYPES = new Set(["gepard", "pantsir"]);
 
 const AI_NAMES = ["SKYNET-7", "AEGIS_AI", "IRON_WALL", "RED_FURY", "SHADOW_NET", "VANGUARD", "CERBERUS", "TITAN_DEF"];
 const STARTING_BUDGET = 30000000;
-const AIRSPACE_BREACH_COST = 30; // per drone entering airspace
+// Per drone entering airspace. Raised from $30 (pure flavor) to a real harassment tax:
+// a 40-drone wave now costs the defender ~$300K, about one round of airspace income, so
+// max-airspace turtling has a genuine downside and cheap-drone harassment is net-positive.
+const AIRSPACE_BREACH_COST = 7500;
+// Match structure (anti-stalemate): hard cap at 12 rounds; if no HQ falls, the higher
+// SCORE wins (score = budget + 50% of cumulative breach damage inflicted, so aggression
+// is credited). Resource purchases freeze after round 9 and resource income halves in
+// rounds 10-12 ("sudden death") so an eco lead can be overturned by a combat lead.
+const ROUND_CAP = 12;
+const ECO_FREEZE_AFTER_ROUND = 9; // 1-indexed round number; freezes from round 10 on
 const PHASE = { LOBBY: "lobby", MATCHMAKING: "matchmaking", SETUP: "setup", COMBAT: "combat" };
 
+// Deterministic PRNG (mulberry32) for all in-sim rolls, per the architecture plan's
+// determinism goal. Host/bot-only: the MP guest renders host snapshots and never rolls.
+// Cosmetic UI effects (shake offsets, lobby name pick) intentionally keep Math.random().
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 function formatUSD(n) {
+  if (n < 0) return "-" + formatUSD(-n);
   if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
   if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
   if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
@@ -270,6 +306,15 @@ function generateResourceDeposits(theater) {
   return deposits;
 }
 
+// AI personalities (picked per match): shape wave composition, attack priority, and eco habits.
+// All three attack on their own schedule regardless of player aggression - a passive player
+// must still defend.
+const AI_PERSONALITIES = {
+  rusher: { label: "RUSHER", waveBias: { fpv: 1.6, shahed: 1.3, lancet: 0.6, mohajer: 0.4 }, priorities: ["hq", "hq", "hq", "ad"] },
+  economist: { label: "ECONOMIST", waveBias: { fpv: 0.8, shahed: 0.9, lancet: 1.0, mohajer: 0.8 }, priorities: ["resources", "resources", "hq", "resources"] },
+  sieger: { label: "SIEGER", waveBias: { fpv: 1.0, shahed: 1.0, lancet: 1.4, mohajer: 1.3 }, priorities: ["ad", "ad", "hq", "hq"] },
+};
+
 function generateAISetup(theater) {
   // AI spawns in the opponent zone, jittered within the zone radius
   const zones = getZones(theater);
@@ -277,48 +322,61 @@ function generateAISetup(theater) {
   const hqY = zones.p2.y + (Math.random() - 0.5) * ZONE_RADIUS * 0.4;
   const th = THEATERS[theater];
   const aiAirspace = th ? Math.round((th.airspace[0] + th.airspace[2]) / 2) : 2000;
+  // Base layout offsets in real meters converted to sim units. The old fixed sim-unit
+  // offsets (400-1200 units) put the AI's AD 15-150km from its own HQ on large theaters,
+  // where AD ranges (also meters-scaled) could never cover the base.
+  const mpu = th ? getProjection(th.bounds).mpu : 22;
+  const off = (m) => m / mpu;
+  const personalityKey = Object.keys(AI_PERSONALITIES)[Math.floor(Math.random() * 3)];
   return {
     hqX, hqY, airspace: aiAirspace,
+    personality: personalityKey,
     resources: [
-      { key: "oil", x: hqX - 600, y: hqY + 400, alive: true },
-      { key: "solar", x: hqX + 600, y: hqY + 400, alive: true },
-      { key: "arms", x: hqX, y: hqY + 800, alive: true },
+      { key: "oil", x: hqX - off(4000), y: hqY + off(3000), alive: true },
+      { key: "solar", x: hqX + off(4000), y: hqY + off(3000), alive: true },
+      { key: "arms", x: hqX, y: hqY + off(6000), alive: true },
     ],
-    // 16 interceptors instead of 8, faster
-    interceptors: Array.from({ length: 16 }, (_, i) => ({
-      id: 5000 + i, x: hqX + (Math.random() - 0.5) * 800, y: hqY + 1200 + Math.random() * 400,
-      speed: 2.4, status: "active", targetId: null, destroyOnKill: i < 12, survivalRate: 0.75,
+    // Trimmed free kit (judge-panel fairness fix): 8 interceptors instead of 16, and the
+    // ground AD below is Pantsir + one Gepard instead of Pantsir + 2 Gepard + NASAMS.
+    // Roughly symmetric to the player's $30M start instead of a hidden ~$70M head start.
+    interceptors: Array.from({ length: 8 }, (_, i) => ({
+      id: 5000 + i, x: hqX + (Math.random() - 0.5) * off(6000), y: hqY + off(8000) + Math.random() * off(3000),
+      speed: 2.2, status: "active", targetId: null, destroyOnKill: i < 6, survivalRate: 0.8,
     })),
-    // Real AD coverage: Pantsir-S1 at HQ (mid range, high pK), 2 Gepards on flanks, NASAMS forward
     adUnits: [
-      { key: "pantsir", x: hqX, y: hqY + 400, health: 1, ammo: 12 },
-      { key: "gepard", x: hqX - 700, y: hqY + 700, health: 1, ammo: 680 },
-      { key: "gepard", x: hqX + 700, y: hqY + 700, health: 1, ammo: 680 },
-      { key: "nasams", x: hqX, y: hqY + 1100, health: 1, ammo: 6 },
+      { key: "pantsir", x: hqX, y: hqY + off(3000), health: 1, ammo: 12 },
+      { key: "gepard", x: hqX - off(5000), y: hqY + off(5000), health: 1, ammo: 680 },
     ],
   };
 }
 
-// Interceptor survival rate against different drone tiers (per design):
-// FPV: 81%, Shahed: 72%, Lancet: 60%, Mohajer: 21%. Applies to both kamikaze and armed.
-function interceptorSurvivalRate(tgt) {
-  if (!tgt) return 0.5;
-  if (tgt.threat === "expensive") return 0.21;
-  if (tgt.threat === "medium") return 0.60;
-  // Cheap tier: FPV (hp<=2) is easiest, Shahed (hp 3) harder
-  if ((tgt.hp ?? 1) <= 2) return 0.81;
-  return 0.72;
+// Interceptor combat resolution (Jul 2026 rebalance): interceptors deal `dmg` HP per
+// contact and honor destroyOnKill/survivalRate per unit. Kamikaze is expended on every
+// contact; armed survives each pass at its survivalRate. Replaces the old target-tier
+// survival table that ignored both fields and made kamikazes near-immortal.
+function resolveInterceptorContact(int, tgt, rng) {
+  tgt.hp = (tgt.hp ?? 1) - (int.dmg ?? 4);
+  const killed = tgt.hp <= 0;
+  if (killed) tgt.status = "destroyed";
+  if (int.destroyOnKill !== false) {
+    int.status = "expended";
+  } else if (rng() > (int.survivalRate ?? 0.8)) {
+    int.status = "expended";
+  }
+  return killed;
 }
 
-function generateAIAttack(round) {
+function generateAIAttack(round, personality) {
   const r = round + 1;
-  // Much harder scaling - exponential drone counts and earlier high-tier units
-  return {
-    fpv: 15 + r * 12,
-    shahed: 6 + r * 6,
-    ...(r > 1 ? { lancet: 2 + r * 3 } : {}),
-    ...(r > 3 ? { mohajer: Math.floor(1 + r * 1.2) } : {}),
+  const bias = (AI_PERSONALITIES[personality] || AI_PERSONALITIES.rusher).waveBias;
+  // Hard scaling - drone counts ramp every round, shaped by personality
+  const wave = {
+    fpv: Math.round((15 + r * 12) * (bias.fpv ?? 1)),
+    shahed: Math.round((6 + r * 6) * (bias.shahed ?? 1)),
+    ...(r > 1 ? { lancet: Math.round((2 + r * 3) * (bias.lancet ?? 1)) } : {}),
+    ...(r > 3 ? { mohajer: Math.floor((1 + r * 1.2) * (bias.mohajer ?? 1)) } : {}),
   };
+  return wave;
 }
 
 // AI spends accumulated budget on defenses between rounds.
@@ -342,26 +400,31 @@ function aiSpendBudget(aiSetup, deposits, currentBudget, round) {
     });
   }
 
-  // Priority 2: top up interceptors if active count is low
-  const activeCount = newInterceptors.filter((i) => i.status === "active").length;
-  const targetInts = 12 + round * 2;
-  if (activeCount < targetInts && budget >= 60000) {
-    const toBuy = Math.min(8, targetInts - activeCount);
+  // Priority 2: top up interceptors if active count is low. Floor of 10 regardless of
+  // player behavior (a passive player must not zero out the AI's defense buys), plus
+  // scaling with round. Never spends more than the budget actually covers.
+  const activeCount = newInterceptors.filter((i) => i.status === "active" || i.status === "landed").length;
+  const targetInts = Math.max(10, 12 + round * 2);
+  if (activeCount < targetInts && budget >= 15000) {
+    const affordable = Math.floor(budget / 15000);
+    const toBuy = Math.min(8, targetInts - activeCount, affordable);
     budget -= 15000 * toBuy;
     for (let i = 0; i < toBuy; i++) {
       newInterceptors.push({
         id: 5000 + Date.now() + i,
         x: aiSetup.hqX + (Math.random() - 0.5) * 800,
         y: aiSetup.hqY + 1200 + Math.random() * 400,
-        speed: 2.4, status: "active", targetId: null,
-        destroyOnKill: true, survivalRate: 0.75,
+        speed: 2.2, status: "active", targetId: null,
+        destroyOnKill: true, survivalRate: 0.8, dmg: 4,
       });
     }
   }
 
-  // Priority 3: upgrade AD - add a Pantsir every 2 rounds, NASAMS at round 5+
-  if (round >= 2 && round % 2 === 0 && budget >= 15000000 && newAdUnits.filter((a) => a.key === "pantsir").length < 2) {
-    budget -= 15000000;
+  // Priority 3: upgrade AD - add a Pantsir every 2 rounds, NASAMS at round 5+.
+  // Prices match the player-facing catalog (Pantsir $10M, NASAMS $20M) so the AI pays
+  // what the player pays.
+  if (round >= 2 && round % 2 === 0 && budget >= 10000000 && newAdUnits.filter((a) => a.key === "pantsir").length < 2) {
+    budget -= 10000000;
     newAdUnits.push({
       key: "pantsir",
       x: aiSetup.hqX + (Math.random() - 0.5) * 1000,
@@ -369,17 +432,21 @@ function aiSpendBudget(aiSetup, deposits, currentBudget, round) {
       health: 1, ammo: 12,
     });
   }
-  if (round >= 5 && budget >= 40000000 && !newAdUnits.some((a) => a.key === "nasams")) {
-    budget -= 40000000;
+  if (round >= 5 && budget >= 20000000 && !newAdUnits.some((a) => a.key === "nasams")) {
+    budget -= 20000000;
     newAdUnits.push({
       key: "nasams",
       x: aiSetup.hqX + (Math.random() - 0.5) * 800,
       y: aiSetup.hqY + 800 + Math.random() * 600,
-      health: 1, ammo: 20,
+      health: 1, ammo: 20, priority: "expensive",
     });
   }
 
-  // Priority 4: claim more resources if there's budget headroom
+  // Priority 4: claim more resources if there's budget headroom.
+  // Eco freeze applies to the AI too: no new resource claims after round 9.
+  if (round + 1 > ECO_FREEZE_AFTER_ROUND) {
+    return { budget, adUnits: newAdUnits, interceptors: newInterceptors, resources: newResources, deposits: newDeposits };
+  }
   for (const key of ["solar", "arms", "oil", "hydro"]) {
     const res = RESOURCES.find((r) => r.key === key);
     if (!res || budget < res.cost * 1.5) continue;
@@ -645,7 +712,7 @@ export default function Swarm1v1() {
   // Phase B: additional HQs at increasing cost. Each is a fortified position with its own
   // small airspace circle, providing redundancy. Diminishing returns: 2nd costs 25M, 3rd costs 50M.
   const [playerExtraHQs, setPlayerExtraHQs] = useState([]); // [{x, y}, ...]
-  const EXTRA_HQ_COSTS = [25000000, 50000000]; // cost for placing 2nd, 3rd HQ
+  const EXTRA_HQ_COSTS = [10000000, 20000000]; // cost for placing 2nd, 3rd HQ (was 25M/50M for a render-only circle)
   const [playerAirspace, setPlayerAirspace] = useState(() => (THEATERS[theater]?.airspace || [2000])[0] || 2000);
   const [playerResources, setPlayerResources] = useState([]);
   const [playerInterceptors, setPlayerInterceptors] = useState([]);
@@ -659,7 +726,7 @@ export default function Swarm1v1() {
   const [unitInspect, setUnitInspect] = useState(null); // { kind, key, side, ad?, res?, intGroup?, x, y } - middle-click inspector
   const [totalIncome, setTotalIncome] = useState(0);
   const [damagePopup, setDamagePopup] = useState(null);
-  const [battleSpeed, setBattleSpeed] = useState(1); // 1x, 2x, 4x
+  const [battleSpeed, setBattleSpeed] = useState(4); // defaults to 4x (pacing rework); 1x-16x available
   const [showADRange, setShowADRange] = useState(true);
   const [fogOfWar, setFogOfWar] = useState(true); // toggle fog of war on/off
   const [scanUsedThisRound, setScanUsedThisRound] = useState(false); // satellite scan purchased this round
@@ -696,7 +763,8 @@ export default function Swarm1v1() {
       if (peerLoaded || (typeof window !== "undefined" && window.Peer)) return;
       fallbackFired = true;
       const s = document.createElement("script");
-      s.src = "https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js";
+      // Different CDN than the primary jsdelivr <Script> tag, so this is a real fallback
+      s.src = "https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js";
       s.onload = () => setPeerLoaded(true);
       document.head.appendChild(s);
     }, 4000);
@@ -739,8 +807,8 @@ export default function Swarm1v1() {
   const [gameOver, setGameOver] = useState(null);
   const [battleActive, setBattleActive] = useState(false);
   const [battleDrones, setBattleDrones] = useState({ playerAttackers: [], aiAttackers: [], playerInts: [], aiInts: [] });
-  // Per-turn timer: 60s prep window between rounds. Auto-launches on 0 or both ready.
-  const TURN_TIMER_SECONDS = 150; // 2.5 min prep between rounds
+  // Per-turn timer: prep window between rounds. Auto-launches on 0 or both ready.
+  const TURN_TIMER_SECONDS = 90; // 90s prep between rounds (was 150s - pacing rework)
   const [turnTimer, setTurnTimer] = useState(TURN_TIMER_SECONDS);
   const turnTimerRef = useRef(null);
 
@@ -749,6 +817,9 @@ export default function Swarm1v1() {
   const mapInstanceRef = useRef(null);
   const layerRef = useRef(null);
   const battleLayerRef = useRef(null);
+  // Separate layer for AD divIcon markers/labels during battle: DOM markers are expensive
+  // to tear down and rebuild 60x/sec, so this layer only redraws when AD state changes.
+  const adBattleLayerRef = useRef(null);
   const LRef = useRef(null);
   const handleMapClickRef = useRef(null);
   const inspectClickRef = useRef(null); // forward ref for middle-click inspect handler
@@ -763,10 +834,20 @@ export default function Swarm1v1() {
 
   // Battle sim refs
   const battleRef = useRef(null);
-  const battleSpeedRef = useRef(1);
+  const battleSpeedRef = useRef(4);
   const battleActiveRef = useRef(false);
   const showADRangeRef = useRef(true);
   const frameRef = useRef(null);
+  // Live budget mirrors: the round-end bankruptcy check reads these instead of the
+  // stale closure values captured when launchRound was created.
+  const playerBudgetRef = useRef(STARTING_BUDGET);
+  const aiBudgetRef = useRef(STARTING_BUDGET);
+  // Latest aiSetup/currentRound for callbacks that capture them at creation time
+  // (startGuestBattleLoop froze aiSetup=null and currentRound=0 forever before).
+  const aiSetupRef = useRef(null);
+  const currentRoundRef = useRef(0);
+  // Per-match stats for the game-over card + score (retention hooks).
+  const matchStatsRef = useRef({ kills: 0, losses: 0, breachDmgDealt: 0, breachDmgTaken: 0, dronesSent: 0, spent: 0 });
 
   // Reset match-level state (used by all 3 modes when a match starts)
   // NOTE: per audit fix #4, the player should NOT be defenseless on round 1.
@@ -786,6 +867,7 @@ export default function Swarm1v1() {
     setPlayerAirspace((THEATERS[theaterRef.current]?.airspace || [2000])[0]);
     setAttackPriority("hq");
     setDefPosture("pursuing");
+    matchStatsRef.current = { kills: 0, losses: 0, breachDmgDealt: 0, breachDmgTaken: 0, dronesSent: 0, spent: 0 };
     // Also clear opponent setup and deposits. Without this, going Lobby -> Create Room
     // carries aiSetup from a previous match forward into the static-draw effect's first
     // render of the new map, painting a stale "pre-placed" enemy base on the new match's
@@ -811,6 +893,15 @@ export default function Swarm1v1() {
   const tutorialActive = tutorialStep != null && tutorialStep < SWARM_TUTORIAL_STEP_COUNT;
   const advanceTutorial = useCallback(() => setTutorialStep((s) => (s == null ? null : s + 1)), []);
   const skipTutorial = useCallback(() => setTutorialStep(null), []);
+  // startTutorial pins selectedTheaters to kashmir; restore the player's own selection
+  // once the tutorial ends (it used to stay overwritten for the rest of the session).
+  const preTutorialTheatersRef = useRef(null);
+  useEffect(() => {
+    if (!tutorialActive && preTutorialTheatersRef.current) {
+      setSelectedTheaters(preTutorialTheatersRef.current);
+      preTutorialTheatersRef.current = null;
+    }
+  }, [tutorialActive]);
   // Track Solar / Gepard counts so we can auto-advance the moment the player places one.
   // (Placement handlers are deep in handleMapClick; observing the resulting state is
   // simpler than wiring callbacks through the click handler.)
@@ -875,6 +966,7 @@ export default function Swarm1v1() {
     const pick = "kashmir";
     setTheater(pick);
     theaterRef.current = pick;
+    preTutorialTheatersRef.current = selectedTheaters; // restored when tutorial ends
     setSelectedTheaters([pick]);
     if (!username.trim()) setUsername("Recruit");
     setPhase(PHASE.SETUP);
@@ -897,7 +989,7 @@ export default function Swarm1v1() {
     setResourceDeposits(deposits);
     setAiSetup(newAi);
     setTutorialStep(0);
-  }, [username, resetMatchState]);
+  }, [username, resetMatchState, selectedTheaters]);
 
   // ── Multiplayer: broadcast a message to peer (no-op in bot mode) ──
   const broadcast = useCallback((msg) => {
@@ -1038,15 +1130,17 @@ export default function Swarm1v1() {
         setAiSetup((prev) => {
           const next = prev ? { ...prev } : { hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airspace || [2000])[0], resources: [], interceptors: [], adUnits: [] };
           const expanded = [];
-          let baseId = (next.interceptors?.length || 0) + 90000;
+          // Monotonic id counter: length-based ids collided after a remove + re-place.
+          let baseId = (next._intIdCounter || 90000);
           for (let i = 0; i < (msg.count || 4); i++) {
             expanded.push({
               id: baseId++, x: msg.x + (Math.random() - 0.5) * 200, y: msg.y + (Math.random() - 0.5) * 200,
-              speed: 2.4, status: "active", targetId: null,
-              destroyOnKill: msg.key === "kamikaze", survivalRate: msg.key === "armed" ? 0.73 : 0,
+              speed: msg.key === "armed" ? 1.8 : 2.2, status: "active", targetId: null,
+              destroyOnKill: msg.key === "kamikaze", survivalRate: msg.key === "armed" ? 0.8 : 0, dmg: 4,
               groupX: msg.x, groupY: msg.y, // for remove matching
             });
           }
+          next._intIdCounter = baseId;
           next.interceptors = [...(next.interceptors || []), ...expanded];
           return next;
         });
@@ -1089,10 +1183,18 @@ export default function Swarm1v1() {
       case "round_start": {
         // Host launched a round. Guest sees the income log and starts the render loop.
         // From the guest's perspective, host is the "opponent" and guest is "you", so swap.
-        if (msg.aIncome != null) setPlayerBudget((p) => p + msg.aIncome);
+        // The guest also pays for its own attack wave here - the host spawns the guest's
+        // wave from the broadcast _attackWave but only deducts its own side, so without
+        // this the guest attacked for free all game.
+        const guestWave = syncStateRef.current?.playerAttack || {};
+        const guestWaveCost = Object.entries(guestWave).reduce((s, [k, n]) => {
+          const u = ATTACK_UNITS.find((a) => a.key === k);
+          return s + (u ? u.cost * n : 0);
+        }, 0);
+        setPlayerBudget((p) => p + (msg.aIncome || 0) - guestWaveCost);
         if (msg.pIncome != null) setAiBudget((p) => p + msg.pIncome);
         if (msg.aIncome != null) setTotalIncome((p) => p + msg.aIncome);
-        setCombatLog((prev) => [...prev, `Round ${(msg.round || 0) + 1}: You +$${formatUSD(msg.aIncome || 0)} | ${opponentName} +$${formatUSD(msg.pIncome || 0)}`]);
+        setCombatLog((prev) => [...prev, `Round ${(msg.round || 0) + 1}: You +$${formatUSD(msg.aIncome || 0)}${guestWaveCost > 0 ? ` -$${formatUSD(guestWaveCost)} wave` : ""} | ${opponentName} +$${formatUSD(msg.pIncome || 0)}`]);
         if (startGuestBattleLoopRef.current) startGuestBattleLoopRef.current();
         break;
       }
@@ -1148,14 +1250,22 @@ export default function Swarm1v1() {
         // Save previous snapshot positions (_prevX/_prevY) for lerp interpolation.
         // This replaces heading+speed extrapolation which caused visible jitter on
         // straight-line paths (especially RTB) due to rate estimation drift.
-        const lerpMap = (arr, msgArr) => (msgArr || []).map((item) => {
-          const old = arr.find((o) => o.id === item.id);
-          return { id: item.id, x: item.x, y: item.y, _prevX: old ? old.x : item.x, _prevY: old ? old.y : item.y, status: item.s, threat: item.threat || "cheap", heading: item.hd, speed: item.spd };
-        });
-        const lerpMapInt = (arr, msgArr) => (msgArr || []).map((item) => {
-          const old = arr.find((o) => o.id === item.id);
-          return { id: item.id, x: item.x, y: item.y, _prevX: old ? old.x : item.x, _prevY: old ? old.y : item.y, status: item.s, heading: item.hd, speed: item.spd };
-        });
+        // Map-based id lookup: the old per-item arr.find was O(n^2) at 15Hz with
+        // hundreds of drones.
+        const lerpMap = (arr, msgArr) => {
+          const byId = new Map(arr.map((o) => [o.id, o]));
+          return (msgArr || []).map((item) => {
+            const old = byId.get(item.id);
+            return { id: item.id, x: item.x, y: item.y, _prevX: old ? old.x : item.x, _prevY: old ? old.y : item.y, status: item.s, threat: item.threat || "cheap", heading: item.hd, speed: item.spd };
+          });
+        };
+        const lerpMapInt = (arr, msgArr) => {
+          const byId = new Map(arr.map((o) => [o.id, o]));
+          return (msgArr || []).map((item) => {
+            const old = byId.get(item.id);
+            return { id: item.id, x: item.x, y: item.y, _prevX: old ? old.x : item.x, _prevY: old ? old.y : item.y, status: item.s, heading: item.hd, speed: item.spd };
+          });
+        };
         b.aAttackers = lerpMap(b.aAttackers, msg.pAtt);
         b.pAttackers = lerpMap(b.pAttackers, msg.aAtt);
         b.aInts = lerpMapInt(b.aInts, msg.pInt);
@@ -1210,6 +1320,11 @@ export default function Swarm1v1() {
         // C3 fix: apply guest's surviving resources and interceptor counts from host's view
         if (Array.isArray(msg.aResourcesAfter)) setPlayerResources(msg.aResourcesAfter);
         if (Array.isArray(msg.aInterceptorsAfter)) setPlayerInterceptors(msg.aInterceptorsAfter);
+        // Guest AD sync: host's sim mutated the guest's AD (damage, ammo, auto-reload).
+        // Apply the post-round state and the reload bill so the guest's ADs and budget
+        // stop drifting from the authoritative sim (phantom ADs / phantom refunds).
+        if (Array.isArray(msg.aADAfter)) setPlayerAD(msg.aADAfter);
+        if (msg.aReloadCost > 0) setPlayerBudget((p) => p - msg.aReloadCost);
         // Append log lines (already from host perspective, leave as-is for now)
         if (Array.isArray(msg.endLog)) setCombatLog((prev) => [...prev, ...msg.endLog]);
         setCurrentRound((r) => Math.max(r, (msg.round || 0) + 1));
@@ -1224,6 +1339,7 @@ export default function Swarm1v1() {
         }
         setBattleActive(false);
         if (battleLayerRef.current) battleLayerRef.current.clearLayers();
+        if (adBattleLayerRef.current) adBattleLayerRef.current.clearLayers();
         if (frameRef.current) { cancelAnimationFrame(frameRef.current); frameRef.current = null; }
         // C1 fix: use role tag instead of names. winnerRole = "host" | "guest"
         if (msg.gameOver) {
@@ -1231,6 +1347,7 @@ export default function Swarm1v1() {
           const winnerIsMe = msg.gameOver.winnerRole === "guest";
           setGameOver({
             winner: winnerIsMe ? username : opponentName,
+            winnerRole: msg.gameOver.winnerRole,
             reason: msg.gameOver.reason || "Match ended",
           });
         }
@@ -1241,6 +1358,11 @@ export default function Swarm1v1() {
         break;
     }
   }, [opponentName, username]);
+  // conn.on("data") is wired once per connection; dispatch through a ref so handlers
+  // always see the LATEST handleNetMessage (opponentName/username were frozen at wire
+  // time before, which blanked names in guest logs and the game-over card).
+  const handleNetMessageRef = useRef(null);
+  handleNetMessageRef.current = handleNetMessage;
 
   // ── Helper: wire broker-resilience on a freshly created PeerJS peer ──
   // The free public PeerJS broker drops websocket connections often, especially over
@@ -1261,7 +1383,6 @@ export default function Swarm1v1() {
       }
     });
     peer.on("disconnected", () => {
-      console.log("[PeerJS] disconnected event fired, active:", getActive(), "destroyed:", peer.destroyed, "attempt:", reconnectAttempts + 1);
       if (!getActive()) return;
       if (peer.destroyed) return;
       if (reconnectAttempts >= MAX_ATTEMPTS) {
@@ -1272,13 +1393,10 @@ export default function Swarm1v1() {
       reconnectAttempts++;
       const backoffMs = Math.min(8000, 500 * Math.pow(1.5, reconnectAttempts - 1));
       setConnectionError(`Reconnecting to signaling server (attempt ${reconnectAttempts}/${MAX_ATTEMPTS})...`);
-      console.log("[PeerJS] scheduling reconnect in", backoffMs, "ms");
       setTimeout(() => {
         if (!getActive() || peer.destroyed) {
-          console.log("[PeerJS] reconnect aborted: active:", getActive(), "destroyed:", peer.destroyed);
           return;
         }
-        console.log("[PeerJS] calling peer.reconnect()");
         try { peer.reconnect(); } catch (e) { console.error("[PeerJS] reconnect() threw:", e); }
       }, backoffMs);
     });
@@ -1322,7 +1440,7 @@ export default function Swarm1v1() {
     resetMatchState();
     setPhase(PHASE.LOBBY);
     setMapReady(false);
-    if (mapInstanceRef.current) { try { mapInstanceRef.current.remove(); } catch {} mapInstanceRef.current = null; layerRef.current = null; battleLayerRef.current = null; LRef.current = null; }
+    if (mapInstanceRef.current) { try { mapInstanceRef.current.remove(); } catch {} mapInstanceRef.current = null; layerRef.current = null; battleLayerRef.current = null; adBattleLayerRef.current = null; LRef.current = null; }
   }, [teardownPeer, resetMatchState]);
 
   const cancelConnection = useCallback(() => {
@@ -1393,7 +1511,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         // Log for debugging but don't teardown.
         console.warn("[PeerJS conn error, ignored]", err?.type || err);
       });
-      conn.on("data", handleNetMessage);
+      conn.on("data", (m) => handleNetMessageRef.current(m));
     });
     peer.on("error", (err) => {
       if (peerRef.current !== thisPeer) return;
@@ -1482,7 +1600,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         // Log for debugging but don't teardown.
         console.warn("[PeerJS conn error, ignored]", err?.type || err);
       });
-      conn.on("data", handleNetMessage);
+      conn.on("data", (m) => handleNetMessageRef.current(m));
     });
     peer.on("error", (err) => {
       if (peerRef.current !== thisPeer) return;
@@ -1586,7 +1704,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         // Log for debugging but don't teardown.
         console.warn("[PeerJS conn error, ignored]", err?.type || err);
       });
-      conn.on("data", handleNetMessage);
+      conn.on("data", (m) => handleNetMessageRef.current(m));
     };
 
     peer.on("open", async (id) => {
@@ -1618,7 +1736,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         // Log for debugging but don't teardown.
         console.warn("[PeerJS conn error, ignored]", err?.type || err);
       });
-        conn.on("data", handleNetMessage);
+        conn.on("data", (m) => handleNetMessageRef.current(m));
       });
 
       // POST to queue endpoint
@@ -1750,6 +1868,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
   // Runs while user is on the matchmaking lobby view. Polls /api/match/stats every 3s
   // for global counts. Increments local elapsed counter every second for the timer display.
   useEffect(() => {
+    // Gate on the LOBBY phase: lobbyView stays "main" for the whole match, so without
+    // this the elapsed ticker + stats poll ran for the entire session (battery drain).
+    if (phase !== PHASE.LOBBY) return;
     if (lobbyView !== "matchmaking" && lobbyView !== "main") return;
     mmStartedAtRef.current = Date.now();
     setMmElapsed(0);
@@ -1772,7 +1893,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     fetchStats();
     const statsIv = setInterval(fetchStats, 10000);
     return () => { clearInterval(tickIv); clearInterval(statsIv); };
-  }, [lobbyView]);
+  }, [lobbyView, phase]);
 
   // Attack wave cost (computed live for display, deducted on launch)
   const attackWaveCost = Object.entries(playerAttack).reduce((s, [k, n]) => {
@@ -1787,8 +1908,10 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     setTimeout(() => setBudgetShake(false), 500);
   }, []);
 
-  // Satellite scan: $5M one-time per round purchase that reveals full enemy setup
-  const SATELLITE_SCAN_COST = 5000000;
+  // Satellite scan: one-time per round purchase that reveals full enemy setup plus an
+  // estimate of the incoming wave. Repriced $5M -> $2M so buy-intel-then-counter-build
+  // is an actual loop instead of dead weight.
+  const SATELLITE_SCAN_COST = 2000000;
   const buySatelliteScan = useCallback(() => {
     if (scanUsedThisRound) return;
     if (battleActive) return; // prep phase only
@@ -1813,7 +1936,17 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     setScanUsedThisRound(true);
     setScanFlash(true);
     setTimeout(() => setScanFlash(false), 1500);
-  }, [scanUsedThisRound, battleActive, playerBudget, aiSetup, currentRound, triggerShake]);
+    // Intel bonus: estimate of the opponent's next wave (bot: its planned wave;
+    // MP: the last wave config the opponent broadcast).
+    const est = gameMode === "bot"
+      ? generateAIAttack(currentRound, aiSetup.personality)
+      : (aiSetup._attackWave || null);
+    if (est) {
+      const parts = Object.entries(est).filter(([, n]) => n > 0)
+        .map(([k, n]) => `${n} ${ATTACK_UNITS.find((a) => a.key === k)?.name || k}`);
+      if (parts.length > 0) setCombatLog((prev) => [...prev, `SATELLITE: incoming wave estimate - ${parts.join(", ")}`]);
+    }
+  }, [scanUsedThisRound, battleActive, playerBudget, aiSetup, currentRound, triggerShake, gameMode]);
 
   // Live shake whenever the attack-wave cost slider crosses the budget into overspend.
   // Only fires on the transition (not-overspending -> overspending) so dragging deeper
@@ -1848,6 +1981,18 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
   const canAfford = useCallback((cost) => {
     return (playerBudget - cost) >= 0;
   }, [playerBudget]);
+
+  // Nearest-HQ airspace test: extra HQs project a real 60% airspace bubble for unit
+  // placement, deposit claims, and defensive posture. (They intentionally do NOT join
+  // the angle-based airspace-breach cost/arc rendering, which is main-HQ-centric.)
+  const withinAnyAirspace = useCallback((pt, slack = 0) => {
+    if (!playerHQ) return false;
+    if (dist(pt, playerHQ) <= playerAirspace + slack) return true;
+    for (const eh of playerExtraHQs) {
+      if (dist(pt, eh) <= playerAirspace * 0.6 + slack) return true;
+    }
+    return false;
+  }, [playerHQ, playerExtraHQs, playerAirspace]);
 
   // Map click - multi-place (stays in mode), budget checked
   const handleMapClick = useCallback((x, y) => {
@@ -1969,7 +2114,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       }
     } else if (placingWhat.startsWith("def_")) {
       const defKey = placingWhat.replace("def_", "");
-      if (!playerHQ || dist({ x, y }, playerHQ) > playerAirspace + 500) return;
+      if (!withinAnyAirspace({ x, y }, 500)) return;
       const def = DEFENSE_UNITS.find((dd) => dd.key === defKey);
       const defCost = (def?.cost || 0) * 4;
       if (!canAfford(defCost)) { triggerShake(); return; }
@@ -1978,11 +2123,11 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       broadcast({ type: "place_interceptor_group", key: defKey, x, y, count: 4 });
     } else if (placingWhat.startsWith("ad_")) {
       const adKey = placingWhat.replace("ad_", "");
-      if (!playerHQ || dist({ x, y }, playerHQ) > playerAirspace + 300) return;
+      if (!withinAnyAirspace({ x, y }, 300)) return;
       const sys = theaterScaleRef.current.ad.find((s) => s.key === adKey);
       if (!sys || !canAfford(sys.cost)) { triggerShake(); return; }
       setPlayerBudget((p) => p - sys.cost);
-      setPlayerAD((prev) => [...prev, { key: adKey, x, y, health: 1, ammo: sys.missiles, priority: "all" }]);
+      setPlayerAD((prev) => [...prev, { key: adKey, x, y, health: 1, ammo: sys.missiles, priority: sys.defaultPriority || "all" }]);
       broadcast({ type: "place_ad", key: adKey, x, y });
     } else if (placingWhat.startsWith("reposition_ad_")) {
       // Reposition a mobile AD to a new location within airspace.
@@ -1991,7 +2136,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       const findX = parseInt(parts[0], 10), findY = parseInt(parts[1], 10), findKey = parts.slice(2).join("_");
       const adIdx = playerAD.findIndex((a) => Math.round(a.x) === findX && Math.round(a.y) === findY && a.key === findKey);
       if (adIdx < 0 || !MOBILE_AD_TYPES.has(findKey)) { setPlacingWhat(null); return; }
-      if (!playerHQ || dist({ x, y }, playerHQ) > playerAirspace + 300) {
+      if (!withinAnyAirspace({ x, y }, 300)) {
         setInfoPopup({ text: "Must place within your airspace" });
         setTimeout(() => setInfoPopup(null), 2000);
         return;
@@ -2005,6 +2150,12 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       if (!playerHQ) return;
       const res = RESOURCES.find((rr) => rr.key === placingWhat);
       if (!res) return;
+      // Eco freeze (anti-turtle sudden death): no new resource claims from round 10 on.
+      if (currentRound + 1 > ECO_FREEZE_AFTER_ROUND) {
+        setInfoPopup({ text: `Resource purchases are frozen after round ${ECO_FREEZE_AFTER_ROUND}` });
+        setTimeout(() => setInfoPopup(null), 2500);
+        return;
+      }
       // Find nearest unclaimed deposit of this type within click tolerance
       const SNAP_DIST = 600;
       let bestD = SNAP_DIST, bestDeposit = null;
@@ -2018,7 +2169,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         setTimeout(() => setInfoPopup(null), 2500);
         return;
       }
-      if (dist(bestDeposit, playerHQ) > playerAirspace) {
+      if (!withinAnyAirspace(bestDeposit)) {
         setInfoPopup({ text: `Deposit is outside your airspace. Expand airspace or pick another deposit.` });
         setTimeout(() => setInfoPopup(null), 2500);
         return;
@@ -2029,7 +2180,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       setPlayerResources((prev) => [...prev, { key: placingWhat, x: bestDeposit.x, y: bestDeposit.y, alive: true, depositId: bestDeposit.id }]);
       broadcast({ type: "place_resource", key: placingWhat, x: bestDeposit.x, y: bestDeposit.y, depositId: bestDeposit.id });
     }
-  }, [phase, placingWhat, playerHQ, playerExtraHQs, playerAirspace, battleActive, playerResources, playerInterceptors, playerAD, resourceDeposits, canAfford, triggerShake, broadcast]);
+  }, [phase, placingWhat, playerHQ, playerExtraHQs, playerAirspace, battleActive, playerResources, playerInterceptors, playerAD, resourceDeposits, canAfford, triggerShake, broadcast, withinAnyAirspace, currentRound]);
 
   handleMapClickRef.current = handleMapClick;
 
@@ -2037,6 +2188,14 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
   const handleInspect = useCallback((x, y) => {
     const HIT_RADIUS = 250;
     let best = null, bestD = HIT_RADIUS;
+    // Fog gating: enemy units are only inspectable where drone vision or a satellite
+    // scan has revealed them (right-click was an accidental wallhack before).
+    const enemyVisible = (pt) => {
+      if (!fogOfWar) return true;
+      for (const c of revealedAreasRef.current) { if (dist(pt, c) <= c.radius) return true; }
+      for (const s of fogSnapshotsRef.current) { if (dist(pt, s) <= s.radius) return true; }
+      return false;
+    };
     // Player HQs (main + extras)
     if (playerHQ) {
       const d = dist({ x, y }, playerHQ);
@@ -2046,8 +2205,8 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       const d = dist({ x, y }, eh);
       if (d < bestD) { bestD = d; best = { kind: "hq_extra", side: "player", x: eh.x, y: eh.y }; }
     }
-    // Enemy HQ (only if placed)
-    if (aiSetup && aiSetup.hqX != null) {
+    // Enemy HQ (only if placed and revealed)
+    if (aiSetup && aiSetup.hqX != null && enemyVisible({ x: aiSetup.hqX, y: aiSetup.hqY })) {
       const d = dist({ x, y }, { x: aiSetup.hqX, y: aiSetup.hqY });
       if (d < bestD) { bestD = d; best = { kind: "hq", side: "enemy", x: aiSetup.hqX, y: aiSetup.hqY }; }
     }
@@ -2056,8 +2215,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       const d = dist({ x, y }, ad);
       if (d < bestD) { bestD = d; best = { kind: "ad", side: "player", key: ad.key, ad }; }
     }
-    // Enemy AD
+    // Enemy AD (fog-gated)
     for (const ad of (aiSetup?.adUnits || [])) {
+      if (!enemyVisible(ad)) continue;
       const d = dist({ x, y }, ad);
       if (d < bestD) { bestD = d; best = { kind: "ad", side: "enemy", key: ad.key, ad }; }
     }
@@ -2066,8 +2226,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       const d = dist({ x, y }, r);
       if (d < bestD) { bestD = d; best = { kind: "resource", side: "player", key: r.key, res: r }; }
     }
-    // Enemy resources
+    // Enemy resources (fog-gated)
     for (const r of (aiSetup?.resources || [])) {
+      if (!enemyVisible(r)) continue;
       const d = dist({ x, y }, r);
       if (d < bestD) { bestD = d; best = { kind: "resource", side: "enemy", key: r.key, res: r }; }
     }
@@ -2077,13 +2238,17 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       if (d < bestD) { bestD = d; best = { kind: "interceptor", side: "player", key: ig.key, intGroup: ig }; }
     }
     if (best) setUnitInspect(best);
-  }, [playerHQ, playerExtraHQs, aiSetup, playerAD, playerResources, playerInterceptors]);
+  }, [playerHQ, playerExtraHQs, aiSetup, playerAD, playerResources, playerInterceptors, fogOfWar]);
   inspectClickRef.current = handleInspect;
   theaterRef.current = theater;
   battleSpeedRef.current = battleSpeed;
   showADRangeRef.current = showADRange;
   gameModeRef.current = gameMode;
   battleActiveRef.current = battleActive;
+  playerBudgetRef.current = playerBudget;
+  aiBudgetRef.current = aiBudget;
+  aiSetupRef.current = aiSetup;
+  currentRoundRef.current = currentRound;
 
   // ── Phase 2: broadcast state changes for fields not handled by handleMapClick ──
   // Skip broadcast on first render via a "mounted" sentinel per field.
@@ -2156,6 +2321,25 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     }
   }, [meReady, opponentReady, phase, battleActive, gameOver, gameMode, broadcast]);
 
+  // Persist bot-mode results to localStorage: best score, win streak, W-L record.
+  const [persistedStats, setPersistedStats] = useState(null);
+  useEffect(() => {
+    if (!gameOver || gameModeRef.current !== "bot") return;
+    try {
+      const prev = JSON.parse(localStorage.getItem("swarm1v1_stats") || "{}");
+      const youWon = gameOver.winnerRole === "player";
+      const score = Math.round(playerBudgetRef.current + 0.5 * matchStatsRef.current.breachDmgDealt);
+      const next = {
+        best: Math.max(prev.best || 0, score),
+        streak: youWon ? (prev.streak || 0) + 1 : 0,
+        wins: (prev.wins || 0) + (youWon ? 1 : 0),
+        losses: (prev.losses || 0) + (youWon ? 0 : 1),
+      };
+      localStorage.setItem("swarm1v1_stats", JSON.stringify(next));
+      setPersistedStats(next);
+    } catch {}
+  }, [gameOver]);
+
   // Reset ready flags when a round ends so both players can re-ready for the next round.
   // Watches battleActive transitioning from true to false during COMBAT phase.
   const prevBattleActiveRef = useRef(false);
@@ -2212,38 +2396,12 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     let middleClickHandler = null;
     let resizeObserver = null;
     let attachedEl = null;
-    (async () => {
-      const L = await import("leaflet");
-      if (cancelled) return;
-      LRef.current = L.default || L;
-      const Leaf = LRef.current;
-      if (mapInstanceRef.current) { mapInstanceRef.current.setView(THEATERS[theater].mapCenter, THEATERS[theater].mapZoom); return; }
-      const th = THEATERS[theater];
-      // preferCanvas: true forces Leaflet to render circleMarkers via Canvas instead of SVG nodes.
-      // 5-10x speedup for high-entity-count battle frames per visuals audit.
-      const map = Leaf.map(mapRef.current, { center: th.mapCenter, zoom: th.mapZoom, zoomControl: true, preferCanvas: true });
-      mapInstanceRef.current = map;
-      Leaf.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 18 }).addTo(map);
-      Leaf.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, opacity: 0.3 }).addTo(map);
-      layerRef.current = Leaf.layerGroup().addTo(map);
-      battleLayerRef.current = Leaf.layerGroup().addTo(map);
-      map.on("click", (e) => {
-        // Force recalculate map size before converting coordinates
-        map.invalidateSize({ animate: false });
-        const fn = handleMapClickRef.current;
-        if (!fn) return;
-        const th2 = THEATERS[theaterRef.current];
-        if (!th2) return;
-        // Use containerPointToLatLng for accurate conversion
-        const rect = map.getContainer().getBoundingClientRect();
-        const px = e.originalEvent.clientX - rect.left;
-        const py = e.originalEvent.clientY - rect.top;
-        const latlng = map.containerPointToLatLng([px, py]);
-        const [simX, simY] = latLngToSim(latlng.lat, latlng.lng, th2.bounds);
-        fn(simX, simY); // no clamping - allow placement anywhere visible
-      });
-      // Right-click to inspect units. No conflict with left-click placement.
-      // Leaflet's default contextmenu handler is suppressed by the map click handler above.
+    // Attach the aux listeners (right-click inspect + resize observer) for THIS effect
+    // run. Must run on every effect execution, not only map creation: the cleanup below
+    // removes them on each phase/theater change, and the old code only re-attached when
+    // it created a fresh map - so SETUP -> COMBAT permanently killed right-click inspect
+    // and container-resize handling.
+    const attachAux = (map) => {
       middleClickHandler = (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
@@ -2259,15 +2417,52 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         fn(simX, simY);
       };
       attachedEl = mapRef.current;
-      // Capture phase so we prevent the browser context menu before any child element handles it
-      attachedEl.addEventListener("contextmenu", middleClickHandler, { capture: true });
+      if (attachedEl) attachedEl.addEventListener("contextmenu", middleClickHandler, { capture: true });
+      resizeObserver = new ResizeObserver(() => map.invalidateSize());
+      if (mapRef.current) resizeObserver.observe(mapRef.current);
+    };
+    (async () => {
+      const L = await import("leaflet");
+      if (cancelled) return;
+      LRef.current = L.default || L;
+      const Leaf = LRef.current;
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.setView(THEATERS[theater].mapCenter, THEATERS[theater].mapZoom);
+        attachAux(mapInstanceRef.current);
+        return;
+      }
+      const th = THEATERS[theater];
+      // preferCanvas: true forces Leaflet to render circleMarkers via Canvas instead of SVG nodes.
+      // 5-10x speedup for high-entity-count battle frames per visuals audit.
+      const map = Leaf.map(mapRef.current, { center: th.mapCenter, zoom: th.mapZoom, zoomControl: true, preferCanvas: true });
+      mapInstanceRef.current = map;
+      // Single satellite basemap. The old 0.3-opacity OSM overlay doubled tile fetches
+      // and compositing for barely visible labels.
+      Leaf.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 18 }).addTo(map);
+      layerRef.current = Leaf.layerGroup().addTo(map);
+      battleLayerRef.current = Leaf.layerGroup().addTo(map);
+      adBattleLayerRef.current = Leaf.layerGroup().addTo(map);
+      map.on("click", (e) => {
+        // Force recalculate map size before converting coordinates
+        map.invalidateSize({ animate: false });
+        const fn = handleMapClickRef.current;
+        if (!fn) return;
+        const th2 = THEATERS[theaterRef.current];
+        if (!th2) return;
+        // Use containerPointToLatLng for accurate conversion
+        const rect = map.getContainer().getBoundingClientRect();
+        const px = e.originalEvent.clientX - rect.left;
+        const py = e.originalEvent.clientY - rect.top;
+        const latlng = map.containerPointToLatLng([px, py]);
+        const [simX, simY] = latLngToSim(latlng.lat, latlng.lng, th2.bounds);
+        fn(simX, simY); // no clamping - allow placement anywhere visible
+      });
+      // Right-click inspect + resize observer (shared with the map-exists path above)
+      attachAux(map);
       setMapReady(true);
       // Fix map sizing after render - multiple attempts
       setTimeout(() => map.invalidateSize(), 100);
       setTimeout(() => map.invalidateSize(), 500);
-      // Watch for container resizes
-      resizeObserver = new ResizeObserver(() => map.invalidateSize());
-      resizeObserver.observe(mapRef.current);
     })();
     return () => {
       cancelled = true;
@@ -2595,7 +2790,11 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         }
       }
     }
-  }, [mapReady, theater, playerHQ, playerExtraHQs, playerAirspace, playerResources, playerInterceptors, playerAD, aiSetup, phase, battleDrones, resourceDeposits, placingWhat, playerTrajectory, attackPriority, revealedAreas, fogSnapshots, fogOfWar]);
+    // battleDrones intentionally NOT a dep: this effect draws no drones, and having it
+    // re-run 60x/sec during battle was the single biggest frame cost. battleActive IS a
+    // dep so the battle-start/end transitions still hide/restore the static AD + deposit
+    // icons that renderBattleFrame takes over during combat.
+  }, [mapReady, theater, playerHQ, playerExtraHQs, playerAirspace, playerResources, playerInterceptors, playerAD, aiSetup, phase, battleActive, resourceDeposits, placingWhat, playerTrajectory, attackPriority, revealedAreas, fogSnapshots, fogOfWar]);
 
   // ── Phase 3: Render battle frame to leaflet (used by host tick + guest render loop) ──
   const renderBattleFrame = useCallback((b) => {
@@ -2605,18 +2804,6 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     const th = THEATERS[theaterRef.current]; if (!th) return;
     const toLL = (x, y) => simToLatLng(x, y, th.bounds);
     const mpu = getProjection(th.bounds).mpu;
-    if (showADRangeRef.current) {
-      for (const ad of (b.pAD || [])) {
-        if (ad.health <= 0) continue;
-        const sys = theaterScaleRef.current.ad.find((s) => s.key === ad.key);
-        if (sys) L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.12, weight: 2.5, opacity: 0.85, dashArray: "6 4", interactive: false }).addTo(bl);
-      }
-      for (const ad of (b.aAD || [])) {
-        if (ad.health <= 0) continue;
-        const sys = theaterScaleRef.current.ad.find((s) => s.key === ad.key);
-        if (sys) L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.1, weight: 2.5, opacity: 0.75, dashArray: "6 4", interactive: false }).addTo(bl);
-      }
-    }
     // Helper: pie-chart SVG that fills clockwise from 12 o'clock as reloadPct goes 0 → 1.
     // Uses stroke-dasharray on a circle so the fill grows around the perimeter.
     const reloadPieSvg = (pct, color, ringOpacity = 0.9) => {
@@ -2634,63 +2821,84 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       nasams: (c, bc) => `<svg width="24" height="24" viewBox="0 0 24 24"><rect x="2" y="16" width="20" height="5" rx="1" fill="${c}" stroke="${bc}" stroke-width="1.5"/><circle cx="6" cy="22" r="2" fill="${c}" stroke="${bc}" stroke-width="1"/><circle cx="18" cy="22" r="2" fill="${c}" stroke="${bc}" stroke-width="1"/><rect x="4" y="8" width="16" height="8" rx="1" fill="${c}" stroke="${bc}" stroke-width="1" transform="rotate(-10 12 12)"/><line x1="6" y1="11" x2="3" y2="5" stroke="#fff" stroke-width="0.8" opacity="0.6"/><line x1="10" y1="10" x2="8" y2="4" stroke="#fff" stroke-width="0.8" opacity="0.6"/><line x1="14" y1="9" x2="13" y2="3" stroke="#fff" stroke-width="0.8" opacity="0.6"/></svg>`,
       pantsir: (c, bc) => `<svg width="24" height="24" viewBox="0 0 24 24"><rect x="2" y="15" width="20" height="6" rx="1" fill="${c}" stroke="${bc}" stroke-width="1.5"/><circle cx="6" cy="22" r="2" fill="${c}" stroke="${bc}" stroke-width="1"/><circle cx="12" cy="22" r="2" fill="${c}" stroke="${bc}" stroke-width="1"/><circle cx="18" cy="22" r="2" fill="${c}" stroke="${bc}" stroke-width="1"/><rect x="4" y="11" width="7" height="5" rx="1" fill="${c}" stroke="${bc}" stroke-width="0.8"/><rect x="13" y="11" width="7" height="5" rx="1" fill="${c}" stroke="${bc}" stroke-width="0.8"/><line x1="7" y1="11" x2="5" y2="5" stroke="${bc}" stroke-width="1.5"/><line x1="7" y1="11" x2="9" y2="5" stroke="${bc}" stroke-width="1.5"/><line x1="17" y1="11" x2="15" y2="5" stroke="${bc}" stroke-width="1.5"/><line x1="17" y1="11" x2="19" y2="5" stroke="${bc}" stroke-width="1.5"/><circle cx="5" cy="4" r="1" fill="#fff" opacity="0.7"/><circle cx="9" cy="4" r="1" fill="#fff" opacity="0.7"/><circle cx="15" cy="4" r="1" fill="#fff" opacity="0.7"/><circle cx="19" cy="4" r="1" fill="#fff" opacity="0.7"/></svg>`,
     };
+    // ── AD layer: DOM divIcon markers, labels, range/detection rings ──
+    // Rebuilt only when the AD signature changes (position/health/ammo/reload decile),
+    // not every frame - tearing down DOM markers 60x/sec was a major frame cost. The
+    // reload pie animates in 10% increments via the decile term in the signature.
+    const adl = adBattleLayerRef.current;
+    const reloadDecile = (ad, sys) => {
+      if (ad.ammo <= 0 || ad.lastFired == null) return 10;
+      const cooldown = Math.max(15, Math.round(sys.engageRate * 60));
+      return Math.min(10, Math.floor(((b.step - ad.lastFired) / cooldown) * 10));
+    };
+    const sigOf = (ad, side) => {
+      const sys = theaterScaleRef.current.ad.find((s) => s.key === ad.key);
+      return `${side}${ad.key}:${Math.round(ad.x)}:${Math.round(ad.y)}:${ad.health}:${ad.ammo}:${sys ? reloadDecile(ad, sys) : 0}`;
+    };
+    const adSig = (showADRangeRef.current ? "R|" : "r|")
+      + (b.pAD || []).map((a) => sigOf(a, "p")).join("|") + "||"
+      + (b.aAD || []).map((a) => sigOf(a, "a")).join("|");
     // Helper: draw an AD marker with distinctive icon per system type.
     const drawAdMarker = (ad, sideColor, labelColor) => {
       const sys = theaterScaleRef.current.ad.find((s) => s.key === ad.key);
       if (!sys) return;
       const alive = ad.health > 0;
       if (!alive) return;
+      if (showADRangeRef.current) {
+        // Faint outer detection ring (radar awareness) + engagement envelope
+        if (sys.detection_m && sys.detection_m > sys.range_m) {
+          L.circle(toLL(ad.x, ad.y), { radius: sys.detection_m, color: sys.color, fillColor: sys.color, fillOpacity: 0.015, weight: 1, opacity: 0.3, dashArray: "3 7", interactive: false }).addTo(adl);
+        }
+        L.circle(toLL(ad.x, ad.y), { radius: sys.range * mpu, color: sys.color, fillColor: sys.color, fillOpacity: 0.1, weight: 2.5, opacity: 0.8, dashArray: "6 4", interactive: false }).addTo(adl);
+      }
       const iconFn = adIcons[ad.key];
       if (iconFn) {
         L.marker(toLL(ad.x, ad.y), {
           icon: L.divIcon({ className: "", iconSize: [24, 24], iconAnchor: [12, 12], html: iconFn(sys.color, sideColor) }),
           interactive: false,
-        }).addTo(bl);
+        }).addTo(adl);
       } else {
-        L.circleMarker(toLL(ad.x, ad.y), { radius: 9, color: sideColor, fillColor: sys.color, fillOpacity: 0.95, weight: 2.5 }).addTo(bl);
+        L.circleMarker(toLL(ad.x, ad.y), { radius: 9, color: sideColor, fillColor: sys.color, fillOpacity: 0.95, weight: 2.5 }).addTo(adl);
       }
-      // Reload pie chart: fills clockwise as cooldown progresses. Solid green when ready.
-      if (alive && ad.ammo > 0) {
-        // engageRate is in seconds. Multiply by 60 (sim steps per second at 60fps)
-        // so reload is visually meaningful. Old value of *5 made ADs fire almost instantly.
+      // Reload pie chart: fills clockwise as cooldown progresses (10% steps).
+      if (ad.ammo > 0) {
         const cooldown = Math.max(15, Math.round(sys.engageRate * 60));
         const elapsed = ad.lastFired != null ? b.step - ad.lastFired : cooldown;
         const reloadPct = Math.min(1, elapsed / cooldown);
-        // Only draw the reload pie chart while ACTUALLY reloading. Idle/ready ADs got rendered
-        // as solid green rings before, which made the screen look green when many ADs were
-        // placed but had no targets. The colored AD marker (line ~1855) already conveys "ready".
         if (reloadPct < 1) {
           L.marker(toLL(ad.x, ad.y), {
             icon: L.divIcon({
               className: "", iconSize: [32, 32], iconAnchor: [16, 16],
-              html: reloadPieSvg(reloadPct, "#ffaa00", 0.85),
+              html: reloadPieSvg(Math.floor(reloadPct * 10) / 10, "#ffaa00", 0.85),
             }),
             interactive: false,
-          }).addTo(bl);
+          }).addTo(adl);
         }
-      } else if (alive && ad.ammo === 0) {
-        // Out of ammo - red ring with X icon
+      } else {
+        // Out of ammo / reloading magazine - red dashed ring
         L.marker(toLL(ad.x, ad.y), {
           icon: L.divIcon({
             className: "", iconSize: [32, 32], iconAnchor: [16, 16],
             html: `<svg width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="13" fill="none" stroke="#ff3333" stroke-width="2" stroke-dasharray="3 3"/></svg>`,
           }),
           interactive: false,
-        }).addTo(bl);
+        }).addTo(adl);
       }
-      // Label with name + LIVE ammo count (renderBattleFrame is called every frame so this updates)
-      if (alive) {
-        L.marker(toLL(ad.x, ad.y - 180), {
-          icon: L.divIcon({
-            className: "", iconSize: [60, 14], iconAnchor: [30, 7],
-            html: `<div style="color:${labelColor};font-size:9px;font-weight:700;font-family:monospace;text-align:center;text-shadow:0 0 4px #000;white-space:nowrap">${sys.name.split(" ")[0]} ${ad.ammo}</div>`
-          }),
-          interactive: false,
-        }).addTo(bl);
-      }
+      // Label with name + ammo count (updates whenever ammo changes via the signature)
+      L.marker(toLL(ad.x, ad.y - 180), {
+        icon: L.divIcon({
+          className: "", iconSize: [60, 14], iconAnchor: [30, 7],
+          html: `<div style="color:${labelColor};font-size:9px;font-weight:700;font-family:monospace;text-align:center;text-shadow:0 0 4px #000;white-space:nowrap">${sys.name.split(" ")[0]} ${ad.ammo}</div>`
+        }),
+        interactive: false,
+      }).addTo(adl);
     };
-    for (const ad of (b.pAD || [])) drawAdMarker(ad, "#ffffff", theaterScaleRef.current.ad.find((s) => s.key === ad.key)?.color || "#fff");
-    for (const ad of (b.aAD || [])) drawAdMarker(ad, "#ff3333", "#ff7777");
+    if (adl && adSig !== b._adLayerSig) {
+      b._adLayerSig = adSig;
+      adl.clearLayers();
+      for (const ad of (b.pAD || [])) drawAdMarker(ad, "#ffffff", theaterScaleRef.current.ad.find((s) => s.key === ad.key)?.color || "#fff");
+      for (const ad of (b.aAD || [])) drawAdMarker(ad, "#ff3333", "#ff7777");
+    }
     // Use _renderX/_renderY (dead-reckoning extrapolation) when set by guestTick, else raw x/y.
     // This keeps the host's render path unchanged (host never sets _renderX) while making the
     // guest's drones glide smoothly between 15Hz snapshots instead of teleporting.
@@ -2884,7 +3092,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       // At t >= 1.0 (snapshot overdue), we hold at the current position rather than guessing.
       if (b._lastSnapshotTime && b._snapshotInterval) {
         const elapsed = performance.now() - b._lastSnapshotTime;
-        const t = Math.min(elapsed / b._snapshotInterval, 1.5);
+        // Clamp at 1.0: interpolation must never overshoot the last known position
+        // (the old 1.5 cap extrapolated 50% past it, re-introducing jitter).
+        const t = Math.min(elapsed / b._snapshotInterval, 1.0);
         for (const list of [b.pAttackers, b.aAttackers, b.pInts, b.aInts]) {
           for (const d of list) {
             if (d.status !== "active") continue;
@@ -2895,36 +3105,45 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       }
       // Fog of war (snapshot): guest samples own drone positions with unit snapshots.
       // Guest sees enemy as aAD/aInts + aiSetup for HQ/resources (same as host logic).
+      // Read aiSetup/currentRound via refs: this callback is created once per round
+      // launch and previously froze aiSetup=null / currentRound=0, which silently
+      // disabled the guest's fog-of-war intel gathering all game.
+      const ai = aiSetupRef.current;
+      const roundNow = currentRoundRef.current;
       b._guestFrame = (b._guestFrame || 0) + 1;
-      if (b._guestFrame % 15 === 0) {
+      if (b._guestFrame % 15 === 0 && pendingRevealsRef.current.length < 400) {
         for (const a of (b.pAttackers || [])) {
           if (a.status !== "active") continue;
           const nearby = pendingRevealsRef.current.some((c) => Math.abs(c.x - a.x) < 250 && Math.abs(c.y - a.y) < 250);
           if (nearby) continue;
           const vr = 500;
           const snappedUnits = [];
-          if (aiSetup?.hqX != null && dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) < vr) {
-            snappedUnits.push({ kind: "hq", x: aiSetup.hqX, y: aiSetup.hqY });
+          if (ai?.hqX != null && dist(a, { x: ai.hqX, y: ai.hqY }) < vr) {
+            snappedUnits.push({ kind: "hq", x: ai.hqX, y: ai.hqY });
           }
           for (const ad of (b.aAD || [])) {
             if (ad.health > 0 && dist(a, ad) < vr) snappedUnits.push({ kind: "ad", key: ad.key, x: ad.x, y: ad.y, health: ad.health, ammo: ad.ammo });
           }
-          for (const r of (aiSetup?.resources || [])) {
+          for (const r of (ai?.resources || [])) {
             if (r.alive && dist(a, r) < vr) snappedUnits.push({ kind: "resource", key: r.key, x: r.x, y: r.y });
           }
           for (const i of (b.aInts || [])) {
             if (i.status === "active" && dist(a, i) < vr) snappedUnits.push({ kind: "interceptor", x: i.x, y: i.y });
           }
-          pendingRevealsRef.current.push({ x: a.x, y: a.y, radius: vr, round: currentRound, units: snappedUnits });
+          pendingRevealsRef.current.push({ x: a.x, y: a.y, radius: vr, round: roundNow, units: snappedUnits });
         }
       }
       renderBattleFrame(b);
-      setBattleDrones({
-        playerAttackers: [...(b.pAttackers || [])],
-        aiAttackers: [...(b.aAttackers || [])],
-        playerInts: [...(b.pInts || [])],
-        aiInts: [...(b.aInts || [])],
-      });
+      // Throttle the React mirror to ~4Hz: only the HUD counts read battleDrones, and a
+      // per-frame setState forced a full re-render of this whole component at 60fps.
+      if (b._guestFrame % 15 === 1) {
+        setBattleDrones({
+          playerAttackers: [...(b.pAttackers || [])],
+          aiAttackers: [...(b.aAttackers || [])],
+          playerInts: [...(b.pInts || [])],
+          aiInts: [...(b.aInts || [])],
+        });
+      }
       frameRef.current = requestAnimationFrame(guestTick);
     }
     frameRef.current = requestAnimationFrame(guestTick);
@@ -2939,24 +3158,41 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     if (!playerHQ || !aiSetup || gameOver || battleActiveRef.current) return;
     // Guest never initiates the sim - only host does (or bot mode)
     if (gameMode === "guest") return;
-    // Deduct attack wave cost
-    const waveCost = Object.entries(playerAttack).reduce((s, [k, n]) => { const u = ATTACK_UNITS.find((a) => a.key === k); return s + (u ? u.cost * n : 0); }, 0);
-    // Block launch if wave would exceed budget. Check BOTH current closure value and
-    // functional setter value to avoid any race that lets budget go negative.
-    if (waveCost > 0 && waveCost > playerBudget) { triggerShake(); return; }
-    if (waveCost > 0) setPlayerBudget((p) => p >= waveCost ? p - waveCost : p);
+    // Deterministic per-round RNG for every in-sim roll (host/bot only - the guest is a
+    // pure snapshot renderer and never rolls). Seed is random per round for now; a daily
+    // seed can be plugged in here later.
+    const rng = mulberry32((Math.random() * 0xffffffff) >>> 0);
+    // Wave affordability: scale the wave DOWN to what the budget covers (like the AI
+    // does) instead of silently returning - a silent return soft-locked the round flow
+    // when the timer hit zero with an unaffordable wave.
+    const wave = { ...playerAttack };
+    const costOf = (w) => Object.entries(w).reduce((s, [k, n]) => { const u = ATTACK_UNITS.find((a) => a.key === k); return s + (u ? u.cost * n : 0); }, 0);
+    let waveCost = costOf(wave);
+    if (waveCost > playerBudget) {
+      const scale = Math.max(0, playerBudget / waveCost);
+      for (const k of Object.keys(wave)) wave[k] = Math.max(0, Math.floor(wave[k] * scale));
+      waveCost = costOf(wave);
+      setCombatLog((prev) => [...prev, `Wave scaled down to fit budget (-$${formatUSD(waveCost)})`]);
+    }
+    if (waveCost > 0) setPlayerBudget((p) => p - waveCost);
+    matchStatsRef.current.spent += waveCost;
+    matchStatsRef.current.dronesSent += Object.values(wave).reduce((s, n) => s + n, 0);
 
     setBattleActive(true);
     setPlacingWhat(null);
     const round = currentRound;
     const log = [];
 
-    // Income: airspace base income + resource income
-    const airspaceIncome = Math.floor(playerAirspace * 200); // $200 per meter of radius per round
-    const aiAirspaceIncome = Math.floor(aiSetup.airspace * 200);
+    // Income: airspace base income + resource income. Extra HQs add 30% of the main
+    // airspace income each. Sudden death (rounds 10-12): resource income is HALVED so
+    // an eco lead can be overturned by a combat lead.
+    const ecoMult = (round + 1) > ECO_FREEZE_AFTER_ROUND ? 0.5 : 1;
+    const airspaceIncome = Math.floor(playerAirspace * 140 * (1 + 0.3 * playerExtraHQs.length));
+    const aiAirspaceIncome = Math.floor(aiSetup.airspace * 140);
     let pIncome = airspaceIncome, aIncome = aiAirspaceIncome;
-    for (const r of playerResources) { if (r.alive) { const res = RESOURCES.find((rr) => rr.key === r.key); if (res) pIncome += res.income; } }
-    for (const r of aiSetup.resources) { if (r.alive) { const res = RESOURCES.find((rr) => rr.key === r.key); if (res) aIncome += res.income; } }
+    for (const r of playerResources) { if (r.alive) { const res = RESOURCES.find((rr) => rr.key === r.key); if (res) pIncome += Math.floor(res.income * ecoMult); } }
+    for (const r of aiSetup.resources) { if (r.alive) { const res = RESOURCES.find((rr) => rr.key === r.key); if (res) aIncome += Math.floor(res.income * ecoMult); } }
+    if (ecoMult < 1) log.push(`SUDDEN DEATH (round ${round + 1}/${ROUND_CAP}): resource income halved`);
     setPlayerBudget((p) => p + pIncome);
     setTotalIncome((p) => p + pIncome);
 
@@ -2968,14 +3204,22 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     let aiIntsForBattle = aiSetup.interceptors;
     let aiADForBattle = aiSetup.adUnits;
     if (gameMode === "bot") {
+      const preAdCount = (aiSetup.adUnits || []).filter((a) => a.health > 0).length;
+      const preIntCount = (aiSetup.interceptors || []).filter((i) => i.status === "active" || i.status === "landed").length;
       const spent = aiSpendBudget(aiSetup, resourceDeposits, aiBudgetWorking, round);
       aiBudgetWorking = spent.budget;
       aiIntsForBattle = spent.interceptors;
       aiADForBattle = spent.adUnits;
       setAiSetup((prev) => ({ ...prev, adUnits: spent.adUnits, interceptors: spent.interceptors, resources: spent.resources }));
       if (spent.deposits !== resourceDeposits) setResourceDeposits(spent.deposits);
-      // Build attack wave and pay for it. If broke, scale down.
-      aiWave = generateAIAttack(round);
+      // Transparency: log when the AI reinforced between rounds.
+      const boughtAd = spent.adUnits.length - preAdCount;
+      const boughtInts = spent.interceptors.filter((i) => i.status === "active" || i.status === "landed").length - preIntCount;
+      if (boughtAd > 0 || boughtInts > 0) {
+        log.push(`${opponentName} deployed reinforcements${boughtAd > 0 ? ` (+${boughtAd} AD)` : ""}${boughtInts > 0 ? ` (+${boughtInts} interceptors)` : ""}`);
+      }
+      // Build attack wave (personality-shaped) and pay for it. If broke, scale down.
+      aiWave = generateAIAttack(round, aiSetup.personality);
       let waveCostAi = Object.entries(aiWave).reduce((s, [k, n]) => { const u = ATTACK_UNITS.find((a) => a.key === k); return s + (u ? u.cost * n : 0); }, 0);
       if (waveCostAi > aiBudgetWorking) {
         const scale = Math.max(0.1, aiBudgetWorking / waveCostAi);
@@ -2985,7 +3229,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       aiBudgetWorking -= waveCostAi;
     } else {
       // MP host mode: opponent's wave comes from the network
-      aiWave = (gameMode === "host" && aiSetup._attackWave) ? aiSetup._attackWave : generateAIAttack(round);
+      aiWave = (gameMode === "host" && aiSetup._attackWave) ? aiSetup._attackWave : generateAIAttack(round, aiSetup.personality);
     }
     setAiBudget(aiBudgetWorking);
     log.push(`Round ${round + 1}: You +$${formatUSD(pIncome)} | ${opponentName} +$${formatUSD(aIncome)}`);
@@ -2997,8 +3241,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     // Audio: round start horn
     playSfx("round_start", 0);
 
-    // Spawn player's attack drones flying toward AI HQ (via trajectory waypoints if defined)
-    const pAttackers = spawnDrones(playerAttack, playerHQ.x, playerHQ.y - 500, aiSetup.hqX, aiSetup.hqY, 10000 + round * 1000, playerTrajectory.length > 0 ? playerTrajectory : null);
+    // Spawn player's attack drones flying toward AI HQ (via trajectory waypoints if defined).
+    // Uses the affordability-scaled wave, never the raw slider values.
+    const pAttackers = spawnDrones(wave, playerHQ.x, playerHQ.y - 500, aiSetup.hqX, aiSetup.hqY, 10000 + round * 1000, playerTrajectory.length > 0 ? playerTrajectory : null);
     // Guest's trajectory arrives via the "trajectory" net message and is stashed at aiSetup._trajectory.
     // Without this, host-spawned guest drones ignore the waypoints the guest placed locally.
     const aiTrajectory = (gameMode === "host" && Array.isArray(aiSetup._trajectory) && aiSetup._trajectory.length > 0) ? aiSetup._trajectory : null;
@@ -3007,10 +3252,18 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     // Player interceptors with spawn positions for RTB.
     // Tag each entity with groupIdx so the round-end survival count only counts its own group
     // (prevents the "doubling" bug when multiple groups overlapped within 1500m).
+    // Deployment cap (anti-turtle): at most 12 (+6 per extra HQ) interceptors launch;
+    // the rest stay grounded in reserve and automatically survive the round.
+    const pDeployCap = INT_DEPLOY_CAP_BASE + INT_DEPLOY_CAP_PER_HQ * playerExtraHQs.length;
     const pInts = [];
+    const pReserveByGroup = {};
+    let pDeployed = 0;
     playerInterceptors.forEach((d, groupIdx) => {
       const def = DEFENSE_UNITS.find((dd) => dd.key === d.key);
-      const count = d.count || 4;
+      // ?? not ||: a wiped-out group (count 0) must stay at 0, not resurrect 4 free drones.
+      const owned = d.count ?? 4;
+      const count = Math.min(owned, Math.max(0, pDeployCap - pDeployed));
+      pDeployed += count;
       for (let i = 0; i < count; i++) {
         // Spawn jittered around the placement marker for visual spread, but RTB to a
         // FIXED slot in a small ring around the EXACT placement position so they always
@@ -3026,13 +3279,19 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           id: 30000 + pInts.length, x: sx, y: sy, spawnX: homeX, spawnY: homeY,
           speed: def?.speed || 2.0, status: "active", targetId: null,
           destroyOnKill: def?.destroyOnKill !== false, survivalRate: def?.survivalRate || 0,
+          dmg: def?.dmg ?? 4,
           groupIdx,
         });
       }
+      // Units held back by the deployment cap sit in reserve and auto-survive the round.
+      pReserveByGroup[groupIdx] = owned - count;
     });
-    // AI interceptors with spawn positions. Uses aiIntsForBattle which is either the
-    // fresh array from aiSpendBudget (bot mode) or aiSetup.interceptors (MP mode).
-    const aInts = (aiIntsForBattle || []).filter((i) => i.status === "active").map((i) => ({ ...i, spawnX: i.groupX ?? i.x, spawnY: i.groupY ?? i.y }));
+    // AI interceptors with spawn positions, same deployment cap. Uses aiIntsForBattle
+    // which is the fresh array from aiSpendBudget (bot) or aiSetup.interceptors (MP).
+    const aDeployCap = INT_DEPLOY_CAP_BASE + INT_DEPLOY_CAP_PER_HQ * ((aiSetup.extraHQs || []).length);
+    const aIntsAll = (aiIntsForBattle || []).filter((i) => i.status === "active" || i.status === "landed");
+    const aInts = aIntsAll.slice(0, aDeployCap).map((i) => ({ ...i, status: "active", dmg: i.dmg ?? 4, spawnX: i.groupX ?? i.x, spawnY: i.groupY ?? i.y }));
+    const aIntsReserve = aIntsAll.slice(aDeployCap);
 
     log.push(`You sent ${pAttackers.length} drones | ${opponentName} sent ${aAttackers.length} drones`);
     setCombatLog((prev) => [...prev, ...log]);
@@ -3048,18 +3307,43 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     // Each HQ adds +6 to threshold to make multi-HQ feel meaningful.
     const aOverwhelmThreshold = Math.max(8, Math.floor(aAttackers.length * 0.2)) + (allPlayerHQs.length - 1) * 6;
     const pOverwhelmThreshold = Math.max(8, Math.floor(pAttackers.length * 0.2));
-    battleRef.current = { pAttackers, aAttackers, pInts, aInts, pAD, aAD, step: 0, pKills: 0, aKills: 0, pBreaches: 0, aBreaches: 0, flashes: [], playerAirBreaches: [], aiAirBreaches: [], playerHQs: allPlayerHQs, aOverwhelmThreshold, pOverwhelmThreshold };
+    // aiHQs: the opponent's main HQ plus any extra HQs it placed (guest extra HQs were
+    // write-only before - $10-20M purchases with zero sim effect).
+    const aiHQs = [{ x: aiSetup.hqX, y: aiSetup.hqY }, ...((aiSetup.extraHQs || []).map((h) => ({ x: h.x, y: h.y })))];
+    battleRef.current = {
+      pAttackers, aAttackers, pInts, aInts, pAD, aAD, step: 0,
+      pKills: 0, aKills: 0, pBreaches: 0, aBreaches: 0,
+      pResKills: 0, aResKills: 0, // resource destructions, tracked separately from HQ breaches
+      pReloadCharged: 0, aReloadCharged: 0, // mid-battle magazine refill bills
+      flashes: [], playerAirBreaches: [], aiAirBreaches: [],
+      playerHQs: allPlayerHQs, aiHQs, aOverwhelmThreshold, pOverwhelmThreshold,
+      rng, pReserveByGroup, aIntsReserve,
+      _accumMs: 0, _lastFrameTs: null, // fixed-timestep accumulator state
+    };
 
-    // Animate
-    function tick() {
+    // Animate. Fixed timestep: the sim advances at 60 TPS x battleSpeed in WALL-CLOCK
+    // time, decoupled from display refresh (previously each rAF ran battleSpeed steps,
+    // so a 120Hz monitor simulated the whole battle 2x faster, and in MP the host's
+    // monitor dictated the pace). The accumulator carries fractional remainders; elapsed
+    // is clamped at 100ms so a backgrounded tab doesn't unleash thousands of steps at
+    // once. Render/state-sync/broadcast stay once per rAF, outside the step loop.
+    const STEP_MS = 1000 / 60;
+    function tick(ts) {
       const b = battleRef.current;
       if (!b) return;
       const spd = battleSpeedRef.current || 1;
-      for (let si = 0; si < spd; si++) {
+      const nowTs = typeof ts === "number" ? ts : performance.now();
+      if (b._lastFrameTs == null) b._lastFrameTs = nowTs;
+      b._accumMs += Math.min(100, nowTs - b._lastFrameTs);
+      b._lastFrameTs = nowTs;
+      const baseSteps = Math.floor(b._accumMs / STEP_MS);
+      b._accumMs -= baseSteps * STEP_MS;
+      const totalSteps = baseSteps * spd;
+      for (let si = 0; si < totalSteps; si++) {
       b.step++;
       // Fog of war (snapshot): sample drone positions and capture enemy units nearby.
       // Each reveal stores a frozen copy of what the drone "saw" at that moment.
-      if (b.step % 30 === 0) {
+      if (b.step % 30 === 0 && pendingRevealsRef.current.length < 400) {
         for (const a of b.pAttackers) {
           if (a.status !== "active") continue;
           const nearby = pendingRevealsRef.current.some((c) => Math.abs(c.x - a.x) < 250 && Math.abs(c.y - a.y) < 250);
@@ -3083,7 +3367,11 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         }
       }
 
-      // Move AI attackers - medium/expensive target player AD first
+      // Move AI attackers - priority comes from the MP opponent's broadcast setting, or
+      // from the bot's personality rotation (rusher/economist/sieger) per round.
+      const aiAttPrio = gameModeRef.current === "bot"
+        ? (AI_PERSONALITIES[aiSetup.personality]?.priorities[round % 4] || "hq")
+        : (aiSetup._priority || "hq");
       for (const a of b.aAttackers) {
         if (a.status !== "active") continue;
         // Trajectory waypoint following: guest drones get assigned a trajectory from
@@ -3110,25 +3398,44 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           for (const h of b.playerHQs) { const d2 = dist(a, h); if (d2 < bestD) { bestD = d2; nearestHQ = h; } }
         }
         let tx = nearestHQ.x, ty = nearestHQ.y;
-        // AI drones target based on opponent's attack priority setting (from aiSetup._priority)
-        const aiAttPrio = aiSetup._priority || "hq";
+        // Symmetric AD-destruction radius for both sides (player drones used 2x before)
+        const adKillR = theaterScaleRef.current.killRadius * 1.5;
         if (aiAttPrio === "ad" && b.pAD.some((ad) => ad.health > 0)) {
           const alive = b.pAD.filter((ad) => ad.health > 0);
           const closest = alive.reduce((best, ad) => dist(a, ad) < dist(a, best) ? ad : best, alive[0]);
           tx = closest.x; ty = closest.y;
-          if (dist(a, closest) < theaterScaleRef.current.killRadius) {
+          if (dist(a, closest) < adKillR) {
             const adSys = theaterScaleRef.current.ad.find((s2) => s2.key === closest.key);
             closest.health = 0; closest.ammo = 0; a.status = "expended";
             b.flashes.push({ x: a.x, y: a.y, time: b.step, wallTime: performance.now(), type: "ad_explosion", shake: 8 });
             b.flashes.push({ x: a.x, y: a.y + 100, time: b.step, wallTime: performance.now(), type: "dmgtext", text: `${adSys?.name || "AD"} destroyed!`, color: "#ff3333" });
-            shakeMap(8, 10);
             continue;
           }
         } else if (aiAttPrio === "resources") {
+          // Destroy-on-arrival (previously the AI's drones orbited resources forever).
+          // Resource kills are tracked separately from HQ breaches - they never feed the
+          // overwhelm counter, and their damage bills at round end.
           const alive = playerResources.filter((r) => r.alive);
           if (alive.length > 0) {
             const closest = alive.reduce((best, r) => dist(a, r) < dist(a, best) ? r : best, alive[0]);
             tx = closest.x; ty = closest.y;
+            if (dist(a, closest) < adKillR) {
+              const res2 = RESOURCES.find((rr) => rr.key === closest.key);
+              closest.alive = false; a.status = "expended"; b.aResKills++;
+              b.aResDmg = (b.aResDmg || 0) + (res2?.breachDmg || 5000000);
+              b.flashes.push({ x: a.x, y: a.y, time: b.step, wallTime: performance.now(), type: "resource_explosion", shake: 6 });
+              b.flashes.push({ x: a.x, y: a.y + 100, time: b.step, wallTime: performance.now(), type: "dmgtext", text: `${res2?.name || "Resource"} destroyed!`, color: "#ff3333" });
+              continue;
+            }
+          }
+        } else if (aiAttPrio === "interceptors" && b.pInts.some((i) => i.status === "active")) {
+          const alive = b.pInts.filter((i) => i.status === "active");
+          const closest = alive.reduce((best, i) => dist(a, i) < dist(a, best) ? i : best, alive[0]);
+          tx = closest.x; ty = closest.y;
+          if (dist(a, closest) < theaterScaleRef.current.killRadius) {
+            closest.status = "expended"; a.status = "expended";
+            b.flashes.push({ x: a.x, y: a.y, time: b.step, wallTime: performance.now(), type: "drone_clash" });
+            continue;
           }
         }
         const dx = tx - a.x, dy = ty - a.y;
@@ -3153,7 +3460,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           b.flashes.push({ x: a.x, y: a.y + 100, time: b.step, wallTime: performance.now(), type: "dmgtext", text: `-$${breachCost >= 1e6 ? (breachCost / 1e6).toFixed(1) + "M" : (breachCost / 1e3).toFixed(0) + "K"}`, color: "#ff5555" });
           playSfx("breach_alarm", 250);
           shakeMap(4, 6);
-          if (b.aBreaches > (b.aOverwhelmThreshold || 8) && !b.hqOverwhelmDeclared) {
+          // Overwhelm: wave-scaled threshold, plus an absolute cap so mega-waves stay
+          // scary (25+ HQ breaches always overwhelms regardless of wave size).
+          if ((b.aBreaches > (b.aOverwhelmThreshold || 8) || b.aBreaches >= 25) && !b.hqOverwhelmDeclared) {
             b.hqOverwhelmDeclared = true;
             const go = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: "Your HQ was overwhelmed by enemy drones" };
             setGameOver(go);
@@ -3182,17 +3491,23 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           a.y += Math.sin(a.heading) * a.speed;
           continue;
         }
-        let tx = aiSetup.hqX, ty = aiSetup.hqY;
+        // Target the nearest enemy HQ (main or extras) so guest extra HQs matter.
+        let nearestAiHQ = { x: aiSetup.hqX, y: aiSetup.hqY };
+        if (b.aiHQs && b.aiHQs.length > 1) {
+          let bestD = Infinity;
+          for (const h of b.aiHQs) { const d2 = dist(a, h); if (d2 < bestD) { bestD = d2; nearestAiHQ = h; } }
+        }
+        let tx = nearestAiHQ.x, ty = nearestAiHQ.y;
+        const pAdKillR = theaterScaleRef.current.killRadius * 1.5;
         if (attackPriority === "ad" && b.aAD.some((ad) => ad.health > 0)) {
           const alive = b.aAD.filter((ad) => ad.health > 0);
           const closest = alive.reduce((best, ad) => dist(a, ad) < dist(a, best) ? ad : best, alive[0]);
           tx = closest.x; ty = closest.y;
-          if (dist(a, closest) < theaterScaleRef.current.killRadius * 2) {
+          if (dist(a, closest) < pAdKillR) {
             const adSys = theaterScaleRef.current.ad.find((s2) => s2.key === closest.key);
             closest.health = 0; closest.ammo = 0; a.status = "expended";
             b.flashes.push({ x: a.x, y: a.y, time: b.step, wallTime: performance.now(), type: "ad_explosion", shake: 8 });
             b.flashes.push({ x: a.x, y: a.y + 100, time: b.step, wallTime: performance.now(), type: "dmgtext", text: `${adSys?.name || "AD"} destroyed!`, color: "#ff3333" });
-            shakeMap(8, 10);
             continue;
           }
         } else if (attackPriority === "resources") {
@@ -3200,12 +3515,13 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           if (alive.length > 0) {
             const closest = alive.reduce((best, r) => dist(a, r) < dist(a, best) ? r : best, alive[0]);
             tx = closest.x; ty = closest.y;
-            if (dist(a, closest) < theaterScaleRef.current.killRadius * 2) {
+            if (dist(a, closest) < pAdKillR) {
               const res2 = RESOURCES.find((rr) => rr.key === closest.key);
-              closest.alive = false; a.status = "expended"; b.pBreaches++;
+              // Resource kill: separate counter + billed damage, NOT an HQ breach.
+              closest.alive = false; a.status = "expended"; b.pResKills++;
+              b.pResDmg = (b.pResDmg || 0) + (res2?.breachDmg || 5000000);
               b.flashes.push({ x: a.x, y: a.y, time: b.step, wallTime: performance.now(), type: "resource_explosion", shake: 6 });
               b.flashes.push({ x: a.x, y: a.y - 100, time: b.step, wallTime: performance.now(), type: "dmgtext", text: `${res2?.name || "Resource"} destroyed!`, color: "#ff9800" });
-              shakeMap(6, 8);
               continue;
             }
           }
@@ -3226,13 +3542,18 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         a.heading += diff * 0.15;
         a.x += Math.cos(a.heading) * a.speed;
         a.y += Math.sin(a.heading) * a.speed;
-        if (dist(a, { x: aiSetup.hqX, y: aiSetup.hqY }) < Math.max(4, Math.round(500 / theaterScaleRef.current.mpu))) {
+        let breachedAiHQ = false;
+        const aiBreachDist = Math.max(4, Math.round(500 / theaterScaleRef.current.mpu));
+        for (const h of (b.aiHQs || [{ x: aiSetup.hqX, y: aiSetup.hqY }])) {
+          if (dist(a, h) < aiBreachDist) { breachedAiHQ = true; break; }
+        }
+        if (breachedAiHQ) {
           a.status = "breached"; b.pBreaches++;
           const breachCost = Math.max(100000, (a.cost || 500000) * 2);
           b.pBreachDmg = (b.pBreachDmg || 0) + breachCost;
           b.flashes.push({ x: a.x, y: a.y, time: b.step, wallTime: performance.now(), type: "breach" });
           b.flashes.push({ x: a.x, y: a.y - 100, time: b.step, wallTime: performance.now(), type: "dmgtext", text: `-$${breachCost >= 1e6 ? (breachCost / 1e6).toFixed(1) + "M" : (breachCost / 1e3).toFixed(0) + "K"}`, color: "#ff5555" });
-          if (b.pBreaches > (b.pOverwhelmThreshold || 8) && !b.enemyOverwhelmDeclared) {
+          if ((b.pBreaches > (b.pOverwhelmThreshold || 8) || b.pBreaches >= 25) && !b.enemyOverwhelmDeclared) {
             b.enemyOverwhelmDeclared = true;
             const go = { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: "You overwhelmed the enemy HQ" };
             setGameOver(go);
@@ -3311,10 +3632,12 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           } else {
             int.x = nx; int.y = ny;
             if (dist(int, tgt) < theaterScaleRef.current.killRadius) {
-              tgt.status = "destroyed"; b.aKills++; int.targetId = null;
+              // HP-aware contact: kamikaze deals dmg and is ALWAYS expended (1:1 economics),
+              // armed deals dmg per pass and survives at its survivalRate. A 12hp Mohajer
+              // soaks 3 kamikazes instead of dying to one $15K drone.
+              int.targetId = null;
+              if (resolveInterceptorContact(int, tgt, b.rng)) b.aKills++;
               b.flashes.push({ x: tgt.x, y: tgt.y, time: b.step, wallTime: performance.now(), type: "drone_clash" });
-              // Survival based on target tier: 81% vs FPV, 72% vs Shahed, 60% vs Lancet, 21% vs Mohajer
-              if (Math.random() > interceptorSurvivalRate(tgt)) int.status = "expended";
             }
           }
         }
@@ -3354,9 +3677,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           } else {
             int.x = nx; int.y = ny;
             if (dist(int, tgt) < theaterScaleRef.current.killRadius) {
-              tgt.status = "destroyed"; b.pKills++; int.targetId = null;
+              int.targetId = null;
+              if (resolveInterceptorContact(int, tgt, b.rng)) b.pKills++;
               b.flashes.push({ x: tgt.x, y: tgt.y, time: b.step, wallTime: performance.now(), type: "drone_clash" });
-              if (Math.random() > interceptorSurvivalRate(tgt)) int.status = "expended";
             }
           }
         }
@@ -3367,62 +3690,67 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       // Gepard (1 dmg) burns through ammo on Mohajer (8 hp) but kills FPV (1 hp) in one shot.
       // NASAMS (100 dmg) one-shots everything.
       const fireAd = (ad, attackerList, intList, killCounterKey) => {
-        if (ad.health <= 0 || ad.ammo <= 0) return;
+        if (ad.health <= 0) return;
         const sys = theaterScaleRef.current.ad.find((s) => s.key === ad.key);
         if (!sys) return;
-        // Simple fire-and-reload: shoot all ammo rapidly (burstRate steps between shots),
-        // then reload for engageRate seconds, which refills all ammo. Repeat.
-        // When ammo hits 0, start reload timer. When reload done, refill to full.
+        // Magazine + mid-battle reload. This branch was unreachable dead code before
+        // (an ammo<=0 early-return above it meant ADs went silent for the whole round
+        // after the first magazine). At refill the owning side is billed a full magazine
+        // via b.pReloadCharged/b.aReloadCharged; round-end settlement bills only the
+        // FINAL partial magazine, so there is no double charge.
         if (ad.ammo <= 0) {
-          // Reloading - check if reload time has elapsed
           const reloadTime = Math.max(60, Math.round(sys.engageRate * 60));
-          if (!ad._reloadStart) { ad._reloadStart = b.step; return; }
+          if (ad._reloadStart == null) { ad._reloadStart = b.step; return; }
           if (b.step - ad._reloadStart < reloadTime) return; // still reloading
           ad.ammo = sys.missiles; // refill full magazine
           ad._reloadStart = null;
-          return; // fire starts next call
+          const bill = (sys.missiles || 0) * (sys.missileCost || 0);
+          if (killCounterKey === "aKills") b.pReloadCharged += bill; else b.aReloadCharged += bill;
+          b.flashes.push({ x: ad.x, y: ad.y - 150, time: b.step, wallTime: performance.now(), type: "dmgtext", text: `${sys.name.split(" ")[0]} reloaded -$${formatUSD(bill)}`, color: "#ffaa00" });
+          return; // fire resumes next step
         }
         const cooldown = sys.burstRate || (sys.type === "gun" ? 3 : 15);
         if (ad.lastFired && b.step - ad.lastFired < cooldown) return;
-        // Per-AD targeting priority: "all" (default), "cheap", "expensive".
-        // Lets the player assign expensive NASAMS to expensive targets and cheap Gepards to FPV swarms.
+        // Target selection: NEAREST in-range target matching this AD's priority
+        // ("all" | "cheap" | "expensive"; expensive also matches medium). Spawn-order
+        // pick wasted shots on the farthest-from-threatening drone before.
         const prio = ad.priority || "all";
-        const matchesPrio = (a) => prio === "all" || a.threat === prio || (prio === "expensive" && a.threat === "medium");
-        let target = null;
-        for (const a of attackerList) {
-          if (a.status !== "active" || !matchesPrio(a)) continue;
-          if (dist(ad, a) < sys.range) { target = a; break; }
-        }
-        // Fallback: if no priority match in range, try any target (don't waste opportunity)
-        if (!target && prio !== "all") {
-          for (const a of attackerList) {
-            if (a.status !== "active") continue;
-            if (dist(ad, a) < sys.range) { target = a; break; }
+        const matchesPrio = (t) => prio === "all" || t.threat === prio || (prio === "expensive" && t.threat === "medium");
+        const nearestInRange = (list, pred) => {
+          let best = null, bestD = sys.range;
+          for (const t of list) {
+            if (t.status !== "active" || (pred && !pred(t))) continue;
+            const d = dist(ad, t);
+            if (d < bestD) { bestD = d; best = t; }
           }
-        }
-        if (!target) {
-          for (const i of intList) {
-            if (i.status !== "active") continue;
-            if (dist(ad, i) < sys.range) { target = i; break; }
-          }
-        }
-        if (target) {
-          ad.ammo--; ad.lastFired = b.step;
-          const flashType = sys.type === "gun" ? "gunshot" : "adshot";
-          b.flashes.push({ x: ad.x, y: ad.y, x2: target.x, y2: target.y, time: b.step, wallTime: performance.now(), type: flashType, color: sys.color });
-          if (killCounterKey === "aKills" && sys.type !== "gun") playSfx("ad_fire", 50);
-          if (Math.random() < sys.pk) {
-            // Hit: deduct damage from target HP
-            target.hp = (target.hp ?? 1) - sys.dmg;
-            if (target.hp <= 0) {
-              target.status = "destroyed";
-              b[killCounterKey]++;
-              b.flashes.push({ x: target.x, y: target.y, time: b.step, wallTime: performance.now(), type: "kill" });
-              if (killCounterKey === "aKills") playSfx("drone_kill", 60);
-            } else {
-              // Hit but not killed - small impact flash
-              b.flashes.push({ x: target.x, y: target.y, time: b.step, wallTime: performance.now(), type: "kill" });
-            }
+          return best;
+        };
+        let target = nearestInRange(attackerList, matchesPrio);
+        // Fallbacks: guns and cheap missiles may engage anything in range; expensive
+        // missile systems (dmg >= 100, i.e. NASAMS $500K AMRAAMs) hold fire instead of
+        // dumping magazines at $21K FPVs or $15K interceptor drones.
+        const expensiveShooter = sys.dmg >= 100;
+        if (!target && prio !== "all" && !expensiveShooter) target = nearestInRange(attackerList, null);
+        if (!target && !expensiveShooter) target = nearestInRange(intList, null);
+        if (!target) return;
+        // Salvo doctrine (shoot-shoot-look): missile systems with salvo 2 fire two
+        // missiles at medium/expensive targets, one at cheap targets. Guns fire singles.
+        const salvoSize = (sys.salvo > 1 && (target.threat === "medium" || target.threat === "expensive"))
+          ? Math.min(sys.salvo, ad.ammo) : 1;
+        ad.ammo -= salvoSize; ad.lastFired = b.step;
+        const flashType = sys.type === "gun" ? "gunshot" : "adshot";
+        b.flashes.push({ x: ad.x, y: ad.y, x2: target.x, y2: target.y, time: b.step, wallTime: performance.now(), type: flashType, color: sys.color });
+        if (killCounterKey === "aKills" && sys.type !== "gun") playSfx("ad_fire", 50);
+        // Each missile in the salvo rolls pK independently and applies dmg on hit.
+        let hits = 0;
+        for (let mi = 0; mi < salvoSize; mi++) { if (b.rng() < sys.pk) hits++; }
+        if (hits > 0) {
+          target.hp = (target.hp ?? 1) - sys.dmg * hits;
+          b.flashes.push({ x: target.x, y: target.y, time: b.step, wallTime: performance.now(), type: "kill" });
+          if (target.hp <= 0) {
+            target.status = "destroyed";
+            b[killCounterKey]++;
+            if (killCounterKey === "aKills") playSfx("drone_kill", 60);
           }
         }
       };
@@ -3485,7 +3813,12 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
       // the reload pie chart on AD units, which previously only existed on the guest's path.
       renderBattleFrame(b);
 
-      setBattleDrones({ playerAttackers: [...b.pAttackers], aiAttackers: [...b.aAttackers], playerInts: [...b.pInts], aiInts: [...b.aInts] });
+      // Throttle the React mirror to ~4Hz - only HUD counts read battleDrones, and the
+      // old per-frame setState re-rendered the entire component at 60fps.
+      if (!b._lastDronesSync || nowTs - b._lastDronesSync > 250) {
+        b._lastDronesSync = nowTs;
+        setBattleDrones({ playerAttackers: [...b.pAttackers], aiAttackers: [...b.aAttackers], playerInts: [...b.pInts], aiInts: [...b.aInts] });
+      }
 
       // Check if battle is over: all attackers gone AND all interceptors landed/expended
       const pIntsActive = b.pInts.filter((i) => i.status === "active").length;
@@ -3496,18 +3829,22 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         // Battle ended
         const endLog = [];
         endLog.push(`Battle ${round + 1} done: You killed ${b.aKills}, lost ${b.pBreaches} breaches | AI killed ${b.pKills}, lost ${b.aBreaches} breaches`);
+        if (b.pResKills > 0 || b.aResKills > 0) {
+          endLog.push(`Resources destroyed: you ${b.pResKills}, enemy ${b.aResKills}`);
+        }
 
-        // Apply breach damage (per audit fix #3: cost-scaled, accumulated during sim)
-        let pDmg = 0, aDmg = 0;
+        // Apply breach damage (cost-scaled, accumulated during sim). Mid-battle resource
+        // destructions (pResDmg/aResDmg) bill here too - they used to be free.
+        let pDmg = b.aResDmg || 0, aDmg = b.pResDmg || 0;
         // C2 fix: collect all gameOver candidates locally so they're broadcast to guest
         let earlyGameOver = null;
         if (b.aBreaches > 0) {
-          pDmg = b.aBreachDmg || (b.aBreaches * 500000);
+          pDmg += b.aBreachDmg || (b.aBreaches * 500000);
           const destroyedDepositIds = [];
           for (let i = 0; i < Math.min(b.aBreaches, 3); i++) {
             const alive = playerResources.filter((r) => r.alive);
-            if (alive.length > 0 && Math.random() < 0.35) {
-              const t2 = alive[Math.floor(Math.random() * alive.length)];
+            if (alive.length > 0 && b.rng() < 0.35) {
+              const t2 = alive[Math.floor(b.rng() * alive.length)];
               t2.alive = false; const res = RESOURCES.find((rr) => rr.key === t2.key);
               pDmg += res?.breachDmg || 5000000;
               endLog.push(`Your ${res?.name} destroyed!`);
@@ -3518,21 +3855,21 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           if (destroyedDepositIds.length > 0) {
             setResourceDeposits((prev) => prev.map((d) => destroyedDepositIds.includes(d.id) ? { ...d, claimed: false } : d));
           }
-          if (b.aBreaches > (b.aOverwhelmThreshold || 8)) { earlyGameOver = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: "Your HQ was overwhelmed by enemy drones" }; endLog.push("YOUR HQ DESTROYED!"); }
+          if (b.aBreaches > (b.aOverwhelmThreshold || 8) || b.aBreaches >= 25) { earlyGameOver = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: "Your HQ was overwhelmed by enemy drones" }; endLog.push("YOUR HQ DESTROYED!"); }
         }
         if (b.pBreaches > 0) {
-          aDmg = b.pBreachDmg || (b.pBreaches * 500000);
+          aDmg += b.pBreachDmg || (b.pBreaches * 500000);
           for (let i = 0; i < Math.min(b.pBreaches, 3); i++) {
             const alive = aiSetup.resources.filter((r) => r.alive);
-            if (alive.length > 0 && Math.random() < 0.35) {
-              const t2 = alive[Math.floor(Math.random() * alive.length)];
+            if (alive.length > 0 && b.rng() < 0.35) {
+              const t2 = alive[Math.floor(b.rng() * alive.length)];
               t2.alive = false;
               const res = RESOURCES.find((rr) => rr.key === t2.key);
               aDmg += res?.breachDmg || 5000000;
               endLog.push(`Enemy ${res?.name} destroyed!`);
             }
           }
-          if (b.pBreaches > (b.pOverwhelmThreshold || 8)) { earlyGameOver = { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: "You overwhelmed the enemy HQ" }; endLog.push("ENEMY HQ DESTROYED!"); }
+          if (b.pBreaches > (b.pOverwhelmThreshold || 8) || b.pBreaches >= 25) { earlyGameOver = { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: "You overwhelmed the enemy HQ" }; endLog.push("ENEMY HQ DESTROYED!"); }
         }
         if (earlyGameOver) setGameOver(earlyGameOver);
 
@@ -3540,22 +3877,37 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         const aAirCost = b.aiAirspaceCost || 0;
         if (pAirCost > 0) endLog.push(`Airspace breach cost: $${formatUSD(pAirCost)}`);
         if (aAirCost > 0) endLog.push(`Enemy airspace breach cost: $${formatUSD(aAirCost)}`);
-        const totalPLoss = pDmg + pAirCost;
-        const totalALoss = aDmg + aAirCost;
+        // Include mid-battle magazine refill bills (accumulated by fireAd's reload branch).
+        if (b.pReloadCharged > 0) endLog.push(`Mid-battle reloads: -$${formatUSD(b.pReloadCharged)}`);
+        const totalPLoss = pDmg + pAirCost + (b.pReloadCharged || 0);
+        const totalALoss = aDmg + aAirCost + (b.aReloadCharged || 0);
         setPlayerBudget((p) => p - totalPLoss);
         setAiBudget((p) => p - totalALoss);
         if (totalPLoss > 0) {
           setDamagePopup({ text: `-$${formatUSD(totalPLoss)}`, color: "#ff5555" });
           setTimeout(() => setDamagePopup(null), 2500);
         }
+        // Per-match stats for the game-over card + score
+        matchStatsRef.current.kills += b.aKills;
+        matchStatsRef.current.losses += b.pKills;
+        matchStatsRef.current.breachDmgDealt += aDmg;
+        matchStatsRef.current.breachDmgTaken += pDmg;
 
         // Update surviving interceptors using groupIdx (not distance) so overlapping
-        // groups don't share/double their survivor counts.
+        // groups don't share/double their survivor counts. Units held in reserve by the
+        // deployment cap were never launched and are added back automatically.
         setPlayerInterceptors((prev) => prev.map((d, idx) => {
           const surviving = b.pInts.filter((i) => (i.status === "active" || i.status === "landed") && i.groupIdx === idx).length;
-          return { ...d, count: Math.max(0, surviving) };
+          const reserve = (b.pReserveByGroup && b.pReserveByGroup[idx]) || 0;
+          return { ...d, count: Math.max(0, surviving + reserve) };
         }));
-        const survivingAiInts = b.aInts.filter((i) => i.status === "active");
+        // "landed" counts as surviving: RTB guarantees every survivor ends the round
+        // landed, so filtering on "active" alone silently wiped the AI/guest force
+        // every single round. Reserves (never launched) also carry over.
+        const survivingAiInts = [
+          ...b.aInts.filter((i) => i.status === "active" || i.status === "landed").map((i) => ({ ...i, status: "active" })),
+          ...(b.aIntsReserve || []),
+        ];
 
         // Persist AD damage between rounds + auto-reload (charges player for missing missiles).
         // Destroyed ADs stay destroyed; surviving ADs that fired refill to max if affordable.
@@ -3574,9 +3926,11 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           endLog.push(`AD reload: -$${formatUSD(pReloadCost)} (${updatedPlayerAD.filter((a) => a._justReloaded).length} systems refilled)`);
         }
         setPlayerAD(updatedPlayerAD);
-        // Same for AI: auto-reload up to max if AI has budget
+        // Same for AI: auto-reload up to max if AI has budget.
+        // aReloadCost/updatedAiAdForSync hoisted for the bankruptcy check + guest sync.
+        let aReloadCost = 0;
+        let updatedAiAdForSync = null;
         if (aiSetup && Array.isArray(aiSetup.adUnits)) {
-          let aReloadCost = 0;
           const updatedAiAd = aiSetup.adUnits.map((ad) => {
             const battleAd = b.aAD.find((ba) => ba.x === ad.x && ba.y === ad.y && ba.key === ad.key);
             if (!battleAd || battleAd.health <= 0) return { ...ad, health: 0 };
@@ -3586,6 +3940,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
             aReloadCost += cost;
             return { ...ad, health: battleAd.health, ammo: sys?.missiles || battleAd.ammo };
           }).filter((ad) => ad.health > 0);
+          updatedAiAdForSync = updatedAiAd;
           if (aReloadCost > 0) setAiBudget((p) => p - aReloadCost);
           // Persist all AI state changes via setAiSetup instead of mutating directly.
           // Direct mutation caused interceptors/AD to silently disappear between rounds
@@ -3617,17 +3972,30 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         }
         setBattleActive(false);
         if (battleLayerRef.current) battleLayerRef.current.clearLayers();
+        if (adBattleLayerRef.current) adBattleLayerRef.current.clearLayers();
 
-        // Game over if either budget goes below -$50M
+        // Bankruptcy + round-cap victory. Budgets come from the LIVE refs (updated each
+        // render) minus every delta applied above - the old check read stale closure
+        // budgets that ignored wave cost, income, AI spending, and reload bills.
         let endGameOver = earlyGameOver;
+        const pFinal = playerBudgetRef.current - totalPLoss - pReloadCost;
+        const aFinal = aiBudgetRef.current - totalALoss - aReloadCost;
         if (!gameOver && !endGameOver) {
-          const pFinal = playerBudget - pDmg - pAirCost;
-          const aFinal = aiBudget - aDmg - aAirCost;
-          // Game over if either player's budget goes negative after round costs
           if (pFinal < 0) endGameOver = { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: `${username} went bankrupt` };
           else if (aFinal < 0) endGameOver = { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: `${opponentName} went bankrupt` };
-          if (endGameOver) setGameOver(endGameOver);
         }
+        // Round cap: after round 12, the higher SCORE wins. Score = budget + 50% of the
+        // breach damage you inflicted, so aggression is credited and pure-passive eco
+        // cannot simply out-compound.
+        if (!gameOver && !endGameOver && round + 1 >= ROUND_CAP) {
+          const pScore = pFinal + 0.5 * matchStatsRef.current.breachDmgDealt;
+          const aScore = aFinal + 0.5 * matchStatsRef.current.breachDmgTaken;
+          const playerWins = pScore >= aScore;
+          endGameOver = playerWins
+            ? { winnerRole: gameMode === "host" ? "host" : "player", winner: username, reason: `Economic victory at round ${ROUND_CAP} ($${formatUSD(pScore)} vs $${formatUSD(aScore)})` }
+            : { winnerRole: gameMode === "host" ? "guest" : "ai", winner: opponentName, reason: `Economic defeat at round ${ROUND_CAP} ($${formatUSD(pScore)} vs $${formatUSD(aScore)})` };
+        }
+        if (endGameOver && endGameOver !== earlyGameOver) setGameOver(endGameOver);
 
         // Phase 3: host broadcasts the round-end results to guest
         if (gameModeRef.current === "host") {
@@ -3642,6 +4010,12 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
           const groupCounts = new Map();
           for (const i of (b.aInts || [])) {
             if (i.status !== "active" && i.status !== "landed") continue;
+            const key = `${i.groupX || i.spawnX},${i.groupY || i.spawnY}`;
+            groupCounts.set(key, (groupCounts.get(key) || 0) + 1);
+          }
+          // Reserve units (held back by the deployment cap, never launched) survive too -
+          // without this the guest permanently lost every interceptor beyond the cap.
+          for (const i of (b.aIntsReserve || [])) {
             const key = `${i.groupX || i.spawnX},${i.groupY || i.spawnY}`;
             groupCounts.set(key, (groupCounts.get(key) || 0) + 1);
           }
@@ -3665,6 +4039,10 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
             aBudgetDelta: -(aDmg + aAirCost),
             aResourcesAfter,
             aInterceptorsAfter,
+            // Guest AD sync: post-round AD state + total reload bill (round-end refill
+            // plus mid-battle magazine refills), applied guest-side in round_end.
+            aADAfter: (updatedAiAdForSync || []).map((ad) => ({ key: ad.key, x: ad.x, y: ad.y, health: ad.health, ammo: ad.ammo, priority: ad.priority })),
+            aReloadCost: aReloadCost + (b.aReloadCharged || 0),
             endLog,
             gameOver: endGameOver,
           });
@@ -3702,19 +4080,27 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
     if (turnTimerRef.current) { clearInterval(turnTimerRef.current); turnTimerRef.current = null; }
     if (phase !== PHASE.COMBAT || battleActive || gameOver) return;
     setTurnTimer(TURN_TIMER_SECONDS);
+    // Wall-clock deadline instead of a decrementing counter: browsers throttle hidden-tab
+    // intervals, so the old version drifted (and kept auto-launching rounds the player
+    // never saw). Launch happens OUTSIDE any setState updater (StrictMode double-invokes
+    // updaters) and defers while the tab is hidden.
+    const deadline = Date.now() + TURN_TIMER_SECONDS * 1000;
     turnTimerRef.current = setInterval(() => {
-      setTurnTimer((t) => {
-        if (t <= 1) {
-          // Time's up - auto-launch (host or bot only; guest waits for host)
+      const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      setTurnTimer(left);
+      if (left <= 0) {
+        if (gameModeRef.current === "guest") {
+          // Guest's timer is informational; host controls the round flow.
           if (turnTimerRef.current) { clearInterval(turnTimerRef.current); turnTimerRef.current = null; }
-          if (gameModeRef.current !== "guest" && launchRoundRef.current) {
-            try { launchRoundRef.current(); } catch {}
-          }
-          return 0;
+          return;
         }
-        return t - 1;
-      });
-    }, 1000);
+        if (document.visibilityState !== "visible") return; // wait until the tab is visible
+        if (turnTimerRef.current) { clearInterval(turnTimerRef.current); turnTimerRef.current = null; }
+        if (launchRoundRef.current) {
+          try { launchRoundRef.current(); } catch {}
+        }
+      }
+    }, 500);
     return () => { if (turnTimerRef.current) { clearInterval(turnTimerRef.current); turnTimerRef.current = null; } };
   }, [phase, battleActive, gameOver, currentRound]);
 
@@ -3732,9 +4118,10 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
         strategy="afterInteractive"
         onLoad={() => setPeerLoaded(true)}
         onError={() => {
-          // Retry from jsdelivr CDN if unpkg fails
+          // Retry from a DIFFERENT CDN (unpkg) - retrying the same jsdelivr URL that
+          // just failed accomplished nothing
           const s = document.createElement("script");
-          s.src = "https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js";
+          s.src = "https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js";
           s.onload = () => setPeerLoaded(true);
           s.onerror = () => setConnectionError("Failed to load network library - reload the page");
           document.head.appendChild(s);
@@ -4011,8 +4398,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                   </div>
                   <div style={{ fontSize: 10, color: "#666", marginBottom: 8 }}>Place HQ in your {gameMode === "guest" ? "red" : "blue"} zone, add resources, defenses, ground AD, then design your attack wave.</div>
                   <div style={{ fontSize: 11, color: "#888", marginBottom: 8, transition: "transform 0.1s", transform: budgetShake ? `translateX(${Math.random() > 0.5 ? 4 : -4}px)` : "none" }}>
-                    Budget: <span style={{ color: remaining >= 0 ? "#4caf50" : "#ff5555", fontWeight: 600 }}>${formatUSD(Math.max(0, remaining))}</span>
-                    <span style={{ color: "#555", fontSize: 9 }}> / ${formatUSD(playerBudget)}</span>
+                    Budget: <span style={{ color: remaining >= 0 ? "#4caf50" : "#ff5555", fontWeight: 600 }}>${formatUSD(remaining)}</span>
                   </div>
 
                   <button data-tutorial="place_hq_btn" onClick={() => setPlacingWhat("hq")} disabled={!!playerHQ}
@@ -4026,13 +4412,13 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                         border: placingWhat === "extra_hq" ? "1px solid #4a9eff" : "1px solid #2a2a35",
                         color: placingWhat === "extra_hq" ? "#4a9eff" : "#888" }}>
                       {placingWhat === "extra_hq"
-                        ? `Click map (${formatUSD(EXTRA_HQ_COSTS[playerExtraHQs.length])})...`
+                        ? `Click map ($${formatUSD(EXTRA_HQ_COSTS[playerExtraHQs.length])})...`
                         : `+ Add HQ #${playerExtraHQs.length + 2} ($${formatUSD(EXTRA_HQ_COSTS[playerExtraHQs.length])})`}
                     </button>
                   )}
                   {playerHQ && playerExtraHQs.length > 0 && (
                     <div style={{ fontSize: 9, color: "#666", marginBottom: 6 }}>
-                      Extra HQs: {playerExtraHQs.length} (each adds 60% airspace coverage at its location)
+                      Extra HQs: {playerExtraHQs.length}. Each projects a 60% airspace bubble (place units and claim deposits there), adds +30% airspace income, +6 interceptor deploy cap, and +6 overwhelm resistance.
                     </div>
                   )}
 
@@ -4041,20 +4427,19 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                       <div data-tutorial="airspace_slider" style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4, marginTop: 8 }}>
                         <span style={{ fontSize: 10, color: "#888" }}>Airspace:</span>
                         <input type="range" min={(THEATERS[theater]?.airspace || [2000, 500])[1]} max={playerHQ && aiSetup && aiSetup.hqX != null ? Math.max((THEATERS[theater]?.airspace || [2000, 500])[1], Math.floor(dist(playerHQ, { x: aiSetup.hqX, y: aiSetup.hqY }) - aiSetup.airspace - 400)) : (THEATERS[theater]?.airspace || [2000, 500, 4000])[2]} step="100" value={playerAirspace} onChange={(e) => setPlayerAirspace(parseInt(e.target.value))} style={{ flex: 1 }} />
-                        <span style={{ fontSize: 10, color: "#4a9eff" }}>{playerAirspace}m</span>
+                        <span style={{ fontSize: 10, color: "#4a9eff" }}>{(playerAirspace * theaterScale.mpu / 1000).toFixed(0)}km</span>
                       </div>
                       {(() => {
-                        const airIncome = Math.floor(playerAirspace * 200);
-                        const resIncome = playerResources.filter((r) => r.alive).reduce((s, r) => { const res = RESOURCES.find((rr) => rr.key === r.key); return s + (res?.income || 0); }, 0);
+                        const airIncome = Math.floor(playerAirspace * 140 * (1 + 0.3 * playerExtraHQs.length));
+                        const ecoHalved = currentRound + 1 > ECO_FREEZE_AFTER_ROUND;
+                        const resIncome = playerResources.filter((r) => r.alive).reduce((s, r) => { const res = RESOURCES.find((rr) => rr.key === r.key); return s + Math.floor((res?.income || 0) * (ecoHalved ? 0.5 : 1)); }, 0);
                         const totalIncome = airIncome + resIncome;
-                        const armsCount = playerResources.filter((r) => r.alive && r.key === "arms").length;
                         return (
                           <div style={{ fontSize: 9, color: "#666", marginBottom: 8 }}>
                             <div>Airspace income: <span style={{ color: "#4a9eff" }}>${formatUSD(airIncome)}/rnd</span></div>
-                            {resIncome > 0 && <div>Resource income: <span style={{ color: "#cc8800" }}>${formatUSD(resIncome)}/rnd</span></div>}
-                            <div>Total: <span style={{ color: "#4caf50", fontWeight: 600 }}>${formatUSD(totalIncome)}/rnd</span>
-                            {armsCount > 0 && <span style={{ color: "#8888cc" }}> + {armsCount * 2} drones</span>}</div>
-                            <div style={{ marginTop: 2 }}>Airspace: <span style={{ color: playerAirspace > 3000 ? "#ff9800" : "#4caf50" }}>{playerAirspace > 3000 ? "large - hard to defend" : playerAirspace > 2000 ? "medium" : "compact - easy to defend"}</span></div>
+                            {resIncome > 0 && <div>Resource income: <span style={{ color: "#cc8800" }}>${formatUSD(resIncome)}/rnd</span>{ecoHalved ? <span style={{ color: "#ff9800" }}> (halved)</span> : null}</div>}
+                            <div>Total: <span style={{ color: "#4caf50", fontWeight: 600 }}>${formatUSD(totalIncome)}/rnd</span></div>
+                            <div style={{ marginTop: 2 }}>Airspace: <span style={{ color: playerAirspace > 3000 ? "#ff9800" : "#4caf50" }}>{playerAirspace > 3000 ? "large - hard to defend" : playerAirspace > 2000 ? "medium" : "compact - easy to defend"}</span> <span style={{ color: "#777" }}>(each enemy drone entering costs ${formatUSD(AIRSPACE_BREACH_COST)})</span></div>
                           </div>
                         );
                       })()}
@@ -4105,6 +4490,9 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                           <span>{d.name} x4 ${formatUSD(d.cost * 4)} {d.destroyOnKill ? "(kamikaze)" : `(${Math.round(d.survivalRate * 100)}% survive)`}</span>
                         </button>
                       ))}
+                      <div style={{ fontSize: 8, color: "#555", marginBottom: 4 }}>
+                        Max {INT_DEPLOY_CAP_BASE + INT_DEPLOY_CAP_PER_HQ * playerExtraHQs.length} launch per round; extras wait in reserve (and survive).
+                      </div>
 
                       <div style={{ fontSize: 10, textTransform: "uppercase", color: "#22aa22", margin: "8px 0 4px" }}>Ground AD</div>
                       {theaterScale.ad.map((s) => (
@@ -4220,7 +4608,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
               {phase === PHASE.COMBAT && (
                 <>
                   <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, color: "#ff6688", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span>{gameOver ? "GAME OVER" : battleActive ? "BATTLE IN PROGRESS" : `Round ${currentRound + 1}`}</span>
+                    <span>{gameOver ? "GAME OVER" : battleActive ? "BATTLE IN PROGRESS" : `Round ${currentRound + 1}/${ROUND_CAP}${currentRound + 1 > ECO_FREEZE_AFTER_ROUND ? " · SUDDEN DEATH" : ""}`}</span>
                     {!gameOver && !battleActive && (
                       <span style={{
                         fontSize: 14, fontWeight: 800, fontFamily: "monospace",
@@ -4238,7 +4626,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                     Available: ${formatUSD(Math.max(0, playerBudget))}
                     {attackWaveCost > 0 && <span style={{ color: "#ff9800", fontSize: 9 }}> (wave: -${formatUSD(attackWaveCost)})</span>}
                   </div>
-                  <div style={{ fontSize: 9, color: "#666", marginBottom: 4 }}>Total earned: ${formatUSD(totalIncome + STARTING_BUDGET)}</div>
+                  <div style={{ fontSize: 9, color: "#666", marginBottom: 4 }}>Total earned: ${formatUSD(totalIncome)}</div>
                   <div style={{ display: "flex", gap: 3, marginBottom: 6 }}>
                     <button onClick={() => setPlacingWhat(placingWhat === "delete" ? null : "delete")}
                       style={{ ...inputStyle, flex: 1, fontSize: 9, padding: "3px", textAlign: "center", cursor: "pointer",
@@ -4264,9 +4652,20 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                       <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
                         <span style={{ fontSize: 9, color: "#888" }}>Airspace:</span>
                         <input type="range" min={(THEATERS[theater]?.airspace || [2000, 500])[1]} max={playerHQ && aiSetup && aiSetup.hqX != null ? Math.max((THEATERS[theater]?.airspace || [2000, 500])[1], Math.floor(dist(playerHQ, { x: aiSetup.hqX, y: aiSetup.hqY }) - aiSetup.airspace - 400)) : (THEATERS[theater]?.airspace || [2000, 500, 4000])[2]} step="100" value={playerAirspace} onChange={(e) => setPlayerAirspace(parseInt(e.target.value))} style={{ flex: 1 }} />
-                        <span style={{ fontSize: 9, color: "#4a9eff" }}>{playerAirspace}m</span>
+                        <span style={{ fontSize: 9, color: "#4a9eff" }}>{(playerAirspace * theaterScale.mpu / 1000).toFixed(0)}km</span>
                       </div>
-                      <div style={{ fontSize: 9, color: "#4caf50", marginBottom: 6 }}>+${formatUSD(Math.floor(playerAirspace * 200))}/rnd from airspace</div>
+                      <div style={{ fontSize: 9, color: "#4caf50", marginBottom: 6 }}>+${formatUSD(Math.floor(playerAirspace * 140 * (1 + 0.3 * playerExtraHQs.length)))}/rnd from airspace</div>
+
+                      <button onClick={buySatelliteScan}
+                        disabled={scanUsedThisRound || playerBudget < SATELLITE_SCAN_COST}
+                        style={{ ...inputStyle, width: "100%", marginBottom: 6, fontSize: 10, padding: "5px",
+                          cursor: (scanUsedThisRound || playerBudget < SATELLITE_SCAN_COST) ? "not-allowed" : "pointer",
+                          border: "1px solid #aa88ff",
+                          background: scanUsedThisRound ? "#1a1a24" : "rgba(170,136,255,0.1)",
+                          color: scanUsedThisRound ? "#555" : playerBudget < SATELLITE_SCAN_COST ? "#666" : "#aa88ff",
+                          textAlign: "center", fontWeight: 600 }}>
+                        {scanUsedThisRound ? "Satellite Scan used this round" : `Satellite Scan ($${formatUSD(SATELLITE_SCAN_COST)}) - intel + wave estimate`}
+                      </button>
 
                       {/* + Add HQ button (mid-match) - same as setup phase, costs 25M / 50M */}
                       {playerHQ && playerExtraHQs.length < 2 && (
@@ -4296,10 +4695,16 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                         {defPosture === "insane" ? "Interceptors chase anywhere including enemy airspace" : defPosture === "pursuing" ? "Interceptors chase but won't enter enemy airspace" : "Interceptors stay inside your airspace only"}
                       </div>
 
-                      <div style={{ fontSize: 10, textTransform: "uppercase", color: "#cc8800", margin: "4px 0 4px" }}>Build Resources</div>
+                      <div style={{ fontSize: 10, textTransform: "uppercase", color: "#cc8800", margin: "4px 0 4px" }}>
+                        Build Resources{currentRound + 1 > ECO_FREEZE_AFTER_ROUND ? " (FROZEN)" : ""}
+                      </div>
+                      {currentRound + 1 > ECO_FREEZE_AFTER_ROUND && (
+                        <div style={{ fontSize: 8, color: "#ff9800", marginBottom: 4 }}>Sudden death: no new resources after round {ECO_FREEZE_AFTER_ROUND}, income halved.</div>
+                      )}
                       {RESOURCES.map((r) => (
-                        <button key={r.key} onClick={() => setPlacingWhat(r.key)}
-                          style={{ ...inputStyle, width: "100%", marginBottom: 3, cursor: "pointer", textAlign: "left", fontSize: 9,
+                        <button key={r.key} onClick={() => setPlacingWhat(r.key)} disabled={currentRound + 1 > ECO_FREEZE_AFTER_ROUND}
+                          style={{ ...inputStyle, width: "100%", marginBottom: 3, cursor: currentRound + 1 > ECO_FREEZE_AFTER_ROUND ? "not-allowed" : "pointer", textAlign: "left", fontSize: 9,
+                            opacity: currentRound + 1 > ECO_FREEZE_AFTER_ROUND ? 0.4 : 1,
                             border: placingWhat === r.key ? `1px solid ${r.color}` : "1px solid #2a2a35" }}>
                           <span style={{ color: r.color }}>{r.icon}</span> {r.name} ${formatUSD(r.cost)} (+${formatUSD(r.income)}/rnd)
                         </button>
@@ -4429,7 +4834,12 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                   )}
 
                   {gameOver && (() => {
-                    const youWon = gameOver.winner === username;
+                    // winnerRole is authoritative (username string equality broke when the
+                    // guest's name matched the host's, or names were blank).
+                    const myRole = gameMode === "host" ? "host" : gameMode === "guest" ? "guest" : "player";
+                    const youWon = gameOver.winnerRole != null ? gameOver.winnerRole === myRole : gameOver.winner === username;
+                    const finalScore = Math.round(playerBudget + 0.5 * matchStatsRef.current.breachDmgDealt);
+                    const ms = matchStatsRef.current;
                     return (
                     <div style={{
                       padding: 16, borderRadius: 8, textAlign: "center", marginBottom: 12,
@@ -4451,10 +4861,25 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                       <div style={{ fontSize: 10, color: "#555", marginTop: 2 }}>
                         Rounds played: {currentRound}
                       </div>
+                      {/* Match stats + score (retention hooks) */}
+                      <div style={{ marginTop: 8, padding: "8px 10px", background: "rgba(0,0,0,0.25)", borderRadius: 6, textAlign: "left", fontSize: 10, color: "#999", lineHeight: 1.6 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between" }}><span>Score</span><span style={{ color: "#ffdd66", fontWeight: 700 }}>${formatUSD(finalScore)}</span></div>
+                        <div style={{ display: "flex", justifyContent: "space-between" }}><span>Drones killed / lost</span><span>{ms.kills} / {ms.losses}</span></div>
+                        <div style={{ display: "flex", justifyContent: "space-between" }}><span>Drones launched</span><span>{ms.dronesSent}</span></div>
+                        <div style={{ display: "flex", justifyContent: "space-between" }}><span>Damage dealt / taken</span><span style={{ color: "#4caf50" }}>${formatUSD(ms.breachDmgDealt)}</span></div>
+                        <div style={{ display: "flex", justifyContent: "space-between" }}><span></span><span style={{ color: "#ff8888" }}>-${formatUSD(ms.breachDmgTaken)}</span></div>
+                        {persistedStats && (
+                          <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid #2a2a35", paddingTop: 4, marginTop: 4 }}>
+                            <span>Best ${formatUSD(persistedStats.best)}</span>
+                            <span>Streak {persistedStats.streak}</span>
+                            <span>{persistedStats.wins}W-{persistedStats.losses}L</span>
+                          </div>
+                        )}
+                      </div>
                       <button onClick={() => {
                         if (gameMode === "bot") {
                           setPhase(PHASE.LOBBY); setMapReady(false);
-                          if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; layerRef.current = null; battleLayerRef.current = null; LRef.current = null; }
+                          if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; layerRef.current = null; battleLayerRef.current = null; adBattleLayerRef.current = null; LRef.current = null; }
                           setTimeout(() => findMatch(), 50);
                         } else {
                           // MP rematch: send request, wait for opponent to also request
@@ -4475,7 +4900,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                         if (gameMode !== "bot") teardownPeer(true);
                         setPhase(PHASE.LOBBY); setMapReady(false);
                         setGameMode("bot"); setLobbyView("main");
-                        if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; layerRef.current = null; battleLayerRef.current = null; LRef.current = null; }
+                        if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; layerRef.current = null; battleLayerRef.current = null; adBattleLayerRef.current = null; LRef.current = null; }
                       }} style={{ ...inputStyle, marginTop: 8, cursor: "pointer", fontSize: 11 }}>
                         Back to Lobby
                       </button>
@@ -4521,7 +4946,7 @@ setAiSetup({ hqX: null, hqY: null, airspace: (THEATERS[theaterRef.current]?.airs
                   title = u.side === "player" ? (u.kind === "hq_extra" ? "Your Forward HQ" : "Your HQ") : "Enemy HQ";
                   subtitle = "Command Center";
                   color = u.side === "player" ? "#4a9eff" : "#ff5555";
-                  stats = [["Type", u.kind === "hq_extra" ? "Secondary" : "Primary"], ["Defense", "8+ breaches in one round = destroyed"]];
+                  stats = [["Type", u.kind === "hq_extra" ? "Secondary" : "Primary"], ["Defense", "Overwhelmed at 20% of wave size (min 8, hard cap 25) breaches in one round"]];
                   svg = `<svg width="60" height="60" viewBox="0 0 60 60"><rect x="10" y="10" width="40" height="40" fill="${color}" stroke="#fff" stroke-width="3"/><rect x="20" y="20" width="6" height="6" fill="#fff"/><rect x="34" y="20" width="6" height="6" fill="#fff"/><rect x="20" y="34" width="6" height="6" fill="#fff"/><rect x="34" y="34" width="6" height="6" fill="#fff"/></svg>`;
                 } else if (u.kind === "ad") {
                   const sys = theaterScaleRef.current.ad.find((s) => s.key === u.key);

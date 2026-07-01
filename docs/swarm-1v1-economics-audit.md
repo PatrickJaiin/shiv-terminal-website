@@ -11,7 +11,7 @@ The defender, starting with **zero defenses**, couldn't possibly survive without
 ## Top 3 critical issues (all fixed)
 
 ### Fix 1: FPV cost $500 → $15K
-Now matches the Kamikaze interceptor cost (1:1 trade economics). 100 FPVs cost $1.5M (5% of starting budget) — a meaningful rush tax.
+Now matches the Kamikaze interceptor cost (1:1 trade economics). 100 FPVs cost $1.5M (5% of starting budget) - a meaningful rush tax.
 
 ### Fix 2: HQ overwhelm scales with wave size
 Old: fixed 8 breaches = game over
@@ -42,14 +42,14 @@ Granted automatically when HQ is placed. Player is no longer defenseless on roun
 ## Issues identified but NOT yet applied
 
 ### TIER 2 (high impact, medium effort)
-- **Cap attack wave size by round number** — instead of flat 100, scale e.g. `10 + round × 5`
-- **Buff Armed Interceptor or drop price** — currently strictly dominated by Kamikaze at $180K vs $15K
-- **Scarce deposits** — cut from 30 → 12 to create real opportunity cost
+- **Cap attack wave size by round number** - instead of flat 100, scale e.g. `10 + round × 5`
+- **Buff Armed Interceptor or drop price** - currently strictly dominated by Kamikaze at $180K vs $15K
+- **Scarce deposits** - cut from 30 → 12 to create real opportunity cost
 
 ### TIER 3 (structural)
 - **Bankruptcy floor** $-50M → $-5M for real economic pressure
-- **Comeback mechanic** — emergency airlift if budget drops below $5M (one-time $10M aid)
-- **Multi-HQ rework** — give each HQ $500K/rnd base income to make extras a real eco choice
+- **Comeback mechanic** - emergency airlift if budget drops below $5M (one-time $10M aid)
+- **Multi-HQ rework** - give each HQ $500K/rnd base income to make extras a real eco choice
 
 ## Game theory issues to watch
 
@@ -66,7 +66,7 @@ Currently FPV beats everything because of cost and quantity. Fix #1 partially ad
 A healthy RTS has rush vs eco as a real choice. Currently rush wins because rushing is essentially free. Fix #1 raises the rush cost to 5% of budget, but it's still cheaper than eco-up. Consider a per-wave minimum cost or a wave cooldown.
 
 ### Snowball without comeback
-Income is linear (good — no compounding) but breach damage compounds (lose a $16M oil refinery → also lose the ongoing income). No comeback mechanics exist. Recommended: emergency airlift at $5M budget.
+Income is linear (good - no compounding) but breach damage compounds (lose a $16M oil refinery → also lose the ongoing income). No comeback mechanics exist. Recommended: emergency airlift at $5M budget.
 
 ## References cited by the audit
 
@@ -82,3 +82,35 @@ Full audit returned by background agent on 2026-04-08. Stored at:
 `C:\Users\PJ\AppData\Local\Temp\claude\C--Users-PJ-Desktop-code-shiv-terminal-website\62cd7ba6-f9ee-4f03-b370-2a7d771a6074\tasks\acf7af6ec84d8e6d0.output`
 
 (Note: temp file, may not persist long-term. Key findings preserved above.)
+
+---
+
+## Addendum (July 2026): superseded by the judge-panel rebalance
+
+The price table and several "fixes" above no longer match the shipped code. Current values
+after the real-world-doctrine overhaul (commit 2e23fda) and the July 2026 judge-panel
+rebalance:
+
+| Unit | Current price | Notes |
+|---|---:|---|
+| FPV | $21K | hp 2 |
+| Shahed-136 | $28K | hp 3 |
+| Lancet-3 | $50K | hp 5 |
+| Mohajer-6 | $550K | hp 12, repriced from $710K to rescue its Gepard-soak niche |
+| Kamikaze interceptor | $15K | dmg 4, ALWAYS expended on contact (true 1:1 economics) |
+| Armed interceptor | $90K | dmg 4, 80% survival (~$18K/kill), repriced from $180K/73% |
+| Iron Dome | $40M | range 40km (was 105km), $50K/missile |
+| NASAMS 3 | $20M | range 25km, $500K/missile, defaults to "expensive" priority |
+| Pantsir-S1 | $10M | range 20km, salvo 2 |
+| Gepard | $5M | range 7.5km, $100/round |
+
+Status changes vs the April audit:
+- **Fix 4 (10 free starting interceptors) was REVERTED** - players buy everything.
+- Interceptor kills are now HP-based (dmg 4 per contact), so a Mohajer soaks 3 kamikazes.
+- New anti-turtle structure: interceptor deployment cap of 12 per round (+6 per extra HQ,
+  extras wait in reserve); 12-round cap with economic victory (score = budget + 50% of
+  breach damage inflicted); resource purchases frozen after round 9 and resource income
+  halved in rounds 10-12; airspace breach cost raised to $7,500 per drone.
+- The "Armed Interceptor strictly dominated" TIER 2 item above is now fixed (reprice).
+- Multi-HQ rework partially landed: extras cost $10M/$20M, project a real 60% airspace
+  bubble (placement, deposit claims, posture), add +30% airspace income and +6 deploy cap.

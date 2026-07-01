@@ -40,7 +40,7 @@ const DRONE_DB = {
 // Numbers reflect operational performance vs cruise-altitude drones, not max kinematic envelopes.
 const AD_SYSTEMS = [
   { key: "s300",      name: "S-300",        country: "Russia",  type: "long",   range_m: 75000,  detection_m: 250000, missiles: 16,  cost: 115000000,  missileCost: 1000000, pk: 0.7,  rcsThreshold: 0.02,  engageRate: 5, salvo: 2, salvoIntervalS: 1, burstSize: 16, reloadS: 1800, maxSimultaneous: 12, setupMin: 30, mobile: true,  color: "#cc8800", desc: "Soviet/Russian long-range SAM. SA-20 Gargoyle. Tracks 100, engages 12 simultaneously. Deployed by India, China, Iran." },
-  { key: "s400",      name: "S-400",        country: "Russia",  type: "long",   range_m: 200000, detection_m: 600000, missiles: 16,  cost: 300000000,  missileCost: 2500000, pk: 0.8,  rcsThreshold: 0.01,  engageRate: 5, salvo: 2, salvoIntervalS: 1, burstSize: 16, reloadS: 1800, maxSimultaneous: 36, setupMin: 30, mobile: true,  color: "#cc8800", desc: "Russia's flagship SAM. SA-21 Growler. 91N6E radar tracks 300 / engages 36. Operational vs drones ~150-200km (radar horizon limited). Exported to Turkey, India, China." },
+  { key: "s400",      name: "S-400",        country: "Russia",  type: "long",   range_m: 60000,  detection_m: 600000, missiles: 16,  cost: 300000000,  missileCost: 2500000, pk: 0.8,  rcsThreshold: 0.01,  engageRate: 5, salvo: 2, salvoIntervalS: 1, burstSize: 16, reloadS: 1800, maxSimultaneous: 36, setupMin: 30, mobile: true,  color: "#cc8800", desc: "Russia's flagship SAM. SA-21 Growler. 91N6E radar tracks 300 / engages 36. 200-400km max kinematic envelope, but vs cruise-altitude drones the radar horizon caps practical engagement near ~60km. Exported to Turkey, India, China." },
   { key: "patriot",   name: "Patriot PAC-3",country: "USA",     type: "long",   range_m: 20000,  detection_m: 100000, missiles: 16,  cost: 1000000000, missileCost: 4000000, pk: 0.75, rcsThreshold: 0.05,  engageRate: 9, salvo: 2, salvoIntervalS: 4, burstSize: 16, reloadS: 1800, maxSimultaneous: 9,  setupMin: 60, mobile: false, color: "#4488ff", desc: "US Army primary air defense. AN/MPQ-65 radar. Hit-to-kill PAC-3 MSE. Effective vs low-flying drones ~15-20km (terrain mask). Standard SSS doctrine: 2 missiles per HVT, 4s apart." },
   { key: "nasams",    name: "NASAMS 3",     country: "Norway",  type: "medium", range_m: 25000,  detection_m: 75000,  missiles: 18,  cost: 100000000,  missileCost: 500000,  pk: 0.8,  rcsThreshold: 0.01,  engageRate: 4, salvo: 2, salvoIntervalS: 2, burstSize: 18, reloadS: 1800, maxSimultaneous: 12, setupMin: 45, mobile: false, color: "#4488ff", desc: "Norwegian/US medium-range using AMRAAM-ER. Sentinel radar 75km. Protects US Capitol. 6 missiles per launcher × 3 launchers = 18 ready." },
   { key: "iron_dome", name: "Iron Dome",    country: "Israel",  type: "short",  range_m: 40000,  detection_m: 100000, missiles: 60,  cost: 50000000,   missileCost: 50000,   pk: 0.9,  rcsThreshold: 0.005, engageRate: 3, salvo: 1, salvoIntervalS: 1, burstSize: 60, reloadS: 1500, maxSimultaneous: 20, setupMin: 240, mobile: false, color: "#44bbff", desc: "Israeli rocket/drone defense by Rafael. EL/M-2084 radar. 20 Tamirs × ~3 launchers per battery = 60 ready, ~25 min crewed reload. 90%+ intercept rate." },
@@ -142,7 +142,9 @@ const SANDBOX = {
   defaultAttackers: { fpv_kamikaze: 10, shahed_136: 5 },
 };
 
-const KILL_RADIUS = 120;
+// Interceptor lethal reach in real-world meters, converted to sim units per theater.
+// (Was a raw 120 sim units, which meant 1.7-4km depending on the theater's mpu.)
+const KILL_RADIUS_M = 1600;
 const DEFAULT_ZONE_RADIUS = 2500;
 const DEFAULT_ASSET_RADIUS = 600;
 const DEFAULT_ZONE_CENTER = [5000, 5000];
@@ -161,7 +163,12 @@ function dist(a, b) {
 // Isotropic projection: ARENA is mapped to the larger geographic dimension in meters,
 // then both x and y use the same meters-per-unit so real-meter ranges (range_m) render
 // as proper circles regardless of theater aspect ratio. Ported from game mode.
+// Cached per bounds object (theater bounds are stable references), since the render
+// path converts every marker coordinate through this each frame.
+const _projCache = new Map();
 function getProjection(b) {
+  let p = _projCache.get(b);
+  if (p) return p;
   const midLat = (b.south + b.north) / 2;
   const midLng = (b.west + b.east) / 2;
   const cosLat = Math.cos((midLat * Math.PI) / 180);
@@ -169,7 +176,9 @@ function getProjection(b) {
   const heightM = (b.north - b.south) * 111000;
   const sizeM = Math.max(widthM, heightM);
   const mpu = sizeM / ARENA;
-  return { midLat, midLng, cosLat, mpu };
+  p = { midLat, midLng, cosLat, mpu };
+  _projCache.set(b, p);
+  return p;
 }
 
 // Convert sim coords (0-10000) to lat/lng - uses isotropic projection so circles stay round.
@@ -378,13 +387,17 @@ function simStep(state, zoneCenter, assetRadius, adUnitsState, zoneRadius, theat
   }
 
   const activeAttackers = attackers.filter((a) => a.status === "active");
+  const killRadiusUnits = theaterBounds ? KILL_RADIUS_M / mpu : 120;
   for (const int of interceptors) {
     if (int.status !== "active") continue;
-    let target = activeAttackers.find((a) => a.id === int.targetId);
+    // Re-check status on every lookup: the snapshot above goes stale within the same
+    // step as earlier interceptors kill drones, which double-counted kills before.
+    let target = activeAttackers.find((a) => a.id === int.targetId && a.status === "active");
     if (!target) {
       let best = null;
       let bestDist = Infinity;
       for (const a of activeAttackers) {
+        if (a.status !== "active") continue;
         const d = dist(int, a);
         if (d < bestDist) { bestDist = d; best = a; }
       }
@@ -395,7 +408,7 @@ function simStep(state, zoneCenter, assetRadius, adUnitsState, zoneRadius, theat
       int.heading = angle;
       int.x += Math.cos(int.heading) * int.speed;
       int.y += Math.sin(int.heading) * int.speed;
-      if (dist(int, target) < KILL_RADIUS) {
+      if (dist(int, target) < killRadiusUnits) {
         target.status = "destroyed";
         metrics.kills++;
         metrics.threat_value_destroyed += target.cost;
@@ -584,8 +597,12 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
   const dragStateRef = useRef(null); // { type, startX, startY }
   const [mapReady, setMapReady] = useState(false);
   onPlaceRef.current = onPlaceSpawn;
-  // Attach zoneCenter to the ref so drag handlers can read it
-  if (onPlaceRef.current) onPlaceRef.current.zoneCenter = zoneCenter;
+  // Attach current zone geometry to the ref so drag handlers can read live values
+  if (onPlaceRef.current) {
+    onPlaceRef.current.zoneCenter = zoneCenter;
+    onPlaceRef.current.zoneRadius = zoneRadius;
+    onPlaceRef.current.assetRadius = assetRadius;
+  }
   theaterRef2.current = theater;
 
   // Sync placement mode into drag state
@@ -648,8 +665,10 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
       }
 
       function getMetersPerUnit() {
+        // Same isotropic mpu the committed geometry uses - a lat-only value here made
+        // drag previews ~24% smaller than the committed circle on non-square theaters.
         const th2 = THEATERS[theaterRef2.current] || THEATERS.kashmir;
-        return ((th2.bounds.north - th2.bounds.south) * 111000) / ARENA;
+        return getProjection(th2.bounds).mpu;
       }
 
       // Mousedown: start drag for zone placement modes
@@ -682,11 +701,13 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
         const mpu = getMetersPerUnit();
 
         if (ds.mode === "zone_center") {
-          // Show both zone circles at cursor position
+          // Show both zone circles at cursor position, at their CURRENT radii
           const ll = simToMap(mx, my);
+          const zr = onPlaceRef.current?.zoneRadius ?? DEFAULT_ZONE_RADIUS;
+          const ar = onPlaceRef.current?.assetRadius ?? DEFAULT_ASSET_RADIUS;
           onPlaceRef.current?.(mx, my);
-          Leaf.circle(ll, { radius: 2500 * mpu, color: "#22aa22", fillColor: "#22aa22", fillOpacity: 0.05, weight: 2, opacity: 0.6, dashArray: "10 6", interactive: false }).addTo(preview);
-          Leaf.circle(ll, { radius: 600 * mpu, color: "#ff4444", fillColor: "#ff2222", fillOpacity: 0.08, weight: 2, opacity: 0.6, dashArray: "8 6", interactive: false }).addTo(preview);
+          Leaf.circle(ll, { radius: zr * mpu, color: "#22aa22", fillColor: "#22aa22", fillOpacity: 0.05, weight: 2, opacity: 0.6, dashArray: "10 6", interactive: false }).addTo(preview);
+          Leaf.circle(ll, { radius: ar * mpu, color: "#ff4444", fillColor: "#ff2222", fillOpacity: 0.08, weight: 2, opacity: 0.6, dashArray: "8 6", interactive: false }).addTo(preview);
           Leaf.circleMarker(ll, { radius: 4, color: "#ffffff", fillColor: "#ffffff", fillOpacity: 1, weight: 0 }).addTo(preview);
         } else if (ds.mode === "zone_resize" || ds.mode === "asset_resize") {
           // Show preview circle from current zone center to cursor
@@ -710,9 +731,12 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
 
       // Mouseup: confirm drag
       map.on("mouseup", (e) => {
+        // Always re-enable panning first: "Set Center" clears placementMode (and thus
+        // dragStateRef) on mousedown, so the guard below would otherwise return early
+        // and leave map.dragging disabled forever.
+        map.dragging.enable();
         const ds = dragStateRef.current;
         if (!ds || !ds.dragging) return;
-        map.dragging.enable();
         const preview = previewLayerRef.current;
         if (preview) preview.clearLayers();
 
@@ -740,7 +764,18 @@ function SimMap({ simState, theater, killFlashes, breachPoints, attackSpawns, de
       setMapReady(true);
     }
     init();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      // Destroy the map on unmount - otherwise the map object graph and its window
+      // resize listener leak on every client-side navigation away from this page.
+      if (mapInstanceRef.current) {
+        try { mapInstanceRef.current.remove(); } catch {}
+        mapInstanceRef.current = null;
+        droneLayerRef.current = null; spawnLayerRef.current = null;
+        legacyLayerRef.current = null; flashLayerRef.current = null;
+        previewLayerRef.current = null;
+      }
+    };
   }, []);
 
   // Helper: convert sim coords to map latlng based on theater
@@ -1009,7 +1044,7 @@ export default function SwarmInterception() {
   const [defenseSpawns, setDefenseSpawns] = useState([]); // [{x, y, droneKey, count}]
   const [placementMode, setPlacementMode] = useState(null);
   const [spawnDroneKey, setSpawnDroneKey] = useState("fpv_kamikaze");
-  const [spawnDefKey, setSpawnDefKey] = useState("custom");
+  const [spawnDefKey, setSpawnDefKey] = useState("kamikaze_int");
   const [spawnCount, setSpawnCount] = useState(10);
   const [zoneCenter, setZoneCenter] = useState(DEFAULT_ZONE_CENTER);
   const [zoneRadius, setZoneRadius] = useState(DEFAULT_ZONE_RADIUS);
@@ -1038,6 +1073,7 @@ export default function SwarmInterception() {
   const assetRadiusRef = useRef(assetRadius);
   const adUnitsRef = useRef(adUnits);
   const jammingRef = useRef(jammingActive);
+  const lastAdSigRef = useRef(""); // skip per-frame setAdUnits when nothing changed
   // Map container ref for screen-shake effect (learning from game mode's shakeMap)
   const mapContainerRef = useRef(null);
 
@@ -1094,10 +1130,20 @@ export default function SwarmInterception() {
         setAdUnits((prev) => [...prev, { id: Date.now(), key: adPlaceKey, x: Math.round(x), y: Math.round(y), ...initAdInstance(sys) }]);
       }
     }
-  }, [placementMode, spawnDroneKey, spawnDefKey, spawnCount, zoneCenter, zoneRadius]);
+  }, [placementMode, spawnDroneKey, spawnDefKey, spawnCount, zoneCenter, zoneRadius, adPlaceKey]);
 
   const startSim = useCallback(() => {
     setPlacementMode(null);
+    // Reset per-AD runtime state for the fresh run. Without this, nextShotStep (an
+    // ABSOLUTE step count from the previous run) mutes every AD until the new run's
+    // step counter catches up, stale inFlight salvos resolve against the new run's
+    // reused attacker ids (ghost kills), and destroyed ADs stay dead forever.
+    const freshAds = adUnitsRef.current.map((ad) => {
+      const sys = AD_SYSTEMS.find((s) => s.key === ad.key);
+      return { ...ad, ...initAdInstance(sys), _explosionFlashed: false };
+    });
+    adUnitsRef.current = freshAds;
+    setAdUnits(freshAds);
     const { interceptors, attackers } = createDrones(SANDBOX, theater, attackSpawns, defenseSpawns, SANDBOX.defaultAttackers);
     const initial = {
       interceptors, attackers,
@@ -1126,6 +1172,7 @@ export default function SwarmInterception() {
 
     const steps = speedRef.current;
     let triggeredShakes = 0; // batch shakes per frame to avoid spamming requestAnimationFrame
+    const frameCross = []; // batch zone crossings per frame (one setState, not one per step)
     for (let i = 0; i < steps; i++) {
       if (s.done) break;
       const prevKills = s.metrics.kills;
@@ -1162,15 +1209,14 @@ export default function SwarmInterception() {
         }
       });
       // Zone crossing marks (outer green AD line)
-      const newCross = [];
       for (const a of s.attackers) {
         if (a.crossedZone && a.crossX != null) {
-          newCross.push({ x: a.crossX, y: a.crossY, angle: Math.atan2(a.crossY - zoneCenterRef.current[1], a.crossX - zoneCenterRef.current[0]) });
+          frameCross.push({ x: a.crossX, y: a.crossY, angle: Math.atan2(a.crossY - zoneCenterRef.current[1], a.crossX - zoneCenterRef.current[0]) });
           a.crossX = null; // mark as counted
         }
       }
-      if (newCross.length > 0) setBreachPoints((prev) => [...prev, ...newCross]);
     }
+    if (frameCross.length > 0) setBreachPoints((prev) => [...prev, ...frameCross]);
 
     simRef.current = s;
     const now = Date.now();
@@ -1181,7 +1227,13 @@ export default function SwarmInterception() {
     });
     setSimState({ ...s });
     setKillFlashes([...flashesRef.current]);
-    setAdUnits([...adUnitsRef.current]);
+    // Only sync AD state to React when something the UI shows actually changed -
+    // an unconditional per-frame setAdUnits forced extra full-page re-renders.
+    const adSig = adUnitsRef.current.map((a) => `${a.id}:${a.health}:${a.ammo}:${a.burstRemaining}:${a.reloadStepsLeft}`).join("|");
+    if (adSig !== lastAdSigRef.current) {
+      lastAdSigRef.current = adSig;
+      setAdUnits([...adUnitsRef.current]);
+    }
 
     if (triggeredShakes > 0) shakeMap(triggeredShakes, Math.round(triggeredShakes * 1.25));
 
@@ -1265,7 +1317,9 @@ export default function SwarmInterception() {
 
   const m = simState?.metrics || {};
   const totalInt = simState ? simState.interceptors.length : 0;
-  const lost = totalInt - (m.active_interceptors || 0);
+  // Attrition = interceptors actually destroyed. RTB-landed drones are recovered,
+  // not lost (the old total-minus-active math read 100% attrition after every run).
+  const lost = simState ? simState.interceptors.filter((i) => i.status === "expended" || i.status === "lost").length : 0;
   const totalResolved = (m.kills || 0) + (m.misses || 0);
   const killRate = totalResolved > 0 ? ((m.kills / totalResolved) * 100).toFixed(1) : "0";
   const attrition = totalInt > 0 ? ((lost / totalInt) * 100).toFixed(1) : "0";
@@ -1662,7 +1716,9 @@ export default function SwarmInterception() {
                   return s + p.cost * sp.count;
                 }, 0);
               } else {
-                droneFleetCost = SANDBOX.interceptors * 200000;
+                // Default fleet is 20 kamikaze interceptors at $15K each (createDrones),
+                // not the $200K placeholder this once used.
+                droneFleetCost = SANDBOX.interceptors * 15000;
               }
               const adDeployCost = adUnits.reduce((s, ad) => { if (ad.free) return s; const sys = AD_SYSTEMS.find((s2) => s2.key === ad.key); return s + (sys ? sys.cost : 0); }, 0);
               const ammoSpent = m.defense_cost || 0; // AD missile costs

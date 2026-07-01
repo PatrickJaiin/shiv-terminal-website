@@ -126,6 +126,13 @@ All three are valid outcomes. The skills and the codebase compound regardless.
 
 ## Current status
 
-- Web prototype: `pages/projects/swarm-1v1.js` (1225 lines) and `pages/projects/swarm-interception.js` (1605 lines)
+- Web prototype: `pages/projects/swarm-1v1.js` (1v1 vs bot/multiplayer: PeerJS networking, fog of war, tutorial, procedural audio, round-cap economic victory) and `pages/projects/swarm-interception.js` (open sandbox with doctrine-level AD model)
 - Iterating on gameplay in the existing webapp first
 - Standalone game site is post-validation work
+
+### Deferred architecture work
+
+- Shared `lib/` extraction of the sim core and unit registry (both game files still carry
+  their own copies) is deferred until a test harness exists to protect the multiplayer paths.
+- The behavioral halves of those goals landed in-page in July 2026: fixed-timestep
+  wall-clock sim stepping and a seeded PRNG (mulberry32) for all in-sim rolls.

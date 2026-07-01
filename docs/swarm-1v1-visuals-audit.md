@@ -32,7 +32,7 @@ The audit's top recommendation: the game had **zero audio** and no screen shake,
 - New breach color `#ff0040` (saturated magenta-red) distinct from kill orange
 
 ### Fix 5: CSS filter on satellite tiles
-- Wrapped map container with `filter: brightness(0.55) contrast(1.1) saturate(0.6)`
+- Applied `filter: brightness(0.65) contrast(1.05) saturate(0.7)` to `.leaflet-tile-pane` only (NOT the whole map container, so unit markers stay full brightness)
 - Mutes the satellite imagery so unit colors pop off the background
 - Zero runtime cost - GPU compositor handles it
 

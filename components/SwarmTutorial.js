@@ -27,7 +27,7 @@ const TUTORIAL_STEPS = [
   {
     id: "airspace",
     title: "Step 2 - Set your airspace",
-    body: "Bigger airspace earns more income ($200 per meter per round) but is harder to defend - drones have more area to slip through. Start medium for round 1.",
+    body: "Bigger airspace earns more income each round but is harder to defend, and every enemy drone that enters it costs you $7.5K. The default compact size is a good round-1 choice - expand later for more income.",
     target: "airspace_slider",
     placement: "right",
     advance: "next",
@@ -35,7 +35,7 @@ const TUTORIAL_STEPS = [
   {
     id: "resources",
     title: "Step 3 - Claim a Solar Farm",
-    body: "Solar is the cheapest resource ($2M, +$500K/round, 4-round payback). Click Solar Farm, then click a green 'S' marker on the map inside your airspace.",
+    body: "Solar is the cheapest resource ($2M, +$500K/round, 4-round payback). Click Solar Farm, then click a glowing green solar-panel icon on the map inside your airspace.",
     target: "resource_solar",
     placement: "right",
     advance: "auto-resource",
@@ -51,7 +51,7 @@ const TUTORIAL_STEPS = [
   {
     id: "interceptors",
     title: "Step 5 - Buy interceptors (optional)",
-    body: "Kamikaze interceptors ($15K each) ram targets and die. Armed interceptors ($180K) survive 73% of engagements and reuse next round. You already start with a few free.",
+    body: "Kamikaze interceptors ($15K each) ram targets and die. Armed interceptors ($90K) survive ~80% of engagements and reuse next round. You start with none - everything comes out of your budget, and you can field up to 12 per round.",
     target: "interceptor_panel",
     placement: "right",
     advance: "next",
@@ -75,7 +75,7 @@ const TUTORIAL_STEPS = [
   {
     id: "ready",
     title: "Step 8 - Launch the round",
-    body: "Hit READY FOR BATTLE and watch the auto-resolve combat. Surviving units carry to round 2. The AI gets stronger each round.",
+    body: "Hit READY FOR BATTLE to enter the combat screen. A 90-second prep timer counts down between rounds; the round launches when it runs out. Surviving units carry to round 2. The AI gets stronger each round.",
     target: "ready_btn",
     placement: "right",
     advance: "auto-combat",
@@ -83,7 +83,7 @@ const TUTORIAL_STEPS = [
   {
     id: "combat",
     title: "Combat phase",
-    body: "Watch HP bars on drones, ammo on AD batteries, and money tick down as units cross enemy airspace ($30/drone). When the dust settles, you'll be back to setup for round 2 - good luck.",
+    body: "Watch for kill flashes, breach flashes, and damage popups on the map, and follow the combat log for details. Use the battle speed controls (1x-16x) to fast-forward. Matches cap at 12 rounds - if no HQ falls, the higher economic score wins. Good luck.",
     placement: "center",
     advance: "next",
   },
@@ -160,9 +160,10 @@ export default function SwarmTutorial({ stepIdx, onAdvance, onSkip }) {
     }
   }
 
-  // Spotlight: SVG mask with a hole over the target rect. Clicks pass through to the
-  // hole so the user can interact with the highlighted element. Clicks elsewhere on the
-  // backdrop are absorbed (pointer-events: auto on the dim layer outside the cutout).
+  // Spotlight: SVG mask with a hole over the target rect. The whole overlay is
+  // pointer-events: none by design - the player must be able to click the real UI
+  // (map, sidebar) to satisfy each step, so nothing is blocked; the dim + cutout is
+  // purely visual guidance.
   const RADIUS = 12;
   const showSpotlight = !isCentered && rect;
 
@@ -242,6 +243,16 @@ export default function SwarmTutorial({ stepIdx, onAdvance, onSkip }) {
           <div style={{ fontSize: 10, color: "#666" }}>
             {isAutoStep ? "Continues when you do it" : ""}
           </div>
+          {/* Escape hatch for auto-advance steps: without it, a player who can't (or
+              won't) perform the action is stranded with only Skip-all available. */}
+          {isAutoStep && (
+            <button onClick={onAdvance} style={{
+              background: "transparent", border: "1px solid #444", color: "#888",
+              fontSize: 10, padding: "4px 10px", borderRadius: 4, cursor: "pointer",
+            }}>
+              Skip this step
+            </button>
+          )}
           {showNext && (
             <button onClick={onAdvance} style={{
               background: "#4a1a2a", border: "1px solid #ff6688", color: "#ff6688",
