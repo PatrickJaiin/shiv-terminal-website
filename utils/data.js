@@ -1,8 +1,7 @@
 export const siteData = {
   name: "Shiv Gupta",
-  tagline: "MSAII Student @ CMU - Building LLM agents, latent reasoning systems & scalable backends",
   about:
-    "Hi, I'm Shiv - a Master's student in Artificial Intelligence and Innovation at Carnegie Mellon University. I build LLM agents, latent reasoning systems, token-efficient reasoning techniques, and scalable backends. Previously I've worked on diffusion-based generative models at NUS and RAG-powered enterprise tools at Evalueserve.",
+    "Hi I'm Shiv. I build intelligent systems that tackle real problems from ideas to a working product. I find LLM context management, token efficiency and safety to be exciting domains. If you are tackling problems that don't have obvious solutions yet, I would love to connect !!",
   education: [
     {
       institution: "Carnegie Mellon University",

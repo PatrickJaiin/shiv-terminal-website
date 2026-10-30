@@ -14,7 +14,7 @@ export default function Home() {
     <>
       <Head>
         <title>{siteData.name}</title>
-        <meta name="description" content={siteData.tagline} />
+        <meta name="description" content={siteData.about} />
       </Head>
 
       <Navbar />
@@ -26,10 +26,9 @@ export default function Home() {
           className="min-h-screen flex items-center bg-white dark:bg-gray-950"
         >
           <div className="max-w-3xl mx-auto px-6 py-24">
-            <h1 className="text-5xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+            <h1 className="text-5xl font-bold text-gray-900 dark:text-gray-100 mb-6">
               {siteData.name}
             </h1>
-            <p className="text-xl text-blue-600 dark:text-blue-400 mb-6">{siteData.tagline}</p>
             <p className="text-gray-600 dark:text-gray-300 mb-10 leading-relaxed">
               {siteData.about}
             </p>
