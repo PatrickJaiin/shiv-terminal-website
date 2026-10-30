@@ -55,9 +55,6 @@ export default function Home() {
                         {edu.date && (
                           <span className="text-sm text-gray-500 dark:text-gray-400">{edu.date}</span>
                         )}
-                        {edu.gpa && (
-                          <p className="text-xs text-gray-400 dark:text-gray-500">{edu.gpa}</p>
-                        )}
                       </div>
                     </div>
                     {edu.coursework && (

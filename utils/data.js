@@ -6,14 +6,12 @@ export const siteData = {
     {
       institution: "Carnegie Mellon University",
       degree: "Master of Science in Artificial Intelligence and Innovation",
-      gpa: "GPA: 3.33/4",
       date: "May 2027",
       coursework: "Computer Systems, AI & Future Markets, LLM Applications, Deep Learning, Computer Vision",
     },
     {
       institution: "Bennett University",
       degree: "Bachelor of Technology, Computer Science and Engineering",
-      gpa: "CGPA: 8.75/10",
       date: "May 2024",
       coursework: "Algorithms, AI/ML, Deep Learning, NLP, HPC, OS, Prob & Statistics, Data Structures",
       activities: "Secretary, Robotics Club | Chairperson, IoT and Robotics Specialization",
@@ -21,7 +19,6 @@ export const siteData = {
     {
       institution: "Modern School, Barakhamba Road",
       degree: "School",
-      gpa: null,
       date: null,
       coursework: null,
       activities: "President, Science Club | Vice President, Bits N Bytes (Computer Club)",
